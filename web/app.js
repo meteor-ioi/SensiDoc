@@ -52,6 +52,70 @@ const PROMPT_BASELINE_V1 = `你是一个专业的数据安全审计与敏感信�
 ]
 严禁输出任何 markdown 格式标记、前言、解释或额外的文本内容。`;
 
+const BUILTIN_PROMPT_STRATEGIES = [
+  {
+    key: "v4_ultra_compact",
+    name: "🏆 V4_超轻量极简直接抽取版",
+    macro_recall: 0.925,
+    macro_precision: 0.900,
+    macro_f1: 0.912,
+    avg_time_ms: 280,
+    template: PROMPT_V4_ULTRA_COMPACT,
+    is_winner: true,
+  },
+  {
+    key: "v1_baseline",
+    name: "🔹 V1_默认结构基准版",
+    macro_recall: 0.841,
+    macro_precision: 0.875,
+    macro_f1: 0.857,
+    avg_time_ms: 340,
+    template: PROMPT_BASELINE_V1,
+    is_winner: false,
+  },
+  {
+    key: "v2_cot",
+    name: "🔹 V2_严格两阶段思考抽取版",
+    macro_recall: 0.780,
+    macro_precision: 0.892,
+    macro_f1: 0.832,
+    avg_time_ms: 510,
+    template: `【任务】：从给定文本中提取符合定义的敏感实体。
+
+【字段定义】：
+{FIELDS_DEFINITION}
+
+【分析步骤】：
+1. 逐句通读文本，定位所有可能存在敏感信息的上下文片段；
+2. 严格核对字段定义与格式规则，排除无关信息；
+3. 输出纯 JSON 对象数组：[{"field": "字段名", "text": "原文原词"}]。`,
+    is_winner: false,
+  },
+  {
+    key: "v3_fewshot",
+    name: "🔹 V3_少样本示例加固版",
+    macro_recall: 0.850,
+    macro_precision: 0.878,
+    macro_f1: 0.864,
+    avg_time_ms: 420,
+    template: `【指令】：从文本中提取所有符合定义的敏感信息，输出纯 JSON 数组。
+
+【字段定义】：
+{FIELDS_DEFINITION}
+
+【示例】：
+输入："联系人张三，电话13800138000，身份证110101199003072345"
+输出：[{"field": "MOBILE_PHONE", "text": "13800138000"}, {"field": "ID_CARD", "text": "110101199003072345"}]
+
+【规则】：
+1. 逐行提取所有出现的敏感原词，不要遗漏；
+2. 严格输出标准 JSON 数组，不输出任何解释说明。`,
+    is_winner: false,
+  },
+];
+
+let currentModelStrategies = [];
+
 // DOM 元素引用
 const el = {
   fileInput: document.getElementById("fileInput"),
@@ -188,12 +252,24 @@ const el = {
   triggerPromptBenchmarkBtn: document.getElementById("triggerPromptBenchmarkBtn"),
   resetToModelDefaultPromptBtn: document.getElementById("resetToModelDefaultPromptBtn"),
   saveModelCustomPromptBtn: document.getElementById("saveModelCustomPromptBtn"),
+  tabPromptOptimizeBtn: document.getElementById("tabPromptOptimizeBtn"),
   tabPromptEditBtn: document.getElementById("tabPromptEditBtn"),
   tabPromptPreviewBtn: document.getElementById("tabPromptPreviewBtn"),
+  panePromptOptimize: document.getElementById("panePromptOptimize"),
   panePromptEdit: document.getElementById("panePromptEdit"),
   panePromptPreview: document.getElementById("panePromptPreview"),
+  promptTabHint: document.getElementById("promptTabHint"),
   promptTemplateInput: document.getElementById("promptTemplateInput"),
   fullPromptPreview: document.getElementById("fullPromptPreview"),
+  promptStrategySelect: document.getElementById("promptStrategySelect"),
+  tabStrategyDetailBox: document.getElementById("tabStrategyDetailBox"),
+  strategyMetricsBar: document.getElementById("strategyMetricsBar"),
+  strategyMetricsValues: document.getElementById("strategyMetricsValues"),
+  strategyBadgeTag: document.getElementById("strategyBadgeTag"),
+  strategyPromptPreview: document.getElementById("strategyPromptPreview"),
+  saveModelCustomPromptBtnText: document.getElementById("saveModelCustomPromptBtnText"),
+  tabBenchmarkLoadingBox: document.getElementById("tabBenchmarkLoadingBox"),
+  tabBenchmarkStatusText: document.getElementById("tabBenchmarkStatusText"),
 
   // 原始 JSON 弹窗
   rawJsonModal: document.getElementById("rawJsonModal"),
@@ -222,6 +298,15 @@ const el = {
   confirmModalIconWrap: document.getElementById("confirmModalIconWrap"),
   confirmModalOkBtn: document.getElementById("confirmModalOkBtn"),
   confirmModalCancelBtn: document.getElementById("confirmModalCancelBtn"),
+
+  // 另存为场景模板模态框
+  saveTemplateModal: document.getElementById("saveTemplateModal"),
+  closeSaveTemplateModalBtn: document.getElementById("closeSaveTemplateModalBtn"),
+  cancelSaveTemplateBtn: document.getElementById("cancelSaveTemplateBtn"),
+  saveTemplateForm: document.getElementById("saveTemplateForm"),
+  saveTemplateNameInput: document.getElementById("saveTemplateNameInput"),
+  saveTemplateDescInput: document.getElementById("saveTemplateDescInput"),
+  saveTemplateRulesCount: document.getElementById("saveTemplateRulesCount"),
 };
 
 // 初始化启动
@@ -317,6 +402,8 @@ function showConfirmDialog({
   confirmText = "确认删除",
   cancelText = "取消",
   isDanger = true,
+  hideCancel = false,
+  iconType = null,
 } = {}) {
   return new Promise((resolve) => {
     confirmModalResolver = resolve;
@@ -330,12 +417,16 @@ function showConfirmDialog({
     }
 
     if (el.confirmModalCancelBtn) {
+      el.confirmModalCancelBtn.style.display = hideCancel ? "none" : "inline-block";
       el.confirmModalCancelBtn.innerText = cancelText;
     }
 
     if (el.confirmModalIconWrap) {
-      if (isDanger) {
+      const type = iconType || (isDanger ? "danger" : "info");
+      if (type === "danger") {
         el.confirmModalIconWrap.innerHTML = `<svg class="lucide-icon" viewBox="0 0 24 24" style="color: var(--danger); width: 16px; height: 16px;"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>`;
+      } else if (type === "success") {
+        el.confirmModalIconWrap.innerHTML = `<svg class="lucide-icon" viewBox="0 0 24 24" style="color: var(--success); width: 16px; height: 16px;"><circle cx="12" cy="12" r="10"></circle><polyline points="16 10 11 15 8 12"></polyline></svg>`;
       } else {
         el.confirmModalIconWrap.innerHTML = `<svg class="lucide-icon" viewBox="0 0 24 24" style="color: var(--text); width: 16px; height: 16px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>`;
       }
@@ -347,6 +438,22 @@ function showConfirmDialog({
         if (el.confirmModalOkBtn) el.confirmModalOkBtn.focus();
       }, 50);
     }
+  });
+}
+
+function showAlertDialog({
+  title = "提示",
+  message = "",
+  type = "info",
+  confirmText = "知道了",
+} = {}) {
+  return showConfirmDialog({
+    title,
+    message,
+    confirmText,
+    hideCancel: true,
+    isDanger: type === "danger",
+    iconType: type,
   });
 }
 
@@ -679,10 +786,18 @@ function initEventListeners() {
           }
           await loadTargetModelPrompt(currentBenchmarkModel);
           await loadModelPresets();
-          alert(`已成功将【${currentBenchmarkReport.winner_name}】保存为模型 ${currentBenchmarkModel} 的默认最佳提示词！`);
+          showAlertDialog({
+            title: "保存成功",
+            message: `已成功将【${currentBenchmarkReport.winner_name}】保存为模型 ${currentBenchmarkModel} 的默认最佳提示词！`,
+            type: "success",
+          });
         }
       } catch (e) {
-        alert(`保存提示词失败: ${e.message}`);
+        showAlertDialog({
+          title: "保存失败",
+          message: `保存提示词失败: ${e.message}`,
+          type: "danger",
+        });
       }
     });
   }
@@ -698,6 +813,10 @@ function initEventListeners() {
       return;
     }
     if (e.key === "Escape") {
+      if (el.saveTemplateModal && el.saveTemplateModal.classList.contains("open")) {
+        closeSaveTemplateModal();
+        return;
+      }
       if (el.snapshotPickerWrapper) el.snapshotPickerWrapper.classList.remove("open");
       if (el.snapshotRulesModal) el.snapshotRulesModal.classList.remove("open");
       if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
@@ -719,20 +838,38 @@ function initEventListeners() {
     });
   }
 
-  // 清空规则
-  el.clearRulesBtn.addEventListener("click", async () => {
-    if (state.currentRules.length === 0) return;
-    const confirmed = await showConfirmDialog({
-      title: "清空提取规则",
-      message: "确定要清空当前所有生效的提取规则字段吗？",
-      confirmText: "确认清空",
-      isDanger: true,
+  // 另存为场景模板模态框事件绑定
+  if (el.closeSaveTemplateModalBtn) {
+    el.closeSaveTemplateModalBtn.addEventListener("click", closeSaveTemplateModal);
+  }
+  if (el.cancelSaveTemplateBtn) {
+    el.cancelSaveTemplateBtn.addEventListener("click", closeSaveTemplateModal);
+  }
+  if (el.saveTemplateModal) {
+    el.saveTemplateModal.addEventListener("click", (e) => {
+      if (e.target === el.saveTemplateModal) closeSaveTemplateModal();
     });
-    if (confirmed) {
-      state.currentRules = [];
-      renderRulesTable();
-    }
-  });
+  }
+  if (el.saveTemplateForm) {
+    el.saveTemplateForm.addEventListener("submit", handleSaveCustomTemplate);
+  }
+
+  // 清空规则 (如果存在对应按钮)
+  if (el.clearRulesBtn) {
+    el.clearRulesBtn.addEventListener("click", async () => {
+      if (state.currentRules.length === 0) return;
+      const confirmed = await showConfirmDialog({
+        title: "清空提取规则",
+        message: "确定要清空当前所有生效的提取规则字段吗？",
+        confirmText: "确认清空",
+        isDanger: true,
+      });
+      if (confirmed) {
+        state.currentRules = [];
+        renderRulesTable();
+      }
+    });
+  }
 
   // 模态框打开与关闭
   el.settingsBtn.addEventListener("click", () => el.settingsModal.classList.add("open"));
@@ -822,15 +959,17 @@ function initEventListeners() {
   }
 
   // 保存当前规则为新场景模板
-  el.saveTemplateBtn.addEventListener("click", promptSaveCustomTemplate);
+  el.saveTemplateBtn.addEventListener("click", openSaveTemplateModal);
 
   // 删除当前选中的自定义模板
   if (el.deleteTemplateBtn) {
     el.deleteTemplateBtn.addEventListener("click", deleteCurrentSelectedTemplate);
   }
 
-  // 选取本地外部 GGUF 模型
-  el.importLocalGgufBtn.addEventListener("click", promptImportLocalModel);
+  // 选取本地外部 GGUF 模型（弹出原生文件选择对话框）
+  if (el.importLocalGgufBtn) {
+    el.importLocalGgufBtn.addEventListener("click", handlePickAndImportModel);
+  }
 
   // 预设模板切换
   el.presetSelect.addEventListener("change", (e) => {
@@ -919,10 +1058,16 @@ function initEventListeners() {
   });
 
   // 提取规则设定与提示词管理事件
-  if (el.tabPromptEditBtn && el.tabPromptPreviewBtn) {
-    el.tabPromptEditBtn.addEventListener("click", () => switchPromptTab("edit"));
-    el.tabPromptPreviewBtn.addEventListener("click", () => switchPromptTab("preview"));
+  if (el.tabPromptOptimizeBtn) el.tabPromptOptimizeBtn.addEventListener("click", () => switchPromptTab("optimize"));
+  if (el.tabPromptEditBtn) el.tabPromptEditBtn.addEventListener("click", () => switchPromptTab("edit"));
+  if (el.tabPromptPreviewBtn) el.tabPromptPreviewBtn.addEventListener("click", () => switchPromptTab("preview"));
+
+  if (el.promptStrategySelect) {
+    el.promptStrategySelect.addEventListener("change", (e) => {
+      renderSelectedStrategy(e.target.value);
+    });
   }
+
   if (el.promptTargetModelSelect) {
     el.promptTargetModelSelect.addEventListener("change", (e) => {
       loadTargetModelPrompt(e.target.value);
@@ -932,10 +1077,10 @@ function initEventListeners() {
     el.triggerPromptBenchmarkBtn.addEventListener("click", () => {
       const model = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : state.activeModelName;
       if (!model) {
-        alert("请先选择需要寻优的目标模型！");
+        showAlertDialog({ title: "提示", message: "请先选择需要寻优的目标模型！", type: "info" });
         return;
       }
-      openAutoBenchmarkModal(model);
+      triggerPromptBenchmark(model);
     });
   }
   if (el.resetToModelDefaultPromptBtn) {
@@ -1081,8 +1226,13 @@ async function handleFilesUpload(files) {
       });
 
       if (!res.ok) {
-        const err = await res.json();
-        alert(`解析失败: ${err.error || "未知错误"}`);
+        let err = {};
+        try { err = await res.json(); } catch (_) {}
+        showAlertDialog({
+          title: "解析失败",
+          message: err.error || "未能成功解析文档格式",
+          type: "danger",
+        });
         continue;
       }
 
@@ -1095,7 +1245,11 @@ async function handleFilesUpload(files) {
       state.currentRules = [];
       renderRulesTable();
     } catch (e) {
-      alert(`上传解析异常: ${e.message}`);
+      showAlertDialog({
+        title: "上传解析异常",
+        message: e.message,
+        type: "danger",
+      });
     }
   }
 }
@@ -1294,11 +1448,19 @@ async function deleteDocument(docId) {
     } else {
       let err = {};
       try { err = await res.json(); } catch (_) {}
-      alert(`删除文档失败: ${err.error || `HTTP ${res.status}`}`);
+      showAlertDialog({
+        title: "删除失败",
+        message: `删除文档失败: ${err.error || `HTTP ${res.status}`}`,
+        type: "danger",
+      });
     }
   } catch (e) {
     console.error("删除文档失败:", e);
-    alert("删除文档网络异常: " + e.message);
+    showAlertDialog({
+      title: "网络异常",
+      message: "删除文档网络异常: " + e.message,
+      type: "danger",
+    });
   }
 }
 
@@ -1336,18 +1498,30 @@ async function deleteSnapshotRecord(docId, snapId) {
     } else {
       let err = {};
       try { err = await res.json(); } catch (_) {}
-      alert(`删除快照失败: ${err.error || `HTTP ${res.status}`}`);
+      showAlertDialog({
+        title: "删除失败",
+        message: `删除快照失败: ${err.error || `HTTP ${res.status}`}`,
+        type: "danger",
+      });
     }
   } catch (e) {
     console.error("删除快照失败:", e);
-    alert("删除快照网络异常: " + e.message);
+    showAlertDialog({
+      title: "网络异常",
+      message: "删除快照网络异常: " + e.message,
+      type: "danger",
+    });
   }
 }
 
 // 打开原始 JSON 数据模态框
 function openRawJsonModal() {
   if (!state.currentSnapshot || !state.currentSnapshot.items || state.currentSnapshot.items.length === 0) {
-    alert("当前快照暂无提取出的敏感词数据");
+    showAlertDialog({
+      title: "提示",
+      message: "当前快照暂无提取出的敏感词数据",
+      type: "info",
+    });
     return;
   }
 
@@ -1368,7 +1542,11 @@ function copyRawJsonToClipboard() {
       el.copyRawJsonBtn.innerHTML = origHtml;
     }, 1500);
   }).catch((err) => {
-    alert("复制到剪贴板失败: " + err);
+    showAlertDialog({
+      title: "复制失败",
+      message: "复制到剪贴板失败: " + err,
+      type: "danger",
+    });
   });
 }
 
@@ -1520,17 +1698,24 @@ async function deleteCurrentSelectedTemplate() {
       method: "DELETE",
     });
     if (res.ok) {
-      alert(`场景模板「${name}」已成功删除`);
       await loadRulePresets();
       el.presetSelect.value = "";
       updateDeleteTemplateBtnVisibility();
     } else {
       let err = {};
       try { err = await res.json(); } catch (_) {}
-      alert(`删除失败: ${err.error || `HTTP ${res.status}`}`);
+      showAlertDialog({
+        title: "删除失败",
+        message: err.error || `HTTP ${res.status}`,
+        type: "danger",
+      });
     }
   } catch (e) {
-    alert(`删除场景模板异常: ${e.message}`);
+    showAlertDialog({
+      title: "删除场景模板异常",
+      message: e.message,
+      type: "danger",
+    });
   }
 }
 
@@ -1570,7 +1755,11 @@ function renderFieldTags() {
       e.stopPropagation();
       const exists = state.currentRules.some((r) => r.name === tag.name);
       if (exists) {
-        alert(`字段「${tag.name}」已在当前列表中`);
+        showAlertDialog({
+          title: "提示",
+          message: `字段「${tag.name}」已在当前规则列表中`,
+          type: "info",
+        });
         return;
       }
       state.currentRules.push(JSON.parse(JSON.stringify(tag)));
@@ -1598,10 +1787,18 @@ function renderFieldTags() {
         } else {
           let err = {};
           try { err = await res.json(); } catch (_) {}
-          alert(`删除标签失败: ${err.error || `HTTP ${res.status}`}`);
+          showAlertDialog({
+            title: "删除失败",
+            message: `删除标签失败: ${err.error || `HTTP ${res.status}`}`,
+            type: "danger",
+          });
         }
       } catch (err) {
-        alert(`删除标签异常: ${err.message}`);
+        showAlertDialog({
+          title: "删除标签异常",
+          message: err.message,
+          type: "danger",
+        });
       }
     });
 
@@ -1705,7 +1902,11 @@ function renderRulesTable() {
 // 保存单条规则至常用标签库
 async function saveRuleAsTag(rule) {
   if (!rule || !rule.name || !rule.name.trim()) {
-    alert("请先填写有效的规则字段名称");
+    showAlertDialog({
+      title: "提示",
+      message: "请先填写有效的规则字段名称",
+      type: "info",
+    });
     return;
   }
 
@@ -1722,28 +1923,69 @@ async function saveRuleAsTag(rule) {
     });
 
     if (res.ok) {
-      alert(`规则「${rule.name}」已成功保存至常用标签库！`);
+      showAlertDialog({
+        title: "保存成功",
+        message: `规则「${rule.name}」已成功保存至常用标签库！`,
+        type: "success",
+      });
       await loadFieldTags();
     } else {
-      const err = await res.json();
-      alert(`保存标签失败: ${err.error || "未知错误"}`);
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "保存失败",
+        message: `保存标签失败: ${err.error || "未知错误"}`,
+        type: "danger",
+      });
     }
   } catch (e) {
-    alert(`保存标签异常: ${e.message}`);
+    showAlertDialog({
+      title: "保存标签异常",
+      message: e.message,
+      type: "danger",
+    });
   }
 }
 
-// 另存当前所有规则为新场景预设模板
-async function promptSaveCustomTemplate() {
+// 打开另存为场景模板弹窗
+function openSaveTemplateModal() {
   if (state.currentRules.length === 0) {
-    alert("当前没有生效规则，请先添加至少一条规则再另存模板");
+    showAlertDialog({
+      title: "无法另存模板",
+      message: "当前规则列表为空，请先在右侧添加至少一条提取规则后再另存为场景模板。",
+      type: "info",
+    });
     return;
   }
 
-  const name = prompt("请输入新场景模板的名称 (例如：供应商保密合规审查)：");
-  if (!name || !name.trim()) return;
+  if (el.saveTemplateNameInput) el.saveTemplateNameInput.value = "";
+  if (el.saveTemplateDescInput) el.saveTemplateDescInput.value = "";
+  if (el.saveTemplateRulesCount) el.saveTemplateRulesCount.innerText = state.currentRules.length;
 
-  const desc = prompt("请输入此场景模板的简要描述：", "用户自定义业务场景规则组合") || "";
+  if (el.saveTemplateModal) {
+    el.saveTemplateModal.classList.add("open");
+    setTimeout(() => {
+      if (el.saveTemplateNameInput) el.saveTemplateNameInput.focus();
+    }, 60);
+  }
+}
+
+function closeSaveTemplateModal() {
+  if (el.saveTemplateModal) {
+    el.saveTemplateModal.classList.remove("open");
+  }
+}
+
+// 提交保存新场景模板
+async function handleSaveCustomTemplate(e) {
+  if (e) e.preventDefault();
+  const name = el.saveTemplateNameInput ? el.saveTemplateNameInput.value.trim() : "";
+  const desc = el.saveTemplateDescInput ? el.saveTemplateDescInput.value.trim() : "";
+
+  if (!name) {
+    if (el.saveTemplateNameInput) el.saveTemplateNameInput.focus();
+    return;
+  }
 
   try {
     const res = await fetch("/api/rules/templates", {
@@ -1751,26 +1993,35 @@ async function promptSaveCustomTemplate() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         id: `custom_${Date.now()}`,
-        name: name.trim(),
-        description: desc.trim(),
+        name: name,
+        description: desc || "用户自定义业务场景规则组合",
         fields: state.currentRules,
       }),
     });
 
     if (res.ok) {
-      alert(`场景模板「${name.trim()}」已成功落盘保存！`);
+      closeSaveTemplateModal();
       await loadRulePresets();
-      // 自动选中新模板
-      const matched = state.rulePresets.find((p) => p.name === name.trim());
-      if (matched) {
+      const matched = state.rulePresets.find((p) => p.name === name);
+      if (matched && el.presetSelect) {
         el.presetSelect.value = matched.id;
+        updateDeleteTemplateBtnVisibility();
       }
     } else {
-      const err = await res.json();
-      alert(`保存模板失败: ${err.error || "未知错误"}`);
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "保存模板失败",
+        message: err.error || "服务器未能成功处理保存请求",
+        type: "danger",
+      });
     }
   } catch (e) {
-    alert(`保存模板异常: ${e.message}`);
+    showAlertDialog({
+      title: "保存模板异常",
+      message: e.message,
+      type: "danger",
+    });
   }
 }
 
@@ -1821,7 +2072,11 @@ async function resetPromptTemplate() {
 // 触发敏感信息提取
 async function triggerExtraction() {
   if (!state.currentDocId) {
-    alert("请先投放或在左侧选择需要审计的文档");
+    showAlertDialog({
+      title: "提示",
+      message: "请先投放或在左侧选择需要审计的文档",
+      type: "info",
+    });
     return;
   }
 
@@ -1908,8 +2163,13 @@ async function triggerExtraction() {
     });
 
     if (!res.ok) {
-      const err = await res.json();
-      alert(`提取失败: ${err.error}`);
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "提取失败",
+        message: err.error || "模型提取未能成功完成",
+        type: "danger",
+      });
       return;
     }
 
@@ -1920,7 +2180,11 @@ async function triggerExtraction() {
     // 方案C核心体验：提取成功后自动平滑切换到「敏感清单」Tab
     switchInspectorTab("audit");
   } catch (e) {
-    alert(`提取异常: ${e.message}`);
+    showAlertDialog({
+      title: "提取异常",
+      message: e.message,
+      type: "danger",
+    });
   } finally {
     btn.disabled = false;
     btn.innerText = origText;
@@ -2120,38 +2384,58 @@ function highlightAuditCard(sensiText) {
   });
 }
 
-// 弹出选取/输入本地 GGUF 模型绝对路径并导入
-async function promptImportLocalModel() {
-  const path = prompt("请输入您本地 .gguf 模型文件的完整绝对路径：\n例如：/Users/icychick/models/my-model.gguf");
-  if (!path || !path.trim()) return;
+// 唤起原生文件选择框并挂载本地 GGUF 模型
+async function handlePickAndImportModel() {
+  const btn = el.importLocalGgufBtn;
+  const originalText = btn ? btn.innerHTML : "";
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = `<span style="opacity:0.8;">正在选择...</span>`;
+  }
 
   try {
-    const res = await fetch("/api/models/import", {
+    const res = await fetch("/api/models/pick-and-import", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ file_path: path.trim() }),
     });
 
-    const data = await res.json();
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+
     if (res.ok) {
-      alert(`本地模型已成功挂载: ${data.filename}`);
+      if (data.canceled) {
+        // 用户取消了文件选择
+        return;
+      }
       await loadModelPresets();
       // 询问是否立即启动
       const shouldStart = await showConfirmDialog({
-        title: "启动离线模型",
-        message: `本地模型已成功挂载。是否立即启动新载入的模型「${data.filename}」？`,
+        title: "模型挂载成功",
+        message: `本地模型「${data.filename}」已成功挂载。是否立即载入并启动该模型？`,
         confirmText: "立即启动",
-        cancelText: "暂不启动",
+        cancelText: "稍后启动",
         isDanger: false,
       });
       if (shouldStart) {
         await startLlamaModel(data.filename);
       }
     } else {
-      alert(`导入模型失败: ${data.error}`);
+      showAlertDialog({
+        title: "导入失败",
+        message: data.error || `HTTP ${res.status}`,
+        type: "danger",
+      });
     }
   } catch (e) {
-    alert(`导入异常: ${e.message}`);
+    showAlertDialog({
+      title: "选择模型异常",
+      message: e.message,
+      type: "danger",
+    });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalText;
+    }
   }
 }
 
@@ -2229,13 +2513,26 @@ async function saveOnlineAiSettings() {
         el.onlineAiTestStatusText.innerText = "在线 AI 配置已保存！";
         el.onlineAiTestStatusText.style.color = "var(--success)";
       }
-      alert("在线 AI 模型配置已成功保存并生效！");
+      showAlertDialog({
+        title: "保存成功",
+        message: "在线 AI 模型配置已成功保存并生效！",
+        type: "success",
+      });
     } else {
-      const err = await res.json();
-      alert(`保存失败: ${err.error || "未知错误"}`);
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "保存失败",
+        message: err.error || "未知错误",
+        type: "danger",
+      });
     }
   } catch (e) {
-    alert(`保存异常: ${e.message}`);
+    showAlertDialog({
+      title: "保存异常",
+      message: e.message,
+      type: "danger",
+    });
   }
 }
 
@@ -2370,23 +2667,92 @@ function initAppearanceSettings() {
   applyUiScale(savedScale);
 }
 
-// 切换提示词卡片内部的 Tab：编辑系统提示词 vs 系统提示词预览
+// 切换提示词卡片内部的 Tab：AI优化 vs 自定义编辑 vs 系统提示词预览
 function switchPromptTab(tabName) {
-  if (!el.tabPromptEditBtn || !el.tabPromptPreviewBtn) return;
-  if (tabName === "edit") {
-    el.tabPromptEditBtn.classList.add("active");
-    el.tabPromptPreviewBtn.classList.remove("active");
-    if (el.panePromptEdit) el.panePromptEdit.style.display = "block";
-    if (el.panePromptPreview) el.panePromptPreview.style.display = "none";
-    if (el.resetPromptBtn) el.resetPromptBtn.style.display = "inline-flex";
-  } else {
-    el.tabPromptPreviewBtn.classList.add("active");
-    el.tabPromptEditBtn.classList.remove("active");
-    if (el.panePromptEdit) el.panePromptEdit.style.display = "none";
-    if (el.panePromptPreview) el.panePromptPreview.style.display = "block";
-    if (el.resetPromptBtn) el.resetPromptBtn.style.display = "none";
+  const isOpt = tabName === "optimize";
+  const isEdit = tabName === "edit";
+  const isPrev = tabName === "preview";
+
+  if (el.tabPromptOptimizeBtn) el.tabPromptOptimizeBtn.classList.toggle("active", isOpt);
+  if (el.tabPromptEditBtn) el.tabPromptEditBtn.classList.toggle("active", isEdit);
+  if (el.tabPromptPreviewBtn) el.tabPromptPreviewBtn.classList.toggle("active", isPrev);
+
+  if (el.panePromptOptimize) el.panePromptOptimize.style.display = isOpt ? "block" : "none";
+  if (el.panePromptEdit) el.panePromptEdit.style.display = isEdit ? "block" : "none";
+  if (el.panePromptPreview) el.panePromptPreview.style.display = isPrev ? "block" : "none";
+
+  if (el.saveModelCustomPromptBtnText) {
+    el.saveModelCustomPromptBtnText.innerText = isOpt ? "采纳设为专属提示词" : "保存为该模型专属提示词";
+  }
+
+  if (el.promptTabHint) {
+    if (isOpt) {
+      el.promptTabHint.innerHTML = `基准评测集：10 篇高保真场景文档`;
+    } else {
+      el.promptTabHint.innerHTML = `包含占位符：<code style="color: var(--danger);">{FIELDS_DEFINITION}</code>`;
+    }
+  }
+
+  if (isPrev) {
     // 切换到预览时即时计算变量注入后的完整 prompt
     updatePromptPreview();
+  }
+}
+
+// 填充策略版本下拉菜单 (仅显示简洁策略名，如 🏆 V4_超轻量极简直接抽取版)
+function populateStrategyDropdown(activeProfileName = null) {
+  if (!el.promptStrategySelect) return;
+  const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
+
+  let optionsHtml = "";
+  strategies.forEach((s) => {
+    optionsHtml += `<option value="${escapeHtml(s.key)}">${escapeHtml(s.name)}</option>`;
+  });
+  el.promptStrategySelect.innerHTML = optionsHtml;
+
+  let targetKey = strategies[0].key;
+  if (activeProfileName) {
+    const matched = strategies.find((s) => {
+      const cleanTarget = activeProfileName.replace(/\(.*?\)/g, "").trim();
+      const cleanName = s.name.replace(/\(.*?\)/g, "").trim();
+      return cleanTarget.includes(cleanName) || cleanName.includes(cleanTarget) || s.key === activeProfileName;
+    });
+    if (matched) targetKey = matched.key;
+  }
+  el.promptStrategySelect.value = targetKey;
+  renderSelectedStrategy(targetKey);
+}
+
+// 渲染选中的策略详情 (更新指标条与提示词只读预览框)
+function renderSelectedStrategy(strategyKey) {
+  const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
+  const item = strategies.find((s) => s.key === strategyKey) || strategies[0];
+  if (!item) return;
+
+  if (el.strategyMetricsValues) {
+    const f1Pct = item.macro_f1 !== undefined && item.macro_f1 !== null ? `${(item.macro_f1 * 100).toFixed(1)}%` : "-";
+    const recallPct = item.macro_recall !== undefined && item.macro_recall !== null ? `${(item.macro_recall * 100).toFixed(1)}%` : "-";
+    const precPct = item.macro_precision !== undefined && item.macro_precision !== null ? `${(item.macro_precision * 100).toFixed(1)}%` : "-";
+    const timeMs = item.avg_time_ms ? `${item.avg_time_ms}ms` : "-";
+
+    el.strategyMetricsValues.innerHTML = `
+      <span>综合 F1: <strong style="color: var(--success); font-size: 11.5px;">${f1Pct}</strong></span>
+      <span>召回率(R): <strong style="color: var(--text);">${recallPct}</strong></span>
+      <span>精准率(P): <strong style="color: var(--text);">${precPct}</strong></span>
+      <span>单篇耗时: <strong style="color: var(--text);">${timeMs}</strong></span>
+    `;
+  }
+
+  if (el.strategyBadgeTag) {
+    if (item.is_winner) {
+      el.strategyBadgeTag.innerHTML = `<span class="badge success" style="font-size: 10px; padding: 2px 6px; font-weight: 600;">推荐最佳策略</span>`;
+    } else {
+      el.strategyBadgeTag.innerHTML = `<span class="badge" style="font-size: 10px; padding: 2px 6px; color: var(--text-dim);">备选策略</span>`;
+    }
+  }
+
+  if (el.strategyPromptPreview) {
+    el.strategyPromptPreview.innerText = item.template || "";
   }
 }
 
@@ -2452,13 +2818,8 @@ async function loadTargetModelPrompt(modelFilename) {
       const profile = await res.json();
       if (el.promptTemplateInput) el.promptTemplateInput.value = profile.custom_prompt;
       
-      // 渲染徽章：只显示版本名称与 F1 指标，如“V4_超轻量极简直接抽取版 (F1: 91.2%)”
-      if (el.promptModelProfileBadge) {
-        const checkSvg = `<svg class="lucide-icon xs" viewBox="0 0 24 24"><circle cx="12" cy="8" r="6"></circle><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"></path></svg>`;
-        const f1Text = profile.f1_score !== undefined && profile.f1_score !== null ? ` (F1: ${(profile.f1_score * 100).toFixed(1)}%)` : "";
-        
-        el.promptModelProfileBadge.innerHTML = `<span class="badge success" style="display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; font-size: 11px;">${checkSvg}<span>${escapeHtml(profile.profile_name)}${f1Text}</span></span>`;
-      }
+      // 填充并联动 AI 优化策略下拉菜单
+      populateStrategyDropdown(profile.profile_name);
 
       updatePromptPreview();
     }
@@ -2471,18 +2832,33 @@ async function loadTargetModelPrompt(modelFilename) {
 async function saveTargetModelCustomPrompt() {
   const modelFilename = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : state.activeModelName;
   if (!modelFilename) {
-    alert("请先在上方选择目标模型！");
+    showAlertDialog({ title: "提示", message: "请先在上方选择目标模型！", type: "info" });
     return;
   }
 
-  const promptText = el.promptTemplateInput ? el.promptTemplateInput.value.trim() : "";
+  let promptText = "";
+  let profileName = "专属自定义优化版";
+  let f1Score = null;
+
+  const isOptTab = el.panePromptOptimize && el.panePromptOptimize.style.display !== "none";
+  if (isOptTab) {
+    const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
+    const selectedKey = el.promptStrategySelect ? el.promptStrategySelect.value : strategies[0].key;
+    const selectedItem = strategies.find((s) => s.key === selectedKey) || strategies[0];
+    promptText = selectedItem.template;
+    profileName = selectedItem.name;
+    f1Score = selectedItem.macro_f1 || null;
+  } else {
+    promptText = el.promptTemplateInput ? el.promptTemplateInput.value.trim() : "";
+  }
+
   if (!promptText) {
-    alert("系统提示词内容不能为空！");
+    showAlertDialog({ title: "提示", message: "系统提示词内容不能为空！", type: "info" });
     return;
   }
 
   if (!promptText.includes("{FIELDS_DEFINITION}")) {
-    alert("提示词模板必须包含 {FIELDS_DEFINITION} 占位符，以便动态注入待提取字段！");
+    showAlertDialog({ title: "提示", message: "提示词模板必须包含 {FIELDS_DEFINITION} 占位符，以便动态注入待提取字段！", type: "info" });
     return;
   }
 
@@ -2491,25 +2867,26 @@ async function saveTargetModelCustomPrompt() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        profile_name: "专属自定义优化版",
+        profile_name: profileName,
         custom_prompt: promptText,
-        f1_score: null,
+        f1_score: f1Score,
       }),
     });
 
     if (res.ok) {
-      // 若保存的模型正是当前运行的模型，同步更新工作区模板
       if (state.activeModelName === modelFilename) {
         state.customPromptTemplate = promptText;
       }
+      if (el.promptTemplateInput) el.promptTemplateInput.value = promptText;
       await loadTargetModelPrompt(modelFilename);
-      alert(`已成功将提示词保存为模型 ${modelFilename} 的专属配置！`);
+      await loadModelPresets();
+      showAlertDialog({ title: "保存成功", message: `已成功将【${profileName}】设为模型 ${modelFilename} 的专属提示词！`, type: "success" });
     } else {
       const err = await res.json();
-      alert(`保存失败: ${err.error || "未知错误"}`);
+      showAlertDialog({ title: "保存失败", message: err.error || "未知错误", type: "danger" });
     }
   } catch (e) {
-    alert(`保存异常: ${e.message}`);
+    showAlertDialog({ title: "保存异常", message: e.message, type: "danger" });
   }
 }
 
@@ -2615,7 +2992,11 @@ async function handleFooterModelToggle(e) {
     const chosenFile = el.footerModelSelect ? el.footerModelSelect.value : null;
 
     if (!chosenFile) {
-      alert("尚未检测到已就绪的离线模型。请在「设置」中导入本地 GGUF 或从魔搭下载！");
+      showAlertDialog({
+        title: "离线模型未就绪",
+        message: "尚未检测到已就绪的离线模型。请在「设置」中导入本地 GGUF 或从魔搭下载！",
+        type: "info",
+      });
       e.target.checked = false;
       el.settingsModal.classList.add("open");
       switchSettingsTab("model");
@@ -2627,7 +3008,11 @@ async function handleFooterModelToggle(e) {
     try {
       await startLlamaModel(chosenFile);
     } catch (err) {
-      alert(`启动模型失败: ${err.message}`);
+      showAlertDialog({
+        title: "启动模型失败",
+        message: err.message,
+        type: "danger",
+      });
       await syncActiveModelStatus(true);
     }
   } else {
@@ -2696,7 +3081,11 @@ async function syncActiveModelStatus(isError = false) {
 // 导出 CSV 清单
 function exportCsv() {
   if (!state.currentSnapshot || state.currentSnapshot.items.length === 0) {
-    alert("当前没有可导出的提取结果");
+    showAlertDialog({
+      title: "提示",
+      message: "当前没有可导出的提取结果",
+      type: "info",
+    });
     return;
   }
 
@@ -2715,7 +3104,11 @@ function exportCsv() {
 // 脱敏导出原文档 (Markdown)
 function exportDesensitizedDoc() {
   if (!state.currentDocId || !state.currentSnapshot) {
-    alert("请先选择文档并完成敏感信息提取");
+    showAlertDialog({
+      title: "提示",
+      message: "请先选择文档并完成敏感信息提取",
+      type: "info",
+    });
     return;
   }
 
@@ -2913,12 +3306,22 @@ async function stopLlamaModel() {
       await loadModelPresets();
       return true;
     } else {
-      alert("停止模型失败");
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "停止模型失败",
+        message: err.error || "未能成功停止模型运行",
+        type: "danger",
+      });
       await syncActiveModelStatus(true);
       return false;
     }
   } catch (err) {
-    alert(`停止模型异常: ${err.message}`);
+    showAlertDialog({
+      title: "停止模型异常",
+      message: err.message,
+      type: "danger",
+    });
     await syncActiveModelStatus(true);
     return false;
   }
@@ -2945,22 +3348,37 @@ async function startLlamaModel(filename) {
       await autoLoadModelOptimalPrompt(filename);
       return true;
     } else {
-      const err = await res.json();
-      alert(`启动模型失败: ${err.error}`);
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "启动模型失败",
+        message: err.error || `HTTP ${res.status}`,
+        type: "danger",
+      });
       await syncActiveModelStatus();
       return false;
     }
   } catch (e) {
-    alert(`网络连接失败: ${e.message}`);
+    showAlertDialog({
+      title: "网络连接失败",
+      message: e.message,
+      type: "danger",
+    });
     await syncActiveModelStatus();
     return false;
   }
 }
 
-// 打开自动寻优基准测试模态框
-async function openAutoBenchmarkModal(filename) {
+// 执行自动寻优基准测试 (同时支持 Tab 内嵌入与模态框)
+async function triggerPromptBenchmark(filename) {
+  if (!filename) {
+    showAlertDialog({ title: "提示", message: "请先选择需要寻优的目标模型！", type: "info" });
+    return;
+  }
   currentBenchmarkModel = filename;
   currentBenchmarkReport = null;
+
+  switchPromptTab("optimize");
 
   if (el.benchmarkModelName) el.benchmarkModelName.innerText = filename;
   if (el.benchmarkLoadingBox) el.benchmarkLoadingBox.style.display = "flex";
@@ -2969,8 +3387,11 @@ async function openAutoBenchmarkModal(filename) {
   if (el.benchmarkStatusText) {
     el.benchmarkStatusText.innerText = `正在对模型 ${filename} 执行 4 轮基准测试矩阵 (10篇文档)...`;
   }
-  if (el.autoBenchmarkModal) {
-    el.autoBenchmarkModal.classList.add("open");
+
+  if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "flex";
+  if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "none";
+  if (el.tabBenchmarkStatusText) {
+    el.tabBenchmarkStatusText.innerText = `正在对模型 ${filename} 执行 4 轮提示词盲测矩阵 (10篇文档)...`;
   }
 
   try {
@@ -2985,60 +3406,138 @@ async function openAutoBenchmarkModal(filename) {
     currentBenchmarkReport = report;
     renderBenchmarkReport(report);
   } catch (e) {
-    alert(`寻优评测发生异常: ${e.message}`);
+    if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "none";
+    if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "flex";
+    showAlertDialog({ title: "寻优评测异常", message: e.message, type: "danger" });
     if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
   }
 }
 
-// 渲染评测报告矩阵
+// 打开自动寻优基准测试模态框 (兼容旧入口)
+async function openAutoBenchmarkModal(filename) {
+  if (el.autoBenchmarkModal) {
+    el.autoBenchmarkModal.classList.add("open");
+  }
+  await triggerPromptBenchmark(filename);
+}
+
+// 渲染评测报告矩阵 (更新 Tab 策略下拉选择器与指标)
 function renderBenchmarkReport(report) {
   if (el.benchmarkLoadingBox) el.benchmarkLoadingBox.style.display = "none";
   if (el.benchmarkResultsBox) el.benchmarkResultsBox.style.display = "flex";
   if (el.benchmarkFooterActions) el.benchmarkFooterActions.style.display = "flex";
 
-  if (el.benchmarkModeBadge) {
-    if (report.mode === "online_evolved") {
-      const modelUsed = report.online_model_used || "在线大模型";
-      el.benchmarkModeBadge.innerHTML = `<span class="badge primary" style="font-size: 10.5px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg><span>在线 AI 深度进化 (${escapeHtml(modelUsed)})</span></span>`;
-    } else {
-      el.benchmarkModeBadge.innerHTML = `<span class="badge" style="font-size: 10.5px; padding: 2px 6px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span>离线范式池盲测</span></span>`;
-    }
-  }
+  if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "none";
+  if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "flex";
 
-  if (el.benchmarkTableBody) {
-    el.benchmarkTableBody.innerHTML = "";
-    (report.candidates || []).forEach((c) => {
-      const isWinner = c.key === report.winner_key;
-      const tr = document.createElement("tr");
-      if (isWinner) tr.className = "winner-row";
-
-      const ratingBadge = isWinner
-        ? '<span class="badge success" style="font-size: 10px; padding: 2px 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;"><svg class="lucide-icon xs" viewBox="0 0 24 24" style="width: 11px; height: 11px;"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"></path></svg><span>最优胜出</span></span>'
-        : (c.macro_f1 >= 0.85 ? '<span class="badge primary" style="font-size: 10px; padding: 2px 6px;">良好</span>' : '<span class="badge" style="font-size: 10px; padding: 2px 6px; color: var(--text-mute);">一般</span>');
-
-      tr.innerHTML = `
-        <td style="padding: 8px 10px;">
-          <div style="font-weight: 600; color: var(--text);">${escapeHtml(c.name)}</div>
-          <div style="font-size: 10.5px; color: var(--text-mute);">${escapeHtml(c.description || "")}</div>
-        </td>
-        <td style="padding: 8px; text-align: center; font-family: var(--font-mono); font-size: 11.5px;">${(c.macro_recall * 100).toFixed(1)}%</td>
-        <td style="padding: 8px; text-align: center; font-family: var(--font-mono); font-size: 11.5px;">${(c.macro_precision * 100).toFixed(1)}%</td>
-        <td style="padding: 8px; text-align: center; font-family: var(--font-mono); font-size: 12px; font-weight: ${isWinner ? '700' : '500'}; color: ${isWinner ? 'var(--success)' : 'var(--text)'};">${(c.macro_f1 * 100).toFixed(1)}%</td>
-        <td style="padding: 8px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--text-dim);">${c.avg_time_ms}ms</td>
-        <td style="padding: 8px; text-align: center;">${ratingBadge}</td>
-      `;
-      el.benchmarkTableBody.appendChild(tr);
+  if (report.candidates && report.candidates.length > 0) {
+    currentModelStrategies = report.candidates.map((c) => {
+      const isWin = c.key === report.winner_key;
+      let cleanName = c.name.replace(/\(.*?\)/g, "").trim();
+      if (isWin && !cleanName.startsWith("🏆")) {
+        cleanName = `🏆 ${cleanName.replace(/^[🔹🏆🤖]\s*/, "")}`;
+      } else if (!isWin && !cleanName.startsWith("🔹") && !cleanName.startsWith("🤖")) {
+        cleanName = `🔹 ${cleanName.replace(/^[🔹🏆🤖]\s*/, "")}`;
+      }
+      return {
+        key: c.key,
+        name: cleanName,
+        macro_recall: c.macro_recall,
+        macro_precision: c.macro_precision,
+        macro_f1: c.macro_f1,
+        avg_time_ms: c.avg_time_ms,
+        template: c.template,
+        is_winner: isWin,
+      };
     });
   }
 
-  if (el.benchmarkConclusionCard) {
-    el.benchmarkConclusionCard.innerHTML = `
-      <div style="font-weight: 600; color: var(--success); margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
-        <svg class="lucide-icon xs" viewBox="0 0 24 24" style="color: var(--success);"><circle cx="12" cy="8" r="6"></circle><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"></path></svg>
-        <span>寻优结论与采纳建议</span>
-      </div>
-      <div style="color: var(--text); font-size: 11.5px; line-height: 1.5;">${escapeHtml(report.conclusion)}</div>
+  populateStrategyDropdown(report.winner_name || report.winner_key);
+
+  const modeBadgeHtml = report.mode === "online_evolved"
+    ? `<span class="badge primary" style="font-size: 10.5px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg><span>在线 AI 深度进化 (${escapeHtml(report.online_model_used || "在线大模型")})</span></span>`
+    : `<span class="badge" style="font-size: 10.5px; padding: 2px 6px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span>离线范式池盲测</span></span>`;
+
+  if (el.benchmarkModeBadge) el.benchmarkModeBadge.innerHTML = modeBadgeHtml;
+
+  const rowsHtml = (report.candidates || []).map((c) => {
+    const isWinner = c.key === report.winner_key;
+    const ratingBadge = isWinner
+      ? '<span class="badge success" style="font-size: 10px; padding: 2px 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;"><svg class="lucide-icon xs" viewBox="0 0 24 24" style="width: 11px; height: 11px;"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"></path></svg><span>最优胜出</span></span>'
+      : (c.macro_f1 >= 0.85 ? '<span class="badge primary" style="font-size: 10px; padding: 2px 6px;">良好</span>' : '<span class="badge" style="font-size: 10px; padding: 2px 6px; color: var(--text-mute);">一般</span>');
+
+    return `
+      <tr class="${isWinner ? 'winner-row' : ''}">
+        <td style="padding: 6px 8px;">
+          <div style="font-weight: 600; color: var(--text);">${escapeHtml(c.name)}</div>
+          <div style="font-size: 10px; color: var(--text-mute);">${escapeHtml(c.description || "")}</div>
+        </td>
+        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11px;">${(c.macro_recall * 100).toFixed(1)}%</td>
+        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11px;">${(c.macro_precision * 100).toFixed(1)}%</td>
+        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: ${isWinner ? '700' : '500'}; color: ${isWinner ? 'var(--success)' : 'var(--text)'};">${(c.macro_f1 * 100).toFixed(1)}%</td>
+        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);">${c.avg_time_ms}ms</td>
+        <td style="padding: 6px; text-align: center;">${ratingBadge}</td>
+      </tr>
     `;
+  }).join("");
+
+  if (el.benchmarkTableBody) el.benchmarkTableBody.innerHTML = rowsHtml;
+
+  const conclusionHtml = `
+    <div style="font-weight: 600; color: var(--success); margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
+      <svg class="lucide-icon xs" viewBox="0 0 24 24" style="color: var(--success); width: 12px; height: 12px;"><circle cx="12" cy="8" r="6"></circle><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"></path></svg>
+      <span>寻优结论与建议</span>
+    </div>
+    <div style="color: var(--text); font-size: 11px; line-height: 1.4;">${escapeHtml(report.conclusion)}</div>
+  `;
+
+  if (el.benchmarkConclusionCard) el.benchmarkConclusionCard.innerHTML = conclusionHtml;
+}
+
+// 采纳最优提示词方案
+async function adoptWinnerPromptFromReport() {
+  if (!currentBenchmarkReport || !currentBenchmarkModel) return;
+  try {
+    const payload = {
+      profile_name: currentBenchmarkReport.winner_name,
+      f1_score: currentBenchmarkReport.winner_f1,
+      custom_prompt: currentBenchmarkReport.winner_template,
+    };
+    const res = await fetch(`/api/models/${encodeURIComponent(currentBenchmarkModel)}/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (res.ok) {
+      state.customPromptTemplate = currentBenchmarkReport.winner_template;
+      if (el.promptTemplateInput) el.promptTemplateInput.value = currentBenchmarkReport.winner_template;
+      if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
+
+      if (el.promptTargetModelSelect) {
+        el.promptTargetModelSelect.value = currentBenchmarkModel;
+      }
+      await loadTargetModelPrompt(currentBenchmarkModel);
+      await loadModelPresets();
+      showAlertDialog({
+        title: "采纳成功",
+        message: `已成功将【${currentBenchmarkReport.winner_name}】采纳并设为模型 ${currentBenchmarkModel} 的专属最佳提示词！`,
+        type: "success",
+      });
+    } else {
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "采纳失败",
+        message: err.error || "未能成功处理采纳请求",
+        type: "danger",
+      });
+    }
+  } catch (e) {
+    showAlertDialog({
+      title: "采纳异常",
+      message: e.message,
+      type: "danger",
+    });
   }
 }
 
@@ -3059,7 +3558,11 @@ async function startDownload(modelId) {
       body: JSON.stringify({ model_id: modelId }),
     });
   } catch (e) {
-    alert(`触发下载失败: ${e.message}`);
+    showAlertDialog({
+      title: "下载失败",
+      message: `触发下载失败: ${e.message}`,
+      type: "danger",
+    });
   }
 }
 

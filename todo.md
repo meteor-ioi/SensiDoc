@@ -618,30 +618,34 @@
 
 ---
 
-## 阶段四十八：界面视觉统一与交互细节极简重构 (已完成) · [🔗 对话跳转](conversation://a2de2406-6bc8-410f-b0b1-cc993b75ced8)
-- [x] 48.1 **提示词绑定徽章与版本名称精简**：
-  - 在 [`src/session.rs`](file:///Users/icychick/Projects/SensiDoc/src/session.rs)、[`src/benchmark.rs`](file:///Users/icychick/Projects/SensiDoc/src/benchmark.rs) 与 [`web/app.js`](file:///Users/icychick/Projects/SensiDoc/web/app.js) 中精简 profile 名称，移除冗余前缀与括号，规范呈现为 `V4_超轻量极简直接抽取版 (F1: 91.2%)`。
-- [x] 48.2 **离线模型管理卡片视觉降噪**：
-  - 在 [`web/app.js`](file:///Users/icychick/Projects/SensiDoc/web/app.js) 中彻底移除模型卡片底部的提示词绑定徽标，仅展示纯净模型名称与启动/关闭按钮。
-- [x] 48.3 **全站表单控件（输入框/下拉框）圆角弧度与视觉风格统一**：
-  - 在 [`web/style.css`](file:///Users/icychick/Projects/SensiDoc/web/style.css) 中定义标准的 `.input-text` 与 `.select-field` 控件类，统一采用 `var(--radius-sm)`（6px）圆角、`var(--surface-2)` 背景与精致的下沉箭头，彻底消除设计割裂感。
-- [x] 48.4 **快照下拉菜单纯粹化**：
-  - 顶部时光机药丸移除时间戳，精简显示为 `#1版 (最新)`；
-  - 下拉快照列表中移除时间列，保留版本号、提取模板名称、命中处数与删除按钮。
-- [x] 48.5 **提示词面板模式切换极简重构**：
-  - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中将原繁琐文案（`编辑系统提示词` / `完整 Prompt 实时预览`）替换为带 Lucide 图标的极简模式按钮：`[Icon: Pen] 编辑` 与 `[Icon: Eye] 预览`。
+---
 
+## 阶段四十九：提示词 AI 优化内聚式多策略下拉与指标直显交互升级 (已完成) · [🔗 对话跳转](conversation://22ce5631-64c9-4f1d-8fdf-1a913343aee1)
+- [x] 49.1 **顶部目标模型调优区域极净化**：
+  - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中彻底移除模型下拉框下方的“当前生效档案：...”多余行，顶部仅保留单行模型选择，彻底降噪。
+- [x] 49.2 **「⚡ AI优化」Tab 内容内聚重构**：
+  - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 与 [`web/app.js`](file:///Users/icychick/Projects/SensiDoc/web/app.js) 中新增策略版本选择器 `#promptStrategySelect`，将预设/评测得到的候选提示词策略（如 `🏆 V4_超轻量极简直接抽取版`、`🔹 V1_默认结构基准版`、`🔹 V2_严格两阶段思考抽取版`、`🔹 V3_少样本示例加固版`、`🤖 在线 AI 深度进化版`）直接收录为下拉菜单；
+  - 选项文案精简纯粹，去掉多余的括号说明（选中即最优）；
+  - 顶部右侧保留 `[⚡ 重新自动寻优评测]` 按钮。
+- [x] 49.3 **识别指标胶囊与提示词内容直接上屏**：
+  - 在「AI优化」Tab 内直接设置 `#strategyMetricsBar`（动态展示综合 F1、查全召回率 R、精准率 P、单篇耗时及策略徽章）与只读提示词代码框 `#strategyPromptPreview`；
+  - 切换下拉菜单时，指标条与提示词全文即时无缝联动。
+- [x] 49.4 **底部操作栏智能采纳与保存**：
+  - 在「AI优化」Tab 下，底部按钮自动切换为「采纳设为专属提示词」，一键将当前选中的策略设为该模型的专属提示词档案；
+  - 精简底部输出规范文案为 `输出规范：[{"field": "字段名", "text": "原文"}]`。
 
+---
 
-
-
-
-
-
-
-
-
-
-
-
-
+## 阶段五十：场景模板管理居中模态弹窗与操作体验升级 (已完成) · [🔗 对话跳转](conversation://22ce5631-64c9-4f1d-8fdf-1a913343aee1)
+- [x] 50.1 **居中「另存为场景模板」模态框落地 (`#saveTemplateModal`)**：
+  - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中新增居中模态弹窗，提供模板名称、描述输入及规则数量统计；
+  - 支持回车提交、Esc 取消；保存后自动刷新并选中新模板，彻底清退浏览器原生 `prompt()` 与 `alert()`。
+- [x] 50.2 **模板删除与通用中央警告框**：
+  - 删除模板采用居中二次确认模态框，删除后静默刷新；
+  - 封装 `showAlertDialog()` 统一承接全站错误与空状态居中弹窗提示。
+- [x] 50.3 **文档列表文件名恢复加粗显示**：
+  - 在 [`web/style.css`](file:///Users/icychick/Projects/SensiDoc/web/style.css) 中将 `.file-name` 调整为 `font-weight: 600`。
+- [x] 50.4 **移除设置面板内冗余的「工作区规则维护」区块**：
+  - 从 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中移除「工作区规则维护（清空当前规则）」冗余卡片，保持设置面板专注纯粹。
+- [x] 50.5 **全系统 100% 清退浏览器原生 `alert()` / `prompt()` 弹窗**：
+  - 全面排查并重构了“存标签”、“解析/上传报错”、“删除/复制失败”、“未选文档提示”、“在线 AI 保存”、“离线模型启停/下载”、“本地 GGUF 路径导入”等全部 20+ 处交互，统一采用与删除文档/快照完全一致的画面中央模态弹窗系统（`showAlertDialog`、`#importModelModal` 等）。

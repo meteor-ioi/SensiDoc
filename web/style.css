@@ -2040,6 +2040,25 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   transition: border-color 0.15s ease;
 }
 
+/* AI 提示词自动寻优容器 */
+.prompt-optimize-container {
+  width: 100%;
+  min-height: 175px;
+  max-height: 250px;
+  box-sizing: border-box;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 textarea.prompt-area-box {
   resize: none; /* 固定尺寸，禁止拖动变形 */
   outline: none;

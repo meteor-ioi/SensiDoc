@@ -131,6 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/settings/online-ai", get(get_online_ai_settings).post(save_online_ai_settings))
         .route("/api/settings/online-ai/test", post(test_online_ai_settings))
         .route("/api/models/import", post(import_external_model))
+        .route("/api/models/pick-and-import", post(pick_and_import_model))
         .route("/api/models/start", post(start_model))
         .route("/api/models/stop", post(stop_model))
         .route("/api/models/download", post(download_model))
@@ -536,6 +537,39 @@ async fn import_external_model(
         }))),
         Err(e) => Err((
             StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: e }),
+        )),
+    }
+}
+
+async fn pick_and_import_model(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    match state.model_mgr.pick_file_dialog().await {
+        Ok(Some(file_path)) => {
+            match state.model_mgr.import_external_model(&file_path).await {
+                Ok(filename) => Ok(Json(serde_json::json!({
+                    "status": "success",
+                    "canceled": false,
+                    "filename": filename,
+                    "file_path": file_path,
+                    "message": "模型导入挂载成功"
+                }))),
+                Err(e) => Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse { error: e }),
+                )),
+            }
+        }
+        Ok(None) => {
+            // 用户取消了选择
+            Ok(Json(serde_json::json!({
+                "status": "canceled",
+                "canceled": true
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse { error: e }),
         )),
     }

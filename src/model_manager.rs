@@ -168,6 +168,110 @@ impl ModelManager {
         None
     }
 
+    /// 唤起操作系统原生文件选择对话框选取 .gguf 模型文件
+    pub async fn pick_file_dialog(&self) -> Result<Option<String>, String> {
+        #[cfg(target_os = "macos")]
+        {
+            let script = r#"try
+  set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)" of type {"gguf", "public.data"}
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#;
+            let output = tokio::process::Command::new("osascript")
+                .arg("-e")
+                .arg(script)
+                .output()
+                .await
+                .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
+
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if path_str.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(path_str))
+                }
+            } else {
+                // 降级无 type 过滤唤起
+                let script_fallback = r#"try
+  set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)"
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#;
+                let fb_output = tokio::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(script_fallback)
+                    .output()
+                    .await
+                    .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
+                if fb_output.status.success() {
+                    let path_str = String::from_utf8_lossy(&fb_output.stdout).trim().to_string();
+                    if path_str.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(path_str))
+                    }
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            let script = r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Filter = 'GGUF 模型文件 (*.gguf)|*.gguf|所有文件 (*.*)|*.*'; $f.Title = '请选择本地 GGUF 模型文件'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { Write-Output $f.FileName }"#;
+            let output = tokio::process::Command::new("powershell")
+                .args(["-NoProfile", "-NonInteractive", "-Command", script])
+                .output()
+                .await
+                .map_err(|e| format!("无法唤起 Windows 文件选择器: {e}"))?;
+
+            if output.status.success() {
+                let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if path.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(path))
+                }
+            } else {
+                Ok(None)
+            }
+        }
+
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        {
+            if let Ok(output) = tokio::process::Command::new("zenity")
+                .args(["--file-selection", "--title=请选择本地 GGUF 模型文件", "--file-filter=GGUF 模型 (*.gguf) | *.gguf"])
+                .output()
+                .await
+            {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() {
+                        return Ok(Some(path));
+                    }
+                }
+                return Ok(None);
+            }
+            if let Ok(output) = tokio::process::Command::new("kdialog")
+                .args(["--getopenfilename", ".", "*.gguf"])
+                .output()
+                .await
+            {
+                if output.status.success() {
+                    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    if !path.is_empty() {
+                        return Ok(Some(path));
+                    }
+                }
+                return Ok(None);
+            }
+            Err("未检测到可用的系统文件选择器 (zenity 或 kdialog)".into())
+        }
+    }
+
     /// 导入外部本地 GGUF 模型文件（支持软链接或复制到 models/ 目录）
     pub async fn import_external_model(&self, source_path: &str) -> Result<String, String> {
         let src = std::path::Path::new(source_path);
@@ -180,7 +284,7 @@ impl ModelManager {
             .and_then(|n| n.to_str())
             .ok_or_else(|| "无效的文件名".to_string())?;
 
-        if !filename.ends_with(".gguf") {
+        if !filename.to_lowercase().ends_with(".gguf") {
             return Err("仅支持 .gguf 格式模型文件".into());
         }
 
