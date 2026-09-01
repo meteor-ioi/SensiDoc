@@ -83,11 +83,11 @@ impl ModelManager {
             },
             ModelPreset {
                 id: "lfm2.5-vl-450m".to_string(),
-                name: "LFM2.5-VL-450M (Q4_K_M)".to_string(),
-                filename: "LFM2.5-VL-450M-Q4_K_M.gguf".to_string(),
+                name: "LFM2.5-VL-450M (Q8_0)".to_string(),
+                filename: "LFM2.5-VL-450M-Q8_0.gguf".to_string(),
                 modelscope_id: "LiquidAI/LFM2.5-VL-450M-GGUF".to_string(),
-                description: "超小身材大视觉/文本理解模型，上下文理解准确率高".to_string(),
-                size_desc: "~310 MB".to_string(),
+                description: "超小身材大视觉/文本理解模型，Q8_0 高精度量化，结构化提取表现优异".to_string(),
+                size_desc: "~360 MB".to_string(),
                 is_downloaded: false,
                 is_active: false,
             },
@@ -556,7 +556,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let url = "https://modelscope.cn/models/LiquidAI/LFM2.5-VL-450M-GGUF/resolve/master/LFM2.5-VL-450M-Q4_K_M.gguf";
+        let url = "https://modelscope.cn/models/LiquidAI/LFM2.5-VL-450M-GGUF/resolve/master/LFM2.5-VL-450M-Q8_0.gguf";
         let resp = client
             .get(url)
             .header("Range", "bytes=0-1023")

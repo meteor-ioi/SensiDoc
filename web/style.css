@@ -643,12 +643,16 @@ body.resizing-panels {
 }
 
 .file-name {
-  font-weight: 600;
+  font-weight: 400;
   font-size: 13px;
   color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.file-item.active .file-name {
+  font-weight: 600;
 }
 
 /* 第二层：字数、快照版本状态标签 */
