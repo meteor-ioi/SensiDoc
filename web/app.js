@@ -2455,11 +2455,11 @@ function switchSettingsTab(tabName) {
     if (el.paneSetModel) el.paneSetModel.style.display = "block";
   } else if (tabName === "online-ai") {
     if (el.tabSetOnlineAiBtn) el.tabSetOnlineAiBtn.classList.add("active");
-    if (el.paneSetOnlineAi) el.paneSetOnlineAi.style.display = "block";
+    if (el.paneSetOnlineAi) el.paneSetOnlineAi.style.display = "flex";
     loadOnlineAiSettings();
   } else if (tabName === "rules") {
     if (el.tabSetRulesBtn) el.tabSetRulesBtn.classList.add("active");
-    if (el.paneSetRules) el.paneSetRules.style.display = "block";
+    if (el.paneSetRules) el.paneSetRules.style.display = "flex";
     // 切换到规则板块时，按需初始化 prompt 预览
     initPromptSettings();
   } else if (tabName === "appearance") {
@@ -2677,9 +2677,9 @@ function switchPromptTab(tabName) {
   if (el.tabPromptEditBtn) el.tabPromptEditBtn.classList.toggle("active", isEdit);
   if (el.tabPromptPreviewBtn) el.tabPromptPreviewBtn.classList.toggle("active", isPrev);
 
-  if (el.panePromptOptimize) el.panePromptOptimize.style.display = isOpt ? "block" : "none";
-  if (el.panePromptEdit) el.panePromptEdit.style.display = isEdit ? "block" : "none";
-  if (el.panePromptPreview) el.panePromptPreview.style.display = isPrev ? "block" : "none";
+  if (el.panePromptOptimize) el.panePromptOptimize.style.display = isOpt ? "flex" : "none";
+  if (el.panePromptEdit) el.panePromptEdit.style.display = isEdit ? "flex" : "none";
+  if (el.panePromptPreview) el.panePromptPreview.style.display = isPrev ? "flex" : "none";
 
   if (el.saveModelCustomPromptBtnText) {
     el.saveModelCustomPromptBtnText.innerText = isOpt ? "采纳设为专属提示词" : "保存为该模型专属提示词";

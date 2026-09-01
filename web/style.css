@@ -2013,6 +2013,8 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 .prompt-box-card {
   display: flex;
   flex-direction: column;
+  flex: 1;
+  min-height: 0;
   gap: 8px;
 }
 
@@ -2021,21 +2023,28 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-shrink: 0;
 }
 
 .prompt-tab-content {
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
-/* 编辑输入框与预览框的固定等宽等高规格 (完全 1:1 对齐，无缝切换) */
+/* 编辑输入框与预览框的自适应规格 (完全 1:1 对齐，无缝切换，内部滚动) */
 .prompt-area-box {
   width: 100%;
-  height: 175px;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
   font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.55;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
@@ -2044,23 +2053,24 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   transition: border-color 0.15s ease;
 }
 
-/* AI 提示词自动寻优容器 */
+/* AI 提示词自动寻优容器 (自适应高度) */
 .prompt-optimize-container {
   width: 100%;
-  min-height: 175px;
-  max-height: 250px;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
   font-size: 11px;
   line-height: 1.5;
-  padding: 10px 12px;
+  padding: 8px 10px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
   color: var(--text);
-  overflow-y: auto;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 textarea.prompt-area-box {
