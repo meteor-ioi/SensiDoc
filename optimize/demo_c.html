@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SensiDoc 方案C演示原型 - 右侧栏一体化审计工作台</title>
+  <style>
+    :root {
+      --bg: hsl(0 0% 100%);
+      --surface: hsl(0 0% 100%);
+      --surface-2: hsl(0 0% 98%);
+      --surface-hover: hsl(0 0% 95%);
+      --surface-active: hsl(0 0% 92%);
+      --border: hsl(0 0% 90%);
+      --border-strong: hsl(0 0% 75%);
+      --text: hsl(0 0% 9%);
+      --text-dim: hsl(0 0% 32%);
+      --text-mute: hsl(0 0% 56%);
+      --accent: hsl(0 0% 9%);
+      --accent-text: hsl(0 0% 100%);
+      --danger: #dc2626;
+      --danger-soft: rgba(220, 38, 38, 0.08);
+      --warning: #d97706;
+      --warning-soft: rgba(217, 119, 6, 0.08);
+      --success: #16a34a;
+      --success-soft: rgba(22, 163, 74, 0.08);
+      --link: hsl(212 100% 48%);
+      
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      
+      --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: hsl(0 0% 4%);
+        --surface: hsl(0 0% 4%);
+        --surface-2: hsl(0 0% 7%);
+        --surface-hover: hsl(0 0% 11%);
+        --surface-active: hsl(0 0% 14%);
+        --border: hsl(0 0% 16%);
+        --border-strong: hsl(0 0% 28%);
+        --text: hsl(0 0% 93%);
+        --text-dim: hsl(0 0% 63%);
+        --text-mute: hsl(0 0% 45%);
+        --accent: hsl(0 0% 93%);
+        --accent-text: hsl(0 0% 6%);
+        --danger: #f87171;
+        --danger-soft: rgba(248, 113, 113, 0.15);
+        --warning: #fbbf24;
+        --warning-soft: rgba(251, 191, 36, 0.15);
+        --success: #4ade80;
+        --success-soft: rgba(74, 222, 128, 0.15);
+        --link: hsl(210 100% 66%);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 顶部提示横幅 Banner */
+    .demo-banner {
+      background: #1e1e24;
+      color: #f3f4f6;
+      font-size: 12px;
+      padding: 6px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      z-index: 100;
+    }
+    .demo-tag {
+      background: #3b82f6;
+      color: #fff;
+      font-size: 10.5px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 8px;
+    }
+
+    /* 顶部导航 TopBar */
+    .app-header {
+      height: 44px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 16px;
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+    .logo-group { display: flex; align-items: center; gap: 10px; }
+    .logo-title { font-size: 14px; font-weight: 600; }
+    .logo-badge {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      background: var(--surface-2);
+    }
+
+    /* 三栏主体网格 */
+    .app-layout {
+      flex: 1;
+      display: grid;
+      grid-template-columns: 240px minmax(400px, 1fr) 350px;
+      overflow: hidden;
+    }
+
+    /* 左栏：文件列表 */
+    .sidebar {
+      border-right: 1px solid var(--border);
+      background: var(--surface-2);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .file-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .file-card {
+      padding: 10px 12px;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .file-card:hover { border-color: var(--border-strong); }
+    .file-card.active {
+      border-color: var(--accent);
+      background: var(--surface);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    }
+    .file-name {
+      font-size: 12.5px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 4px;
+    }
+    .file-meta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-mute);
+    }
+    .version-tag {
+      font-family: var(--font-mono);
+      font-size: 10.5px;
+      background: var(--surface-2);
+      padding: 1px 5px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+    }
+
+    /* 中间主舞台：极简纯净正文阅读画布 */
+    .main-stage {
+      display: flex;
+      flex-direction: column;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .stage-toolbar {
+      height: 40px;
+      padding: 0 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+      font-size: 12px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+    .stage-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .doc-pill {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      background: var(--surface-2);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+    .stage-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 32px 48px;
+      line-height: 1.8;
+      font-size: 14px;
+      color: var(--text);
+    }
+    .stage-content h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 8px;
+    }
+    .stage-content h2 {
+      font-size: 16px;
+      font-weight: 600;
+      margin: 20px 0 10px 0;
+    }
+    .stage-content p {
+      margin-bottom: 14px;
+      color: var(--text);
+    }
+    .stage-footer {
+      height: 32px;
+      padding: 0 16px;
+      border-top: 1px solid var(--border);
+      background: var(--surface-2);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--text-mute);
+      flex-shrink: 0;
+    }
+
+    /* 敏感词高亮插桩 */
+    mark.sensi-mark {
+      background: transparent;
+      padding: 1px 3px;
+      border-radius: 3px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+    mark.sensi-mark[data-risk="high"] {
+      border-bottom: 2px solid var(--danger);
+    }
+    mark.sensi-mark[data-risk="medium"] {
+      border-bottom: 2px solid var(--warning);
+    }
+    mark.sensi-mark[data-risk="low"] {
+      border-bottom: 2px solid var(--text-dim);
+    }
+    mark.sensi-mark:hover {
+      background: rgba(217, 119, 6, 0.12);
+    }
+    mark.sensi-mark.sensi-selected {
+      background: rgba(217, 119, 6, 0.22);
+      box-shadow: 0 0 0 2px var(--warning);
+      font-weight: 600;
+    }
+    mark.sensi-mark.sensi-selected[data-risk="high"] {
+      background: rgba(220, 38, 38, 0.22);
+      box-shadow: 0 0 0 2px var(--danger);
+    }
+
+    /* 右侧栏：统一智能审计主控台 (Unified Inspector Panel) */
+    .inspector-panel {
+      border-left: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    
+    /* 分段选项卡 Segmented Control */
+    .segmented-control {
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+      display: flex;
+      gap: 6px;
+    }
+    .segmented-btn {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      border: 1px solid transparent;
+      background: transparent;
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.12s;
+      user-select: none;
+    }
+    .segmented-btn:hover {
+      background: var(--surface-hover);
+      color: var(--text);
+    }
+    .segmented-btn.active {
+      background: var(--surface);
+      color: var(--text);
+      border-color: var(--border);
+      box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+      font-weight: 600;
+    }
+    .badge-count {
+      font-size: 10.5px;
+      font-family: var(--font-mono);
+      background: var(--surface-2);
+      padding: 1px 5px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .segmented-btn.active .badge-count {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+    }
+
+    /* 选项卡内容容器 */
+    .tab-content {
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* 规则配置 Tab */
+    .rules-pane {
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+    }
+    .pane-section-title {
+      font-size: 11.5px;
+      font-weight: 600;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .select-input {
+      width: 100%;
+      padding: 6px 8px;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text);
+      font-size: 12.5px;
+      outline: none;
+    }
+
+    /* 常用标签按钮池 */
+    .tag-pool {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .tag-chip {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      border: 1px dashed var(--border-strong);
+      background: var(--surface-2);
+      color: var(--text-dim);
+      cursor: pointer;
+      user-select: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.12s;
+    }
+    .tag-chip:hover {
+      background: var(--surface-hover);
+      border-color: var(--text);
+      color: var(--text);
+    }
+
+    /* 规则卡片列表 */
+    .rule-card-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .rule-card {
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      transition: border-color 0.12s;
+    }
+    .rule-card:hover {
+      border-color: var(--border-strong);
+    }
+    .rule-card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .rule-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12.5px;
+      font-weight: 500;
+    }
+    .rule-desc {
+      font-size: 11px;
+      color: var(--text-mute);
+      margin-top: 4px;
+      padding-left: 22px;
+      line-height: 1.4;
+    }
+    .risk-badge {
+      font-size: 10px;
+      padding: 1px 5px;
+      border-radius: 3px;
+      font-weight: 500;
+    }
+    .risk-badge.medium {
+      background: var(--warning-soft);
+      color: var(--warning);
+      border: 1px solid rgba(217, 119, 6, 0.25);
+    }
+    .risk-badge.high {
+      background: var(--danger-soft);
+      color: var(--danger);
+      border: 1px solid rgba(220, 38, 38, 0.25);
+    }
+    .delete-btn {
+      color: var(--text-mute);
+      cursor: pointer;
+      font-size: 13px;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    .delete-btn:hover {
+      color: var(--danger);
+      background: var(--surface-hover);
+    }
+
+    /* 底部执行动作卡 */
+    .inspector-footer {
+      padding: 12px 14px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .btn {
+      padding: 7px 12px;
+      font-size: 12.5px;
+      font-weight: 500;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: all 0.12s;
+      user-select: none;
+    }
+    .btn:hover { background: var(--surface-hover); }
+    .btn.primary {
+      background: var(--accent);
+      color: var(--accent-text);
+      border-color: var(--accent);
+    }
+    .btn.primary:hover { opacity: 0.9; }
+
+    /* 审计清单 Tab */
+    .audit-pane {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      overflow: hidden;
+    }
+    .audit-toolbar {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface-2);
+      font-size: 11.5px;
+    }
+    .audit-items-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 10px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .audit-item {
+      padding: 8px 10px;
+      border-radius: var(--radius-sm);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      cursor: pointer;
+      transition: all 0.12s;
+    }
+    .audit-item:hover {
+      border-color: var(--border-strong);
+      background: var(--surface-hover);
+    }
+    .audit-item.active {
+      border-color: var(--warning);
+      background: var(--warning-soft);
+    }
+    .audit-item-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+    .audit-word {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .audit-tag {
+      font-size: 10.5px;
+      color: var(--text-dim);
+      background: var(--surface-2);
+      padding: 1px 6px;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+    }
+
+    /* 脉冲动画 */
+    @keyframes pulseFlash {
+      0% { background: rgba(220, 38, 38, 0.45); }
+      50% { background: transparent; }
+      100% { background: rgba(220, 38, 38, 0.45); }
+    }
+    .pulse-animation {
+      animation: pulseFlash 0.5s ease-in-out 2;
+    }
+
+    /* Prompt 模态框 */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.5);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 1000;
+      backdrop-filter: blur(3px);
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      width: 90%;
+      max-width: 620px;
+      padding: 18px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      box-shadow: 0 16px 36px rgba(0,0,0,0.25);
+    }
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 10px;
+    }
+    .modal-header h3 { font-size: 14px; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <!-- Demo 顶部横幅，说明方案背景与特性 -->
+  <div class="demo-banner">
+    <div style="display: flex; align-items: center;">
+      <span class="demo-tag">PROPOSAL C DEMO</span>
+      <span><strong>方案 C 原型演示</strong>：右侧一体化审计工作台（中间阅读视界释放 100%，输入输出在右侧单手闭环）</span>
+    </div>
+    <div style="display: flex; gap: 12px;">
+      <span style="color: #9ca3af;">可直接点击右侧 <b>[立即执行提取]</b> 体验流畅的 Tab 闭环切换</span>
+    </div>
+  </div>
+
+  <!-- 应用导航 -->
+  <header class="app-header">
+    <div class="logo-group">
+      <span class="logo-title">SensiDoc</span>
+      <span class="logo-badge">Offline Local AI · Unified Inspector</span>
+    </div>
+    <div>
+      <button class="btn" style="font-size: 11.5px;" onclick="alert('系统设置功能就绪')">⚙️ 设置</button>
+    </div>
+  </header>
+
+  <!-- 三栏工作区 -->
+  <div class="app-layout">
+    <!-- 左栏：文件列表 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span>文档列表 (3)</span>
+        <button class="btn" style="padding: 2px 6px; font-size: 11px;">+ 导入</button>
+      </div>
+      <div class="file-list">
+        <div class="file-card active">
+          <div class="file-name">框架合作协议_2026.docx</div>
+          <div class="file-meta">
+            <span>12,480 字符</span>
+            <span class="version-tag">#1版 · 6项命中</span>
+          </div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">员工离职保密及竞业协议.pdf</div>
+          <div class="file-meta">
+            <span>5,890 字符</span>
+            <span class="version-tag">未提取</span>
+          </div>
+        </div>
+        <div class="file-card">
+          <div class="file-name">服务器采购与服务保障合同.docx</div>
+          <div class="file-meta">
+            <span>8,120 字符</span>
+            <span class="version-tag">未提取</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 中间主舞台：纯净文档正文阅读视界 (100% 空间解放) -->
+    <main class="main-stage">
+      <!-- 极简工具栏 -->
+      <div class="stage-toolbar">
+        <div class="stage-meta">
+          <span style="font-weight: 600;">框架合作协议_2026.docx</span>
+          <span class="doc-pill">12,480 字符</span>
+          <span class="doc-pill" style="color: var(--link);">快照 #1版 (合同信息提取)</span>
+        </div>
+        <div>
+          <span style="font-size: 11px; color: var(--text-mute);">💡 提示：点击正文中高亮敏感词可联动右侧定位</span>
+        </div>
+      </div>
+
+      <!-- 正文渲染区 (无任何规则表单遮挡，享受顶级沉浸阅读) -->
+      <div class="stage-content" id="docContent">
+        <h1>战略合作框架协议书</h1>
+        <p style="color: var(--text-mute); font-size: 12px; margin-bottom: 20px;">
+          协议编号：XY-2026-0831-01 · 签约地点：北京市海淀区
+        </p>
+
+        <h2>一、 合同当事人与法定主体</h2>
+        <p>
+          本协议由 
+          <mark class="sensi-mark" data-risk="medium" data-id="1">北京数智未来科技有限公司</mark>
+          （以下简称“甲方”），法定代表人：
+          <mark class="sensi-mark" data-risk="medium" data-id="3">张建国</mark>
+          ，住所地：
+          <mark class="sensi-mark" data-risk="medium" data-id="5">北京市海淀区中关村南大街1号数智大厦A座18层</mark>
+          ；
+        </p>
+        <p>
+          与 
+          <mark class="sensi-mark" data-risk="medium" data-id="2">上海云端互联网络技术有限公司</mark>
+          （以下简称“乙方”），法定代表人：
+          <mark class="sensi-mark" data-risk="medium" data-id="4">李晨曦</mark>
+          ，住所地：
+          <mark class="sensi-mark" data-risk="medium" data-id="6">上海市浦东新区张江高科技园区碧波路888号B栋</mark>
+          ，于 2026 年 8 月 31 日共同签署并生效。
+        </p>
+
+        <h2>二、 合作范围与资金结算账户</h2>
+        <p>
+          双方一致同意就离线隐私计算及本地大模型敏感数据审计系统展开联合研发。甲方应按期将首期研发经费人民币 
+          <mark class="sensi-mark" data-risk="high" data-id="7">3,500,000.00 元</mark>
+          汇入乙方指定银行账户。乙方收款账户信息如下：
+        </p>
+        <p style="padding: 10px 14px; background: var(--surface-2); border-left: 3px solid var(--border-strong); border-radius: 4px;">
+          开户银行：招商银行股份有限公司上海张江支行<br>
+          银行账号：<mark class="sensi-mark" data-risk="high" data-id="8">6214 8301 9823 4519</mark><br>
+          统一社会信用代码：<mark class="sensi-mark" data-risk="medium" data-id="9">91310115MA1K8888XX</mark>
+        </p>
+
+        <h2>三、 保密与数据安全</h2>
+        <p>
+          任何一方对在签署或履行本协议过程中获知的对方涉密信息（包括但不限于商业计划、代码模型权重、财务数据及用户隐私）负有严格保密义务。项目对接人紧急联络电话：
+          <mark class="sensi-mark" data-risk="high" data-id="10">13800138000</mark>
+          。
+        </p>
+
+        <h2>四、 争议解决与管辖</h2>
+        <p>
+          因本协议引起或与本协议有关的任何争议，双方应首先友好协商解决；协商不成的，应提交北京仲裁委员会进行仲裁。
+        </p>
+      </div>
+
+      <!-- 底部离线模型状态栏 -->
+      <div class="stage-footer">
+        <div style="display: flex; align-items: center; gap: 6px;">
+          <span style="width: 6px; height: 6px; border-radius: 50%; background: var(--success); display: inline-block;"></span>
+          <span style="font-family: var(--font-mono);">离线模型: Qwen2.5-0.5B-Instruct-Q4_K_M (就绪)</span>
+        </div>
+        <div>Metal GPU 加速 · 本地完全离线运行 · 无数据出境风险</div>
+      </div>
+    </main>
+
+    <!-- 右侧栏：统一智能审计主控台 (Unified Inspector Panel) -->
+    <aside class="inspector-panel">
+      <!-- 核心切换：Segmented Tabs -->
+      <div class="segmented-control">
+        <button class="segmented-btn active" id="tabRulesBtn" onclick="switchTab('rules')">
+          <span>⚙️ 提取规则</span>
+          <span class="badge-count" id="rulesCountBadge">6</span>
+        </button>
+        <button class="segmented-btn" id="tabAuditBtn" onclick="switchTab('audit')">
+          <span>📋 敏感清单</span>
+          <span class="badge-count" id="auditCountBadge">10</span>
+        </button>
+      </div>
+
+      <!-- 视图 1：提取规则配置视图 (Input 阶段) -->
+      <div class="tab-content" id="rulesPane">
+        <div class="rules-pane">
+          <!-- 场景模板下拉选择 -->
+          <div class="form-row">
+            <div class="pane-section-title">
+              <span>场景预设模板</span>
+              <span style="font-size: 10px; color: var(--link); cursor: pointer;" onclick="alert('已将当前规则保存为模板')">另存模板</span>
+            </div>
+            <select class="select-input" id="presetSelect" onchange="handlePresetChange(this.value)">
+              <option value="contract">合同信息提取模板 (预设 6 项)</option>
+              <option value="privacy">个人隐私合规审查模板 (预设 4 项)</option>
+              <option value="finance">财务与银行卡审计模板</option>
+              <option value="empty">-- 空白自定义 --</option>
+            </select>
+          </div>
+
+          <!-- 常用字段推荐池 (点击即加) -->
+          <div class="form-row">
+            <div class="pane-section-title">
+              <span>常用标签推荐池 (点击速加)</span>
+            </div>
+            <div class="tag-pool">
+              <span class="tag-chip" onclick="quickAddTag('金额/预算', '合同涉及的资金、违约金或付款金额', 'high')">＋ 金额/预算</span>
+              <span class="tag-chip" onclick="quickAddTag('统一信用代码', '企业营业执照18位税号代码', 'medium')">＋ 统一信用代码</span>
+              <span class="tag-chip" onclick="quickAddTag('银行卡号', '个人或对公银行账户卡号', 'high')">＋ 银行卡号</span>
+              <span class="tag-chip" onclick="quickAddTag('联系电话', '手机号码或固话号码', 'high')">＋ 联系电话</span>
+            </div>
+          </div>
+
+          <!-- 当前生效规则列表 -->
+          <div class="form-row" style="flex: 1;">
+            <div class="pane-section-title">
+              <span>生效规则定义 (<span id="ruleTotalCount">6</span> 项)</span>
+              <span style="font-size: 10.5px; color: var(--link); cursor: pointer;" onclick="addEmptyRule()">＋ 新增</span>
+            </div>
+            
+            <div class="rule-card-list" id="ruleCardList">
+              <!-- 动态规则卡片 -->
+              <div class="rule-card" data-idx="0">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>甲方</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(0)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">合同甲方企业名称全称或简写</div>
+              </div>
+
+              <div class="rule-card" data-idx="1">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>乙方</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(1)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">合同乙方企业名称全称或简写</div>
+              </div>
+
+              <div class="rule-card" data-idx="2">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>甲方法人</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(2)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">甲方企业的法定代表人姓名</div>
+              </div>
+
+              <div class="rule-card" data-idx="3">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>乙方法人</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(3)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">乙方企业的法定代表人姓名</div>
+              </div>
+
+              <div class="rule-card" data-idx="4">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>甲方地址</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(4)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">甲方企业的法定住所地、经营地址</div>
+              </div>
+
+              <div class="rule-card" data-idx="5">
+                <div class="rule-card-header">
+                  <div class="rule-left">
+                    <input type="checkbox" checked>
+                    <span>乙方地址</span>
+                    <span class="risk-badge medium">中危</span>
+                  </div>
+                  <span class="delete-btn" onclick="removeRule(5)" title="删除此规则">✕</span>
+                </div>
+                <div class="rule-desc">乙方企业的注册地与通信地址</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 规则底部主动作区 -->
+        <div class="inspector-footer">
+          <div style="display: flex; gap: 8px;">
+            <button class="btn" style="flex: 1; font-size: 11.5px;" onclick="openPromptModal()">🛠️ Prompt 调优</button>
+            <button class="btn" style="font-size: 11.5px;" onclick="alert('已清空所有规则')">清空</button>
+          </div>
+          <button class="btn primary" id="runExtractBtn" onclick="simulateExtract()" style="padding: 9px 0;">
+            <span>▶ 立即执行提取 (Extract)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- 视图 2：敏感词审计清单视图 (Output 阶段) -->
+      <div class="tab-content" id="auditPane" style="display: none;">
+        <div class="audit-pane">
+          <!-- 统计与过滤条 -->
+          <div class="audit-toolbar">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="font-weight: 600;">命中清单 (10 项)</span>
+            </div>
+            <div>
+              <button class="btn" style="padding: 2px 6px; font-size: 10.5px;" onclick="alert('原始 JSON 模态框就绪')">原始 JSON</button>
+            </div>
+          </div>
+
+          <!-- 敏感词项目列表 -->
+          <div class="audit-items-list" id="auditItemsList">
+            <div class="audit-item" onclick="focusMark(1)" data-id="1">
+              <div class="audit-item-top">
+                <span class="audit-word">北京数智未来科技有限公司</span>
+                <span class="risk-badge medium">中危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【甲方】</span>
+                <span style="color: var(--text-mute);">正文第 1 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(2)" data-id="2">
+              <div class="audit-item-top">
+                <span class="audit-word">上海云端互联网络技术有限公司</span>
+                <span class="risk-badge medium">中危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【乙方】</span>
+                <span style="color: var(--text-mute);">正文第 1 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(3)" data-id="3">
+              <div class="audit-item-top">
+                <span class="audit-word">张建国</span>
+                <span class="risk-badge medium">中危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【甲方法人】</span>
+                <span style="color: var(--text-mute);">正文第 1 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(4)" data-id="4">
+              <div class="audit-item-top">
+                <span class="audit-word">李晨曦</span>
+                <span class="risk-badge medium">中危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【乙方法人】</span>
+                <span style="color: var(--text-mute);">正文第 1 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(7)" data-id="7">
+              <div class="audit-item-top">
+                <span class="audit-word">3,500,000.00 元</span>
+                <span class="risk-badge high">高危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【金额/预算】</span>
+                <span style="color: var(--text-mute);">正文第 2 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(8)" data-id="8">
+              <div class="audit-item-top">
+                <span class="audit-word">6214 8301 9823 4519</span>
+                <span class="risk-badge high">高危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【银行卡号】</span>
+                <span style="color: var(--text-mute);">正文第 2 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(9)" data-id="9">
+              <div class="audit-item-top">
+                <span class="audit-word">91310115MA1K8888XX</span>
+                <span class="risk-badge medium">中危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【统一信用代码】</span>
+                <span style="color: var(--text-mute);">正文第 2 款</span>
+              </div>
+            </div>
+
+            <div class="audit-item" onclick="focusMark(10)" data-id="10">
+              <div class="audit-item-top">
+                <span class="audit-word">13800138000</span>
+                <span class="risk-badge high">高危</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between;">
+                <span>字段：【联系电话】</span>
+                <span style="color: var(--text-mute);">正文第 3 款</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 审计结果底部导出动作 -->
+          <div class="inspector-footer">
+            <div style="display: flex; gap: 8px;">
+              <button class="btn" style="flex: 1; font-size: 11.5px;" onclick="alert('导出 CSV 成功')">导出清单 (CSV)</button>
+              <button class="btn primary" style="flex: 1; font-size: 11.5px;" onclick="alert('脱敏文档已生成并在本地保存！')">🛡️ 脱敏导出</button>
+            </div>
+            <button class="btn" style="font-size: 11px; color: var(--text-mute);" onclick="switchTab('rules')">
+              ← 返回修改规则重新提取
+            </button>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Prompt 调优模态框 -->
+  <div class="modal-overlay" id="promptModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <h3>系统提示词 (System Prompt) 调优与契约</h3>
+        <button class="btn" style="padding: 2px 6px; font-size: 11px;" onclick="closePromptModal()">关闭</button>
+      </div>
+      <div style="font-size: 12px; color: var(--text-dim); line-height: 1.5;">
+        内置针对 350M~1.5B 小模型加固的「三步思维协议」。字段通过变量 <code>{FIELDS_DEFINITION}</code> 自动注入。
+      </div>
+      <textarea style="width: 100%; height: 160px; font-family: var(--font-mono); font-size: 11.5px; padding: 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface-2); color: var(--text); resize: none;">
+你是一个资深文档保密审计专家。请严格按照以下定义的敏感字段提取文档原词：
+{FIELDS_DEFINITION}
+
+【提取规则契约】：
+1. 只能从原文完整摘录，严禁杜撰或修改任何文字；
+2. 输出必须是精简的 JSON 纯字符串数组格式：["原词1", "原词2"]
+      </textarea>
+      <div style="display: flex; justify-content: flex-end; gap: 8px;">
+        <button class="btn" onclick="closePromptModal()">取消</button>
+        <button class="btn primary" onclick="alert('已应用提示词！'); closePromptModal();">保存并应用</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Tab 切换逻辑
+    function switchTab(tab) {
+      const rulesBtn = document.getElementById("tabRulesBtn");
+      const auditBtn = document.getElementById("tabAuditBtn");
+      const rulesPane = document.getElementById("rulesPane");
+      const auditPane = document.getElementById("auditPane");
+
+      if (tab === "rules") {
+        rulesBtn.classList.add("active");
+        auditBtn.classList.remove("active");
+        rulesPane.style.display = "flex";
+        auditPane.style.display = "none";
+      } else {
+        auditBtn.classList.add("active");
+        rulesBtn.classList.remove("active");
+        auditPane.style.display = "flex";
+        rulesPane.style.display = "none";
+      }
+    }
+
+    // 联动点击定位敏感词
+    function focusMark(id) {
+      // 移除原有的 selected
+      document.querySelectorAll("mark.sensi-mark").forEach(m => m.classList.remove("sensi-selected", "pulse-animation"));
+      document.querySelectorAll(".audit-item").forEach(item => item.classList.remove("active"));
+
+      const mark = document.querySelector(`mark.sensi-mark[data-id="${id}"]`);
+      const item = document.querySelector(`.audit-item[data-id="${id}"]`);
+
+      if (mark) {
+        mark.classList.add("sensi-selected", "pulse-animation");
+        mark.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      if (item) {
+        item.classList.add("active");
+      }
+    }
+
+    // 正文中的敏感词点击反向联动右侧列表
+    document.querySelectorAll("mark.sensi-mark").forEach(mark => {
+      mark.addEventListener("click", () => {
+        const id = mark.getAttribute("data-id");
+        switchTab("audit");
+        focusMark(id);
+      });
+    });
+
+    // 模拟提取执行并自动切换 Tab
+    function simulateExtract() {
+      const btn = document.getElementById("runExtractBtn");
+      const originalText = btn.innerHTML;
+      btn.innerHTML = "<span>⏳ 本地小模型极速推理中...</span>";
+      btn.style.opacity = "0.7";
+
+      setTimeout(() => {
+        btn.innerHTML = originalText;
+        btn.style.opacity = "1";
+        // 自动切到审计结果 Tab
+        switchTab("audit");
+        // 聚焦第一个
+        focusMark(1);
+      }, 700);
+    }
+
+    // 快捷推荐标签注入
+    function quickAddTag(name, desc, risk) {
+      const list = document.getElementById("ruleCardList");
+      const totalSpan = document.getElementById("ruleTotalCount");
+      const badgeSpan = document.getElementById("rulesCountBadge");
+
+      const card = document.createElement("div");
+      card.className = "rule-card";
+      card.innerHTML = `
+        <div class="rule-card-header">
+          <div class="rule-left">
+            <input type="checkbox" checked>
+            <span>${name}</span>
+            <span class="risk-badge ${risk}">${risk === 'high' ? '高危' : '中危'}</span>
+          </div>
+          <span class="delete-btn" onclick="this.closest('.rule-card').remove(); updateCount();" title="删除此规则">✕</span>
+        </div>
+        <div class="rule-desc">${desc}</div>
+      `;
+      list.appendChild(card);
+      updateCount();
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function removeRule(idx) {
+      const card = document.querySelector(`.rule-card[data-idx="${idx}"]`);
+      if (card) {
+        card.remove();
+        updateCount();
+      }
+    }
+
+    function addEmptyRule() {
+      const name = prompt("请输入新字段名称:", "开户许可证");
+      if (!name) return;
+      quickAddTag(name, "自定义敏感特征抽取说明", "medium");
+    }
+
+    function updateCount() {
+      const count = document.querySelectorAll("#ruleCardList .rule-card").length;
+      document.getElementById("ruleTotalCount").innerText = count;
+      document.getElementById("rulesCountBadge").innerText = count;
+    }
+
+    function handlePresetChange(val) {
+      if (val === 'empty') {
+        document.getElementById("ruleCardList").innerHTML = "";
+        updateCount();
+      } else {
+        // 重置为 6 项演示
+        location.reload();
+      }
+    }
+
+    function openPromptModal() {
+      document.getElementById("promptModal").classList.add("open");
+    }
+    function closePromptModal() {
+      document.getElementById("promptModal").classList.remove("open");
+    }
+  </script>
+</body>
+</html>

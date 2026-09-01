@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SensiDoc - 离线信息审计与脱敏工具</title>
+  <link rel="stylesheet" href="style.css">
+  <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
+  <script src="marked.min.js"></script>
+</head>
+<body>
+  <!-- 顶部导航栏 -->
+  <header class="app-header">
+    <div class="logo-group">
+      <svg class="lucide-icon lg" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+      <span class="logo-title">SensiDoc</span>
+    </div>
+    <div class="header-actions">
+      <button id="topThemeToggleBtn" class="btn sm" title="快速切换主题色彩模式" style="padding: 4px 8px; font-size: 13px; line-height: 1;">
+        <span id="topThemeIcon" style="display: inline-flex; align-items: center;"><svg class="lucide-icon" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></span>
+      </button>
+      <button id="settingsBtn" class="btn sm">
+        <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+        <span>设置</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- 三栏工作区 -->
+  <div class="app-layout">
+    <!-- 左栏：文件投放区与历史快照树 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title" style="display: inline-flex; align-items: center; gap: 6px;">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M15.5 2H8.6c-.4 0-.8.2-1.1.5-.3.3-.5.7-.5 1.1v12.8c0 .4.2.8.5 1.1.3.3.7.5 1.1.5h9.8c.4 0 .8-.2 1.1-.5.3-.3.5-.7.5-1.1V6.5L15.5 2z"></path><path d="M3 7.6v12.8c0 .4.2.8.5 1.1.3.3.7.5 1.1.5h9.8"></path><path d="M15 2v5h5"></path></svg>
+          <span>文档列表</span>
+        </span>
+        <button id="addFilesBtn" class="btn sm">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
+          <span>导入文件</span>
+        </button>
+        <input type="file" id="fileInput" multiple style="display: none;" accept=".doc,.docx,.pdf,.pptx,.xlsx,.xls,.txt,.md,.csv">
+      </div>
+
+      <!-- 方案一：一体化搜索与筛选工具条 -->
+      <div class="sidebar-toolbar">
+        <div class="sidebar-search-row">
+          <div class="sidebar-search-box">
+            <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="11" cy="11" r="8"></circle>
+              <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <input type="text" id="docSearchInput" class="sidebar-search-input" placeholder="搜索文件名..." autocomplete="off">
+            <button id="docSearchClearBtn" class="search-clear-btn" title="清空搜索" style="display: none; align-items: center; justify-content: center;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
+          </div>
+          <!-- 排序菜单选择器 -->
+          <div class="sidebar-sort-select-wrapper" title="切换文档排序规则">
+            <select id="docSortSelect" class="sidebar-sort-select">
+              <option value="time_asc">添加时间 (最早在前)</option>
+              <option value="time_desc">添加时间 (最新在前)</option>
+              <option value="name_asc">文件名称 (A - Z)</option>
+              <option value="name_desc">文件名称 (Z - A)</option>
+              <option value="chars_desc">字数 (多到少)</option>
+              <option value="chars_asc">字数 (少到多)</option>
+            </select>
+            <span class="sort-icon-badge" style="display: inline-flex; align-items: center;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path></svg></span>
+          </div>
+        </div>
+
+        <!-- 格式扩展名快捷胶囊组 -->
+        <div class="sidebar-filter-pills" id="extFilterPills">
+          <button class="filter-pill active" data-ext="ALL">全部</button>
+          <button class="filter-pill" data-ext="DOCX">DOCX</button>
+          <button class="filter-pill" data-ext="PDF">PDF</button>
+          <button class="filter-pill" data-ext="XLSX">XLSX</button>
+          <button class="filter-pill" data-ext="PPTX">PPTX</button>
+          <button class="filter-pill" data-ext="TXT">TXT</button>
+          <button class="filter-pill" data-ext="CSV">CSV</button>
+        </div>
+      </div>
+
+      <!-- 整个侧边栏拖拽悬停遮罩与反馈提示 (pointer-events: none 防子元素闪烁) -->
+      <div class="sidebar-drag-overlay" id="sidebarDragOverlay">
+        <div class="drag-overlay-box">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+          </svg>
+          <div class="drag-overlay-title">松开鼠标导入文档</div>
+          <div class="drag-overlay-desc">支持 Word / PDF / PPTX / Excel / TXT / CSV</div>
+        </div>
+      </div>
+
+      <!-- 文件与快照版本树 -->
+      <div class="file-list" id="fileList">
+        <!-- 动态生成 -->
+      </div>
+    </aside>
+
+    <!-- 左侧可拖拽调整大小手柄 -->
+    <div class="panel-resizer" id="resizerLeft" title="拖动调整侧边栏宽度"></div>
+
+    <!-- 中间主舞台：极简纯净文档正文阅读视界 (100% 空间释放) -->
+    <main class="main-stage">
+      <!-- 极简文档工具栏 (左侧预览/源码拨杆、中间标题严格居中、右侧正文字体缩放) -->
+      <div class="stage-toolbar">
+        <div class="stage-toolbar-left">
+          <!-- 左右拨杆开关：预览模式 vs 源码模式 -->
+          <div class="view-mode-switch">
+            <button id="viewRenderedBtn" class="view-mode-btn active" title="渲染视图 (支持敏感词高亮标注)" style="display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+              <span>预览</span>
+            </button>
+            <button id="viewSourceBtn" class="view-mode-btn" title="查看 Markdown 原始内容" style="display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              <span>源码</span>
+            </button>
+          </div>
+        </div>
+        <div class="stage-toolbar-center">
+          <span id="docMeta" class="doc-meta-title">请在左侧选择或投放文档</span>
+        </div>
+        <div class="stage-toolbar-right">
+          <!-- 历史快照版本控制时光机 (常驻顶部标题栏右侧，点击下拉展开历史清单) -->
+          <div class="snapshot-picker-wrapper" id="snapshotPickerWrapper">
+            <button id="previewStatsSnapBtn" class="snapshot-picker-btn" title="查看或回放历史提取版本">
+              <span class="snap-icon" style="display: inline-flex; align-items: center;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg></span>
+              <span id="previewStatsSnapText">快照: -</span>
+              <span class="snap-arrow">▾</span>
+            </button>
+            <!-- 向下弹出的历史快照列表面板 -->
+            <div class="snapshot-popup-menu" id="snapshotPopupMenu">
+              <div class="snapshot-popup-header">
+                <span>历史提取快照版本</span>
+                <span id="snapshotTotalBadge" class="snap-total-badge">0 个</span>
+              </div>
+              <div class="snapshot-popup-list" id="snapshotPopupList">
+                <!-- 动态生成 -->
+              </div>
+            </div>
+          </div>
+          <!-- 紧随其后的“提取规则”按钮 (点击审查当前快照的系统提示词) -->
+          <button id="viewSnapshotRulesBtn" class="btn sm" title="查看当前快照使用的系统提示词与规则定义" style="height: 26px; padding: 0 8px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;" disabled>
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <span>提取规则</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Markdown 渲染与高亮标注区 (充裕阅读视界) -->
+      <section class="preview-container">
+        <div class="markdown-body" id="markdownPreview">
+          <p style="color: var(--text-mute);">投放或选择文档后，在此处实时预览 Markdown 渲染画面及敏感词高亮。</p>
+        </div>
+        <textarea class="markdown-source" id="markdownSource" readonly spellcheck="false" style="display: none;" placeholder="投放或选择文档后，在此处查看 Markdown 原始内容..."></textarea>
+        <!-- 底部状态信息栏：左侧展示纯净内容预览统计 (字符数、命中数)，中间绝对居中展示快照执行模型名称，右侧放回字号缩放控制组 -->
+        <div class="preview-footer-bar">
+          <div class="preview-footer-left">
+            <span id="previewStatsChars" class="preview-stat-item">0 字符</span>
+            <span class="preview-stat-divider">·</span>
+            <span id="previewStatsHits" class="preview-stat-item">0 处标记</span>
+          </div>
+          <!-- 中间居中：快照执行提取的模型标识 -->
+          <div class="preview-footer-center" id="previewStatsModelWrapper">
+            <span class="preview-model-badge" id="previewStatsModelBadge" title="本次历史快照执行提取的模型">
+              <span class="model-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
+              <span id="previewStatsModelText">执行模型: -</span>
+            </span>
+          </div>
+          <div class="preview-footer-right">
+            <!-- 文本缩放控制组 (常驻底栏右侧) -->
+            <div class="zoom-control-group">
+              <button id="zoomOutBtn" class="zoom-btn" title="缩小正文字体 (A-)">A-</button>
+              <span id="zoomLevelDisplay" class="zoom-level-text">100%</span>
+              <button id="zoomInBtn" class="zoom-btn" title="放大正文字体 (A+)">A+</button>
+              <button id="zoomResetBtn" class="zoom-btn" title="重置字号" style="font-size: 10px; padding: 2px 6px;">重置</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- 右侧可拖拽调整大小手柄 -->
+    <div class="panel-resizer" id="resizerRight" title="拖动调整审计面板宽度"></div>
+
+    <!-- 右栏：统一智能审计主控台 (Unified Inspector Panel) -->
+    <aside class="inspector-panel">
+      <!-- 分段控制器 Segmented Control -->
+      <div class="segmented-control">
+        <button class="segmented-btn active" id="tabRulesBtn">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="4" x2="20" y1="21" y2="21"></line><line x1="4" x2="20" y1="14" y2="14"></line><line x1="4" x2="20" y1="7" y2="7"></line><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="14" r="2"></circle><circle cx="10" cy="21" r="2"></circle></svg>
+          <span>提取规则</span>
+          <span class="badge-count" id="rulesCountBadge">0</span>
+        </button>
+        <button class="segmented-btn" id="tabAuditBtn">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><path d="M15 2H9a1 1 0 0 0-1 1v2a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1Z"></path><path d="m9 14 2 2 4-4"></path></svg>
+          <span>敏感清单</span>
+          <span class="badge-count" id="auditCountBadge">0</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: 提取规则配置视图 (Input 阶段) -->
+      <div class="tab-content" id="rulesPane">
+        <div class="rules-pane-body">
+          <!-- 场景模板下拉选择 (支持另存与删除自定义模板) -->
+          <div class="form-row">
+            <div class="pane-section-title">
+              <span style="display: inline-flex; align-items: center; gap: 5px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="M9 21V9"></path></svg>
+                <span>场景预设模板</span>
+              </span>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button id="deleteTemplateBtn" class="btn-text-link" style="color: #dc2626; display: none;" title="删除当前选中的自定义模板">删除此模板</button>
+                <button id="saveTemplateBtn" class="btn-text-link" title="将当前规则组合保存为新模板">另存新模板</button>
+              </div>
+            </div>
+            <select id="presetSelect" class="preset-select" style="width: 100%;">
+              <!-- 动态填充 -->
+            </select>
+          </div>
+
+          <!-- 常用字段推荐池 (点击速加) -->
+          <div class="form-row">
+            <div class="pane-section-title">
+              <span style="display: inline-flex; align-items: center; gap: 5px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                <span>常用标签库 (点击即加)</span>
+              </span>
+            </div>
+            <div class="tag-pool" id="tagPool">
+              <!-- 动态填充 -->
+            </div>
+          </div>
+
+          <!-- 生效规则卡片列表 (自适应充满容器，无冗余空白) -->
+          <div class="form-row" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
+            <div class="pane-section-title">
+              <span style="display: inline-flex; align-items: center; gap: 5px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <span>生效规则定义 (<span id="ruleTotalCount">0</span> 项)</span>
+              </span>
+              <button id="addFieldBtn" class="btn-text-link">＋ 新增规则</button>
+            </div>
+            <div class="rule-card-list" id="ruleCardList">
+              <!-- 动态填充规则卡片 -->
+            </div>
+          </div>
+        </div>
+
+        <!-- 规则底部执行与模型控制卡 -->
+        <div class="inspector-footer">
+          <!-- 方案一：一体化模型下拉选择与启停控制条 -->
+          <div class="model-control-strip" id="modelControlStrip">
+            <div class="model-status-indicator">
+              <span class="status-indicator-dot" id="footerModelDot" title="离线服务运行状态"></span>
+              <span class="model-strip-label" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+                <span>模型:</span>
+              </span>
+            </div>
+            <select id="footerModelSelect" class="footer-model-select" title="选择要执行提取的本地 GGUF 模型">
+              <option value="">扫描本地模型中...</option>
+            </select>
+            <label class="toggle-switch" title="开启/关闭选中的离线模型">
+              <input type="checkbox" id="footerModelToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <button id="quickExtractBtn" class="btn primary" style="width: 100%; padding: 8px 0; justify-content: center; gap: 6px;">
+            <svg class="lucide-icon sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+            <span>立即执行提取</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Tab 2: 敏感词清单与导出视图 (Output 阶段) -->
+      <div class="tab-content" id="auditPane" style="display: none;">
+        <div class="audit-toolbar">
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <span class="audit-title" style="font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>
+              <span>命中清单</span>
+            </span>
+            <span id="auditCount" class="file-chip">0 项命中</span>
+          </div>
+          <div>
+            <button id="viewRawJsonBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="查看本次提取的原始 JSON 数据">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              <span>原始 JSON</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="audit-list" id="auditList" style="flex: 1; overflow-y: auto; padding: 10px 12px;">
+          <p style="color: var(--text-mute); font-size: 12px; text-align: center; margin-top: 30px;">
+            暂无提取记录，点击「立即执行提取」开始审计
+          </p>
+        </div>
+
+        <div class="inspector-footer">
+          <div style="display: flex; gap: 8px;">
+            <button id="exportCsvBtn" class="btn sm" style="flex: 1; display: inline-flex; align-items: center; gap: 5px;">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
+              <span>导出清单 (CSV)</span>
+            </button>
+            <button id="exportDesensBtn" class="btn primary sm" style="flex: 1; display: inline-flex; align-items: center; gap: 5px;">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+              <span>脱敏导出文档</span>
+            </button>
+          </div>
+          <button id="backToRulesBtn" class="btn sm" style="width: 100%; font-size: 11px; color: var(--text-mute); display: inline-flex; align-items: center; gap: 4px;">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            <span>返回修改规则重新提取</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 设置模态框 (板块化设计：模型管理 / 提取规则与提示词设定，默认固定 450px 黄金高度) -->
+  <div class="modal-overlay" id="settingsModal">
+    <div class="modal-box" style="width: 660px; max-width: 95%; height: 450px; display: flex; flex-direction: column; box-sizing: border-box;">
+      <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; position: relative; display: flex; align-items: center; justify-content: center;">
+        <!-- 设置子板块切换选项卡 (居中展示) -->
+        <div class="settings-tab-nav">
+          <button class="settings-tab-btn active" id="tabSetModelBtn">
+            <svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+            <span>离线模型</span>
+          </button>
+          <button class="settings-tab-btn" id="tabSetOnlineAiBtn">
+            <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
+            <span>在线 AI 模型</span>
+          </button>
+          <button class="settings-tab-btn" id="tabSetRulesBtn">
+            <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="4" x2="20" y1="21" y2="21"></line><line x1="4" x2="20" y1="14" y2="14"></line><line x1="4" x2="20" y1="7" y2="7"></line><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="14" r="2"></circle><circle cx="10" cy="21" r="2"></circle></svg>
+            <span>提取规则与提示词</span>
+          </button>
+          <button class="settings-tab-btn" id="tabSetAppearanceBtn">
+            <svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
+            <span>外观与显示</span>
+          </button>
+        </div>
+        <button id="closeModalBtn" class="btn sm" style="position: absolute; right: 0;">关闭</button>
+      </div>
+
+      <!-- 板块 1: 离线模型管理 -->
+      <div class="settings-tab-pane active" id="paneSetModel" style="flex: 1; overflow-y: auto; padding-right: 4px;">
+        <div style="margin-bottom: 16px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+            <div style="font-size: 12px; color: var(--text-dim); font-weight: 500;">
+              本地离线模型管理 (GGUF)：
+            </div>
+            <button id="importLocalGgufBtn" class="btn sm">+ 选取本地 GGUF 模型</button>
+          </div>
+          <div id="localModelsList" style="margin-bottom: 12px;">
+            <!-- 动态列出已就绪的模型 -->
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid var(--border); padding-top: 12px;">
+          <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px; font-weight: 500;">
+            魔搭平台下载离线模型：
+          </div>
+          <div id="modelPresetsList">
+            <!-- 动态载入预设模型项 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 板块 1.5: 在线 AI 模型 (OpenAI 兼容 API) -->
+      <div class="settings-tab-pane" id="paneSetOnlineAi" style="display: none; flex: 1; overflow-y: auto; padding-right: 4px;">
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <!-- 启用开关卡片 -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+            <div>
+              <div style="font-size: 12.5px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
+                <span>启用在线 AI 模型辅助 (提示词深度进化)</span>
+              </div>
+              <div style="font-size: 11px; color: var(--text-mute); margin-top: 2px;">开启后，寻优评测将调用云端大模型自动诊断小模型错题并进化出最佳 Prompt；关闭时使用纯离线模式。</div>
+            </div>
+            <label class="toggle-switch">
+              <input type="checkbox" id="onlineAiEnabledToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+
+          <!-- 配置表单 -->
+          <div id="onlineAiFormBlock" style="display: flex; flex-direction: column; gap: 10px; opacity: 0.5; pointer-events: none; transition: opacity 0.2s;">
+            <div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <label style="font-size: 11.5px; font-weight: 500; color: var(--text);">API 服务地址 (Base URL)：</label>
+                <div style="display: flex; gap: 4px;">
+                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek 官方</button>
+                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.openai.com/v1" data-model="gpt-4o">OpenAI 官方</button>
+                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.siliconflow.cn/v1" data-model="deepseek-ai/DeepSeek-V3">硅基流动</button>
+                </div>
+              </div>
+              <input type="text" id="onlineAiBaseUrlInput" class="input-text" placeholder="https://api.deepseek.com/v1" style="width: 100%;">
+            </div>
+
+            <div>
+              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 密钥 (API Key)：</label>
+              <input type="password" id="onlineAiApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%;">
+            </div>
+
+            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+              <div>
+                <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型标识 (Model ID)：</label>
+                <input type="text" id="onlineAiModelIdInput" class="input-text" placeholder="deepseek-chat" style="width: 100%;">
+              </div>
+              <div>
+                <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">采样温度 (Temp)：</label>
+                <input type="number" id="onlineAiTempInput" class="input-text" min="0" max="1" step="0.1" value="0.3" style="width: 100%;">
+              </div>
+            </div>
+          </div>
+
+          <!-- 底部操作按钮 -->
+          <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px;">
+            <div id="onlineAiTestStatusText" style="font-size: 11px; color: var(--text-mute);"></div>
+            <div style="display: flex; gap: 8px;">
+              <button id="testOnlineAiBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>测试 API 连通性</span>
+              </button>
+              <button id="saveOnlineAiBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                <span>保存在线配置</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 板块 2: 提取规则设定与提示词管理 -->
+      <div class="settings-tab-pane" id="paneSetRules" style="display: none; flex: 1; overflow-y: auto; padding-right: 4px;">
+        <div style="display: flex; flex-direction: column; gap: 12px;">
+          <!-- 1. 目标模型与专属提示词档案 (针对性调优控制台) -->
+          <div style="padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; align-items: center; justify-content: space-between;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+                <span style="font-size: 12px; font-weight: 600; color: var(--text);">目标模型针对性调优：</span>
+              </div>
+              <select id="promptTargetModelSelect" class="select-field" style="max-width: 320px;">
+                <!-- 动态载入已支持/已下载的模型列表 -->
+              </select>
+            </div>
+            
+            <div style="display: flex; align-items: center; justify-content: space-between; border-top: 1px dashed var(--border); padding-top: 8px;">
+              <div id="promptModelProfileBadge" style="display: flex; align-items: center; gap: 6px; font-size: 11.5px;">
+                <!-- 渲染当前选中模型的提示词绑定状态徽章与 F1 指标 -->
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button type="button" id="triggerPromptBenchmarkBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="使用基准测试集对当前选中的模型进行提示词自动寻优">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                  <span>提示词自动寻优</span>
+                </button>
+                <button type="button" id="resetToModelDefaultPromptBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="恢复至系统为该模型推荐的默认基准模板">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                  <span>恢复推荐</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 2. 提示词定制与实时预览 (Tab 切换「编辑系统提示词」vs「系统提示词预览」) -->
+          <div class="prompt-box-card">
+            <div class="prompt-tab-header">
+              <div class="settings-tab-nav" style="background: var(--surface);">
+                <button type="button" class="settings-tab-btn active" id="tabPromptEditBtn" style="display: inline-flex; align-items: center; gap: 4px;">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>
+                  <span>编辑</span>
+                </button>
+                <button type="button" class="settings-tab-btn" id="tabPromptPreviewBtn" style="display: inline-flex; align-items: center; gap: 4px;">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+                  <span>预览</span>
+                </button>
+              </div>
+              <div style="font-size: 11px; color: var(--text-mute);">
+                包含占位符：<code style="color: var(--danger);">{FIELDS_DEFINITION}</code>
+              </div>
+            </div>
+
+            <!-- Tab 1: 编辑系统提示词 -->
+            <div class="prompt-tab-content" id="panePromptEdit">
+              <textarea id="promptTemplateInput" class="prompt-area-box" placeholder="输入系统提示词模板..."></textarea>
+            </div>
+
+            <!-- Tab 2: 系统提示词预览 -->
+            <div class="prompt-tab-content" id="panePromptPreview" style="display: none;">
+              <div id="fullPromptPreview" class="prompt-area-box"></div>
+            </div>
+          </div>
+
+          <div style="border-top: 1px solid var(--border); padding-top: 8px; display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 11px; color: var(--text-mute);">
+              输出规范：JSON 数组格式 <code style="color: var(--text);">[{"field": "字段名", "text": "原文原词"}]</code>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button id="saveModelCustomPromptBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                <span>保存为该模型专属提示词</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 3. 工作区规则维护快捷动作 -->
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); margin-top: 4px;">
+            <div>
+              <div style="font-size: 12px; font-weight: 600; color: var(--text);">工作区规则维护</div>
+              <div style="font-size: 11px; color: var(--text-mute);">清空当前右侧列表中正在编辑的所有生效规则卡片</div>
+            </div>
+            <button id="clearRulesBtn" class="btn sm" style="color: #dc2626; border-color: rgba(220, 38, 38, 0.3);">清空当前规则</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 板块 3: 外观与显示设定 (正常尺寸主题切换 + 100%~150% 纯切换按钮) -->
+      <div class="settings-tab-pane" id="paneSetAppearance" style="display: none; flex: 1; overflow-y: auto; padding-right: 4px;">
+        <div style="display: flex; flex-direction: column; gap: 16px;">
+          <!-- 功能 1: 主题模式切换 (正常紧凑尺寸) -->
+          <div class="appearance-setting-card">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 12.5px; font-weight: 600; color: var(--text);">主题色彩模式</div>
+              <div style="font-size: 11px; color: var(--text-mute); margin-top: 1px;">选择适合您工作环境的界面基调，支持实时无缝切换</div>
+            </div>
+            <div class="theme-options-grid">
+              <button type="button" class="theme-choice-btn active" data-theme-val="system" id="themeBtnSystem">
+                <span class="theme-choice-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="20" height="14" x="2" y="3" rx="2"></rect><line x1="8" x2="16" y1="21" y2="21"></line><line x1="12" x2="12" y1="17" y2="21"></line></svg></span>
+                <span class="theme-choice-title">跟随系统</span>
+              </button>
+              <button type="button" class="theme-choice-btn" data-theme-val="light" id="themeBtnLight">
+                <span class="theme-choice-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v2"></path><path d="M12 20v2"></path><path d="m4.93 4.93 1.41 1.41"></path><path d="m17.66 17.66 1.41 1.41"></path><path d="M2 12h2"></path><path d="M20 12h2"></path><path d="m6.34 17.66-1.41 1.41"></path><path d="m19.07 4.93-1.41 1.41"></path></svg></span>
+                <span class="theme-choice-title">浅色模式</span>
+              </button>
+              <button type="button" class="theme-choice-btn" data-theme-val="dark" id="themeBtnDark">
+                <span class="theme-choice-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"></path></svg></span>
+                <span class="theme-choice-title">深色模式</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 功能 2: UI 显示缩放比 (纯按钮组，范围 100% ~ 200%) -->
+          <div class="appearance-setting-card">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+              <div>
+                <div style="font-size: 12.5px; font-weight: 600; color: var(--text);">全局 UI 界面缩放比例</div>
+                <div style="font-size: 11px; color: var(--text-mute); margin-top: 1px;">按需调大界面元素与字号，保持全响应式布局自适应</div>
+              </div>
+              <div class="ui-scale-badge" id="uiScaleDisplayBadge">100%</div>
+            </div>
+
+            <!-- 纯切换按钮组 (100% ~ 200%) -->
+            <div class="scale-preset-pills">
+              <button type="button" class="scale-pill-btn active" data-scale="100">100% (默认)</button>
+              <button type="button" class="scale-pill-btn" data-scale="110">110%</button>
+              <button type="button" class="scale-pill-btn" data-scale="115">115%</button>
+              <button type="button" class="scale-pill-btn" data-scale="120">120%</button>
+              <button type="button" class="scale-pill-btn" data-scale="125">125%</button>
+              <button type="button" class="scale-pill-btn" data-scale="130">130%</button>
+              <button type="button" class="scale-pill-btn" data-scale="140">140%</button>
+              <button type="button" class="scale-pill-btn" data-scale="150">150%</button>
+              <button type="button" class="scale-pill-btn" data-scale="175">175%</button>
+              <button type="button" class="scale-pill-btn" data-scale="200">200%</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 当前快照提取规则与系统提示词查看模态框 -->
+  <div class="modal-overlay" id="snapshotRulesModal">
+    <div class="modal-box" style="width: 660px; max-width: 95%; max-height: 520px; display: flex; flex-direction: column; box-sizing: border-box;">
+      <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span style="font-size: 13.5px; font-weight: 600; color: var(--text);">快照提取规则与提示词审查</span>
+          <span id="snapModalBadge" class="file-chip" style="font-size: 11px;">#1版</span>
+        </div>
+        <div style="display: flex; gap: 8px;">
+          <button id="copySnapPromptBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+            <span>复制提示词</span>
+          </button>
+          <button id="closeSnapRulesModalBtn" class="btn sm" style="font-size: 11px;">关闭</button>
+        </div>
+      </div>
+      <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
+        <!-- 快照元信息条 -->
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11.5px;">
+          <div><span style="color: var(--text-mute);">执行模型：</span><span id="snapModalModel" style="color: var(--text); font-weight: 500;">-</span></div>
+          <div><span style="color: var(--text-mute);">场景模板：</span><span id="snapModalTemplate" style="color: var(--text); font-weight: 500;">-</span></div>
+          <div><span style="color: var(--text-mute);">记录时间：</span><span id="snapModalTime" style="color: var(--text);">-</span></div>
+          <div><span style="color: var(--text-mute);">耗时 / 命中：</span><span id="snapModalHits" style="color: var(--text);">0ms / 0处</span></div>
+        </div>
+
+        <!-- 系统提示词展示区 -->
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+            <span>本次快照使用的完整系统提示词 (System Prompt)：</span>
+          </div>
+          <pre id="snapModalPromptBlock" style="max-height: 220px; overflow: auto; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text); line-height: 1.55; white-space: pre-wrap; word-break: break-word;"></pre>
+        </div>
+
+        <!-- 启用的字段定义清单 -->
+        <div>
+          <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"></line><line x1="8" x2="21" y1="12" y2="12"></line><line x1="8" x2="21" y1="18" y2="18"></line><line x1="3" x2="3.01" y1="6" y2="6"></line><line x1="3" x2="3.01" y1="12" y2="12"></line><line x1="3" x2="3.01" y1="18" y2="18"></line></svg>
+            <span>启用的提取字段定义清单 (<span id="snapModalFieldsCount">0</span> 个)：</span>
+          </div>
+          <div id="snapModalFieldsList" style="display: flex; flex-direction: column; gap: 6px;">
+            <!-- 动态生成 -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 敏感词原始 JSON 数据查看模态框 -->
+  <div class="modal-overlay" id="rawJsonModal">
+    <div class="modal-box" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3>敏感词清单原始 JSON 数据</h3>
+        <div style="display: flex; gap: 8px;">
+          <button id="copyRawJsonBtn" class="btn sm">复制 JSON</button>
+          <button id="closeRawJsonModalBtn" class="btn sm">关闭</button>
+        </div>
+      </div>
+      <div>
+        <div style="font-size: 11.5px; color: var(--text-dim); margin-bottom: 8px;">
+          当前快照提取结果的原始结构体数据（包含位置坐标、置信来源、风险等级等元数据）：
+        </div>
+        <pre id="rawJsonCodeBlock" style="max-height: 420px; overflow: auto; background: var(--surface-2); padding: 12px; border-radius: 4px; border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11.5px; color: var(--text); line-height: 1.5;"></pre>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用中央二次确认模态框 -->
+  <div class="modal-overlay" id="confirmModal" style="z-index: 300;">
+    <div class="modal-box confirm-modal-box" style="width: 420px; max-width: 90%; padding: 22px 24px;">
+      <div class="confirm-modal-header" style="display: flex; align-items: center; gap: 10px; margin-bottom: 12px;">
+        <div id="confirmModalIconWrap" class="confirm-icon-wrap" style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; background: var(--surface-2); border: 1px solid var(--border);">
+          <svg class="lucide-icon" viewBox="0 0 24 24" style="color: var(--danger); width: 16px; height: 16px;"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+        </div>
+        <h3 id="confirmModalTitle" style="font-size: 15px; font-weight: 600; color: var(--text); margin: 0;">确认操作</h3>
+      </div>
+      <div id="confirmModalMessage" style="font-size: 12.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 20px; word-break: break-word;">
+        确定要执行此操作吗？
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="confirmModalCancelBtn" class="btn sm" style="min-width: 68px;">取消</button>
+        <button id="confirmModalOkBtn" class="btn sm danger" style="min-width: 68px;">确认删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模型提示词自动寻优评测模态框 (Auto-Prompt Benchmark) -->
+  <div class="modal-overlay" id="autoBenchmarkModal" style="z-index: 250;">
+    <div class="modal-box" style="width: 720px; max-width: 95%; max-height: 560px; display: flex; flex-direction: column; box-sizing: border-box;">
+      <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24" style="color: var(--accent);"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+          <span style="font-size: 13.5px; font-weight: 600; color: var(--text);">模型专属提示词自动寻优评测 (Auto Benchmark)</span>
+        </div>
+        <button id="closeBenchmarkModalBtn" class="btn sm" style="font-size: 11px;">关闭</button>
+      </div>
+      
+      <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
+        <!-- 模型信息与基准集说明 -->
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11.5px;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <div>
+              <span style="color: var(--text-mute);">评测目标：</span>
+              <strong id="benchmarkModelName" style="color: var(--text);">-</strong>
+            </div>
+            <div id="benchmarkModeBadge"></div>
+          </div>
+          <div style="color: var(--text-dim); font-size: 11px;">
+            基准集：10 篇企业高保真场景文档 (共 68 个敏感实体)
+          </div>
+        </div>
+
+        <!-- 运行状态与进度指示 -->
+        <div id="benchmarkLoadingBox" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 16px; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-sm); gap: 10px;">
+          <div class="benchmark-spinner" style="width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
+          <div id="benchmarkStatusText" style="font-size: 12px; color: var(--text); font-weight: 500;">正在拉起模型并在后台执行 4 轮提示词盲测矩阵...</div>
+          <div style="font-size: 11px; color: var(--text-mute);">每轮测试均会跑满 10 篇企业测试文档，预计耗时 15~35 秒，请稍候</div>
+        </div>
+
+        <!-- 评测结果对比表格区域 (评测完成呈现) -->
+        <div id="benchmarkResultsBox" style="display: none; flex-direction: column; gap: 10px;">
+          <table class="benchmark-table" style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
+            <thead>
+              <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
+                <th style="padding: 6px 10px;">提示词策略范式</th>
+                <th style="padding: 6px 8px; text-align: center;">查全召回率 (R)</th>
+                <th style="padding: 6px 8px; text-align: center;">精准率 (P)</th>
+                <th style="padding: 6px 8px; text-align: center;">综合 F1 分数</th>
+                <th style="padding: 6px 8px; text-align: center;">单篇耗时</th>
+                <th style="padding: 6px 8px; text-align: center;">评级</th>
+              </tr>
+            </thead>
+            <tbody id="benchmarkTableBody">
+              <!-- 动态注入行 -->
+            </tbody>
+          </table>
+
+          <!-- 胜出结论与采纳建议卡片 -->
+          <div id="benchmarkConclusionCard" style="padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 1.5; color: var(--text);">
+            <!-- 动态生成 -->
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部动作条 -->
+      <div id="benchmarkFooterActions" style="border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; display: none; justify-content: flex-end; gap: 10px;">
+        <button id="cancelBenchmarkAdoptBtn" class="btn sm">暂不采纳</button>
+        <button id="adoptWinnerPromptBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 5px;">
+          <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+          <span>设为该模型默认最佳提示词</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
