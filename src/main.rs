@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/settings/online-ai", get(get_online_ai_settings).post(save_online_ai_settings))
         .route("/api/settings/online-ai/test", post(test_online_ai_settings))
         .route("/api/models/import", post(import_external_model))
-        .route("/api/models/pick-and-import", post(pick_and_import_model))
+        .route("/api/models/pick-and-import", post(pick_and_import_model).get(pick_and_import_model))
         .route("/api/models/start", post(start_model))
         .route("/api/models/stop", post(stop_model))
         .route("/api/models/download", post(download_model))
