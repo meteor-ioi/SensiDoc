@@ -4,4 +4,5 @@
 sensidoc.log
 models/*.gguf
 !models/.gitkeep
+/dist
 

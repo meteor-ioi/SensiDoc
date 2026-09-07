@@ -1,5 +1,4 @@
 use crate::extractor::{Extractor, RuleField, SensitiveItem};
-use crate::session::OnlineAiConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
@@ -454,172 +453,15 @@ impl BenchmarkEngine {
         (tp_count, fn_count, fp_count, precision, recall, f1)
     }
 
-    /// 调用 OpenAI 兼容接口 Chat Completion
-    pub async fn call_openai_chat_completion(
-        config: &OnlineAiConfig,
-        system_prompt: &str,
-        user_prompt: &str,
-    ) -> Result<String, String> {
-        let base_url = config.base_url.trim_end_matches('/');
-        let url = format!("{base_url}/chat/completions");
-
-        let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
-            .build()
-            .map_err(|e| format!("初始化 HTTP 客户端失败: {e}"))?;
-
-        let body = serde_json::json!({
-            "model": config.model_id,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": config.temperature
-        });
-
-        let mut req = client.post(&url).json(&body);
-        if !config.api_key.trim().is_empty() {
-            req = req.header("Authorization", format!("Bearer {}", config.api_key.trim()));
-        }
-
-        let resp = req.send().await.map_err(|e| format!("请求在线大模型失败: {e}"))?;
-        if !resp.status().is_success() {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            return Err(format!("在线大模型接口返回错误 [{status}]: {text}"));
-        }
-
-        let res_json: serde_json::Value = resp.json().await.map_err(|e| format!("解析响应 JSON 失败: {e}"))?;
-        if let Some(content) = res_json["choices"][0]["message"]["content"].as_str() {
-            Ok(content.trim().to_string())
-        } else {
-            Err("在线大模型返回内容格式异常".to_string())
-        }
-    }
-
-    /// 测试在线 AI 模型 API 连通性
-    pub async fn test_online_ai_connection(config: &OnlineAiConfig) -> Result<String, String> {
-        let reply = Self::call_openai_chat_completion(
-            config,
-            "你是一个 API 连通性测试探针，请严格只回复 PONG 字符。",
-            "PING",
-        )
-        .await?;
-        Ok(format!("在线模型 {} 响应成功: {}", config.model_id, reply))
-    }
-
-    /// 使用在线大模型根据本地端侧模型的错题本进化生成定制 System Prompt
-    pub async fn evolve_prompt_with_online_ai(
-        model_name: &str,
-        error_diagnostics: &str,
-        config: &OnlineAiConfig,
-    ) -> Result<PromptCandidate, String> {
-        let system = r#"你是一名世界顶级的提示词架构专家 (Prompt Architect & Optimizer)。
-你的核心任务是根据端侧小模型（如 450M~1.5B 参数模型）在信息脱敏与企业审计测试中的错题诊断清单，重新设计出一套极其精炼、强防漏抽、强抗 Early Stop 的最佳 System Prompt。"#;
-
-        let user = format!(
-            r#"【目标端侧模型】：{model_name}
-【业务场景】：企业数据安全审计、商业合同与财务敏感实体抽取。
-
-【小模型基准测试错题与漏报诊断】：
-{error_diagnostics}
-
-请根据小模型参数量较小、容易过早停止（Early Stop）以及对多行表格/无语义随机字符容易注意力涣散的特点，为该模型定制一套全新优化的 System Prompt 模板。
-
-【严格规范要求】：
-1. 必须保留 `{{FIELDS_DEFINITION}}` 占位符供运行时注入字段定义；
-2. 强化正向逐行原词抽取指令，解决上述漏报实体的感知盲区；
-3. 输出格式必须保持纯 JSON 对象数组：
-[
-  {{"field": "字段名", "text": "原文原词"}}
-]
-4. 仅输出最终的系统提示词内容本身，严禁输出任何多余解释、前后缀或 markdown ``` 代码块包裹！"#
-        );
-
-        let mut evolved = Self::call_openai_chat_completion(config, system, &user).await?;
-        // 清洗可能包裹的 markdown 代码块
-        if evolved.starts_with("```") {
-            let lines: Vec<&str> = evolved.lines().collect();
-            if lines.len() >= 2 {
-                let start = 1;
-                let end = if lines.last() == Some(&"```") { lines.len() - 1 } else { lines.len() };
-                evolved = lines[start..end].join("\n");
-            }
-        }
-        if !evolved.contains("{FIELDS_DEFINITION}") {
-            evolved = format!("{evolved}\n\n【待提取字段定义】：\n{{FIELDS_DEFINITION}}");
-        }
-
-        Ok(PromptCandidate {
-            key: "online_ai_evolved".to_string(),
-            name: format!("在线 AI 深度进化版 ({})", config.model_id),
-            description: format!("由在线大模型 {} 针对端侧小模型错题集深度反思进化的专属提示词", config.model_id),
-            template: evolved.trim().to_string(),
-        })
-    }
-
-    /// 对当前在 8081 端口运行的模型执行全套提示词基准寻优评测（支持双轨制：离线模板池 vs 在线 AI 进化）
+    /// 对当前在 8081 端口运行的模型执行离线提示词基准评测
     pub async fn run_benchmark(
         model_name: &str,
         server_port: u16,
-        online_ai_cfg: Option<&OnlineAiConfig>,
     ) -> Result<BenchmarkReport, String> {
-        let mut candidates = Self::get_prompt_candidates();
+        let candidates = Self::get_prompt_candidates();
         let docs = Self::get_benchmark_documents();
-        let mut is_online_mode = false;
-        let mut online_model_name = None;
-
-        // 若开启了在线 AI 模型，先对默认基线收集错题，并请求在线大模型生成深度进化版 Prompt
-        if let Some(cfg) = online_ai_cfg {
-            if cfg.enabled && !cfg.api_key.trim().is_empty() {
-                info!("已检测到在线 AI 模型已启用，正在启动在线 AI 错题反思进化寻优流程...");
-                is_online_mode = true;
-                online_model_name = Some(cfg.model_id.clone());
-
-                // 收集基础版在 10 份文档上的错题
-                let mut error_reports = Vec::new();
-                let baseline_template = &candidates[0].template;
-                for doc in &docs {
-                    let regex_items = Extractor::extract_by_regex(doc.markdown, &doc.fields);
-                    let system_prompt = Extractor::build_system_prompt(&doc.fields, Some(baseline_template));
-                    let chunks = Extractor::chunk_text(doc.markdown, 2500);
-                    let mut ai_items = Vec::new();
-                    for (_offset, chunk_text) in chunks {
-                        if let Ok(items) = Extractor::query_llm(server_port, &system_prompt, &chunk_text).await {
-                            ai_items.extend(items);
-                        }
-                    }
-                    let final_items = Extractor::merge_and_resolve(doc.markdown, regex_items, ai_items, &doc.fields);
-                    
-                    // 找出漏提词
-                    for (cat, truths) in &doc.ground_truth {
-                        for &truth in truths {
-                            let matched = final_items.iter().any(|it| it.text.trim() == truth.trim() || (truth.len() >= 4 && it.text.contains(truth)));
-                            if !matched {
-                                error_reports.push(format!("- 文档【{}】漏提取了字段【{}】的敏感实体: \"{}\"", doc.filename, cat, truth));
-                            }
-                        }
-                    }
-                }
-
-                let diagnostics = if error_reports.is_empty() {
-                    "基准测试集未发现明显漏提。".to_string()
-                } else {
-                    error_reports.join("\n")
-                };
-
-                // 调用在线大模型进化生成新提示词
-                match Self::evolve_prompt_with_online_ai(model_name, &diagnostics, cfg).await {
-                    Ok(evolved_candidate) => {
-                        info!("在线大模型成功生成深度进化版 Prompt: {}", evolved_candidate.name);
-                        candidates.insert(0, evolved_candidate); // 插入最前面作为核心候选
-                    }
-                    Err(e) => {
-                        warn!("调用在线 AI 进化提示词失败，自动回退至离线模板池: {e}");
-                    }
-                }
-            }
-        }
+        let is_online_mode = false;
+        let online_model_name = None;
 
         let mut scores = Vec::new();
 

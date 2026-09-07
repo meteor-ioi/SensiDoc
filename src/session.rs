@@ -39,11 +39,11 @@ fn default_created_at() -> DateTime<Utc> {
     Utc::now()
 }
 
-/// 在线 AI 模型 (OpenAI 兼容 API) 配置
+/// 在线 AI 模型 (OpenAI 兼容 API) 配置档案
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OnlineAiConfig {
-    #[serde(default)]
-    pub enabled: bool,
+pub struct OnlineModelProfile {
+    pub id: String,
+    pub name: String,
     #[serde(default = "default_base_url")]
     pub base_url: String,
     #[serde(default)]
@@ -63,19 +63,18 @@ fn default_model_id() -> String {
 }
 
 fn default_temperature() -> f32 {
-    0.3
+    0.1
 }
 
-impl Default for OnlineAiConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            base_url: default_base_url(),
-            api_key: String::new(),
-            model_id: default_model_id(),
-            temperature: default_temperature(),
-        }
-    }
+fn default_online_models() -> Vec<OnlineModelProfile> {
+    vec![OnlineModelProfile {
+        id: "deepseek-v3".to_string(),
+        name: "DeepSeek-V3 (推荐)".to_string(),
+        base_url: "https://api.deepseek.com/v1".to_string(),
+        api_key: String::new(),
+        model_id: "deepseek-chat".to_string(),
+        temperature: 0.1,
+    }]
 }
 
 /// 模型专属最佳提示词档案
@@ -87,7 +86,7 @@ pub struct ModelPromptProfile {
     pub custom_prompt: String,
 }
 
-/// 工作区持久化数据结构（包括文档、自定义模板与标签库、模型专属提示词、在线 AI 配置）
+/// 工作区持久化数据结构（包括文档、自定义模板与标签库、模型专属提示词、在线 AI 模型列表）
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct WorkspaceStore {
     #[serde(default)]
@@ -99,7 +98,9 @@ struct WorkspaceStore {
     #[serde(default)]
     model_prompt_profiles: HashMap<String, ModelPromptProfile>,
     #[serde(default)]
-    online_ai_config: OnlineAiConfig,
+    online_models: Vec<OnlineModelProfile>,
+    #[serde(default)]
+    active_online_model_id: Option<String>,
 }
 
 /// 全局文档会话管理器
@@ -109,7 +110,8 @@ pub struct SessionManager {
     custom_templates: Arc<RwLock<Vec<RulePreset>>>,
     field_tags: Arc<RwLock<Vec<RuleField>>>,
     model_prompt_profiles: Arc<RwLock<HashMap<String, ModelPromptProfile>>>,
-    online_ai_config: Arc<RwLock<OnlineAiConfig>>,
+    online_models: Arc<RwLock<Vec<OnlineModelProfile>>>,
+    active_online_model_id: Arc<RwLock<Option<String>>>,
 }
 
 impl SessionManager {
@@ -129,8 +131,8 @@ impl SessionManager {
     pub const PROMPT_V1_BASELINE: &'static str = crate::extractor::Extractor::DEFAULT_SYSTEM_PROMPT_TEMPLATE;
 
     pub fn new() -> Self {
-        let store_path = PathBuf::from(".sensidoc_workspace.json");
-        let (docs, templates, tags, profiles, online_ai) = Self::load_from_disk(&store_path);
+        let store_path = crate::paths::get_workspace_store_path();
+        let (docs, templates, tags, profiles, online_models, active_id) = Self::load_from_disk(&store_path);
 
         Self {
             store_path,
@@ -138,30 +140,38 @@ impl SessionManager {
             custom_templates: Arc::new(RwLock::new(templates)),
             field_tags: Arc::new(RwLock::new(tags)),
             model_prompt_profiles: Arc::new(RwLock::new(profiles)),
-            online_ai_config: Arc::new(RwLock::new(online_ai)),
+            online_models: Arc::new(RwLock::new(online_models)),
+            active_online_model_id: Arc::new(RwLock::new(active_id)),
         }
     }
 
     /// 从本地 JSON 读取落盘数据
-    fn load_from_disk(path: &Path) -> (HashMap<String, DocumentItem>, Vec<RulePreset>, Vec<RuleField>, HashMap<String, ModelPromptProfile>, OnlineAiConfig) {
+    fn load_from_disk(path: &Path) -> (HashMap<String, DocumentItem>, Vec<RulePreset>, Vec<RuleField>, HashMap<String, ModelPromptProfile>, Vec<OnlineModelProfile>, Option<String>) {
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(path) {
                 if let Ok(store) = serde_json::from_str::<WorkspaceStore>(&content) {
+                    let online_models = if store.online_models.is_empty() {
+                        default_online_models()
+                    } else {
+                        store.online_models
+                    };
+                    let active_id = store.active_online_model_id.or_else(|| online_models.first().map(|m| m.id.clone()));
+
                     info!(
-                        "已从 {} 恢复 {} 个持久化文档记录, {} 个自定义模板, {} 个字段标签, {} 个模型提示词档案, 在线AI启用={}",
+                        "已从 {} 恢复 {} 个持久化文档记录, {} 个自定义模板, {} 个字段标签, {} 个模型提示词档案, {} 个在线模型配置",
                         path.display(),
                         store.documents.len(),
                         store.custom_templates.len(),
                         store.field_tags.len(),
                         store.model_prompt_profiles.len(),
-                        store.online_ai_config.enabled
+                        online_models.len()
                     );
                     let docs_map = store.documents.into_iter().map(|d| (d.id.clone(), d)).collect();
-                    return (docs_map, store.custom_templates, store.field_tags, store.model_prompt_profiles, store.online_ai_config);
+                    return (docs_map, store.custom_templates, store.field_tags, store.model_prompt_profiles, online_models, active_id);
                 }
             }
         }
-        (HashMap::new(), Vec::new(), Vec::new(), HashMap::new(), OnlineAiConfig::default())
+        (HashMap::new(), Vec::new(), Vec::new(), HashMap::new(), default_online_models(), Some("deepseek-v3".to_string()))
     }
 
     /// 异步刷盘持久化
@@ -170,27 +180,30 @@ impl SessionManager {
         let templates = self.custom_templates.read().await;
         let tags = self.field_tags.read().await;
         let profiles = self.model_prompt_profiles.read().await;
-        let online_ai = self.online_ai_config.read().await;
+        let online_models = self.online_models.read().await;
+        let active_id = self.active_online_model_id.read().await;
 
         let store = WorkspaceStore {
             documents: map.values().cloned().collect(),
             custom_templates: templates.clone(),
             field_tags: tags.clone(),
             model_prompt_profiles: profiles.clone(),
-            online_ai_config: online_ai.clone(),
+            online_models: online_models.clone(),
+            active_online_model_id: active_id.clone(),
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&store) {
             let _ = tokio::fs::write(&self.store_path, json).await;
         }
     }
-    /// 添加或保存自定义场景模板
+
+    /// 添加或保存自定义场景模板 (后添加的排在前面)
     pub async fn save_template(&self, template: RulePreset) {
         let mut list = self.custom_templates.write().await;
         if let Some(existing) = list.iter_mut().find(|t| t.id == template.id) {
             *existing = template;
         } else {
-            list.push(template);
+            list.insert(0, template);
         }
         drop(list);
         self.save_to_disk().await;
@@ -215,13 +228,13 @@ impl SessionManager {
         list.clone()
     }
 
-    /// 保存/新增字段标签到公共标签库
+    /// 保存/新增字段标签到公共标签库 (后添加的排在前面)
     pub async fn save_field_tag(&self, tag: RuleField) {
         let mut list = self.field_tags.write().await;
         if let Some(existing) = list.iter_mut().find(|t| t.name == tag.name) {
             *existing = tag;
         } else {
-            list.push(tag);
+            list.insert(0, tag);
         }
         drop(list);
         self.save_to_disk().await;
@@ -288,20 +301,6 @@ impl SessionManager {
     pub async fn get_all_model_prompt_profiles(&self) -> HashMap<String, ModelPromptProfile> {
         let profiles = self.model_prompt_profiles.read().await;
         profiles.clone()
-    }
-
-    /// 获取当前在线 AI 模型配置
-    pub async fn get_online_ai_config(&self) -> OnlineAiConfig {
-        let cfg = self.online_ai_config.read().await;
-        cfg.clone()
-    }
-
-    /// 保存并更新在线 AI 模型配置
-    pub async fn save_online_ai_config(&self, cfg: OnlineAiConfig) {
-        let mut target = self.online_ai_config.write().await;
-        *target = cfg;
-        drop(target);
-        self.save_to_disk().await;
     }
 
     /// 添加或更新文档
@@ -420,6 +419,79 @@ impl SessionManager {
         } else {
             Err("未找到指定文档".to_string())
         }
+    }
+
+    /// 获取所有已保存的在线模型配置
+    pub async fn get_online_models(&self) -> Vec<OnlineModelProfile> {
+        self.online_models.read().await.clone()
+    }
+
+    /// 获取当前激活选中的在线模型配置 ID
+    pub async fn get_active_online_model_id(&self) -> Option<String> {
+        self.active_online_model_id.read().await.clone()
+    }
+
+    /// 设置当前激活的在线模型配置 ID
+    pub async fn set_active_online_model_id(&self, id: Option<String>) {
+        let mut active = self.active_online_model_id.write().await;
+        *active = id;
+        drop(active);
+        self.save_to_disk().await;
+    }
+
+    /// 根据 ID 获取单个在线模型配置
+    pub async fn get_online_model_by_id(&self, id: &str) -> Option<OnlineModelProfile> {
+        let list = self.online_models.read().await;
+        list.iter().find(|m| m.id == id).cloned()
+    }
+
+    /// 保存或更新在线模型配置
+    pub async fn save_online_model(&self, mut profile: OnlineModelProfile) -> OnlineModelProfile {
+        if profile.id.trim().is_empty() {
+            profile.id = uuid::Uuid::new_v4().to_string();
+        }
+
+        let mut list = self.online_models.write().await;
+        if let Some(existing) = list.iter_mut().find(|m| m.id == profile.id) {
+            *existing = profile.clone();
+        } else {
+            list.push(profile.clone());
+        }
+
+        let mut active = self.active_online_model_id.write().await;
+        if active.is_none() {
+            *active = Some(profile.id.clone());
+        }
+        drop(active);
+        drop(list);
+
+        self.save_to_disk().await;
+        profile
+    }
+
+    /// 删除指定在线模型配置
+    pub async fn delete_online_model(&self, id: &str) -> Result<Option<String>, String> {
+        let mut list = self.online_models.write().await;
+        if list.len() <= 1 {
+            return Err("至少需要保留一个在线模型配置".to_string());
+        }
+
+        let orig_len = list.len();
+        list.retain(|m| m.id != id);
+        if list.len() == orig_len {
+            return Err("未找到指定的模型配置".to_string());
+        }
+
+        let mut active = self.active_online_model_id.write().await;
+        if active.as_deref() == Some(id) {
+            *active = list.first().map(|m| m.id.clone());
+        }
+        let current_active = active.clone();
+        drop(active);
+        drop(list);
+
+        self.save_to_disk().await;
+        Ok(current_active)
     }
 }
 

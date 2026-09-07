@@ -19,6 +19,11 @@ const state = {
   docSearchQuery: "",         // 搜索关键词
   docSortRule: "time_asc",    // 排序规则: time_asc (添加时间先后默认), time_desc, name_asc, name_desc, chars_desc, chars_asc
   docExtFilter: "ALL",        // 扩展名筛选: ALL, DOCX, PDF, XLSX, PPTX, TXT, CSV 等
+
+  // 在线大模型管理状态
+  onlineModels: [],           // 已保存的在线模型配置列表
+  activeOnlineModelId: null,  // 当前激活/选中的在线模型 ID
+  editingOnlineModelId: null, // 表单当前编辑的模型 ID
 };
 
 // 系统内置提示词常量
@@ -154,16 +159,18 @@ const el = {
   paneSetRules: document.getElementById("paneSetRules"),
   paneSetAppearance: document.getElementById("paneSetAppearance"),
 
-  // 在线 AI 模型配置组件
-  onlineAiEnabledToggle: document.getElementById("onlineAiEnabledToggle"),
-  onlineAiFormBlock: document.getElementById("onlineAiFormBlock"),
-  onlineAiBaseUrlInput: document.getElementById("onlineAiBaseUrlInput"),
-  onlineAiApiKeyInput: document.getElementById("onlineAiApiKeyInput"),
-  onlineAiModelIdInput: document.getElementById("onlineAiModelIdInput"),
-  onlineAiTempInput: document.getElementById("onlineAiTempInput"),
-  onlineAiTestStatusText: document.getElementById("onlineAiTestStatusText"),
-  testOnlineAiBtn: document.getElementById("testOnlineAiBtn"),
-  saveOnlineAiBtn: document.getElementById("saveOnlineAiBtn"),
+  // 在线 AI 模型极简配置组件
+  onlineModelSelect: document.getElementById("onlineModelSelect"),
+  newOnlineModelBtn: document.getElementById("newOnlineModelBtn"),
+  deleteOnlineModelBtn: document.getElementById("deleteOnlineModelBtn"),
+  onlineModelNameInput: document.getElementById("onlineModelNameInput"),
+  onlineModelBaseUrlInput: document.getElementById("onlineModelBaseUrlInput"),
+  onlineModelApiKeyInput: document.getElementById("onlineModelApiKeyInput"),
+  onlineModelIdInput: document.getElementById("onlineModelIdInput"),
+  onlineModelTempInput: document.getElementById("onlineModelTempInput"),
+  onlineModelTestStatusText: document.getElementById("onlineModelTestStatusText"),
+  testOnlineModelBtn: document.getElementById("testOnlineModelBtn"),
+  saveOnlineModelBtn: document.getElementById("saveOnlineModelBtn"),
 
   // 寻优模式徽标
   benchmarkModeBadge: document.getElementById("benchmarkModeBadge"),
@@ -872,26 +879,12 @@ function initEventListeners() {
   if (el.tabSetRulesBtn) el.tabSetRulesBtn.addEventListener("click", () => switchSettingsTab("rules"));
   if (el.tabSetAppearanceBtn) el.tabSetAppearanceBtn.addEventListener("click", () => switchSettingsTab("appearance"));
 
-  // 在线 AI 模型表单与连通性事件
-  if (el.onlineAiEnabledToggle) {
-    el.onlineAiEnabledToggle.addEventListener("change", () => {
-      const enabled = el.onlineAiEnabledToggle.checked;
-      if (el.onlineAiFormBlock) {
-        el.onlineAiFormBlock.style.opacity = enabled ? "1" : "0.5";
-        el.onlineAiFormBlock.style.pointerEvents = enabled ? "auto" : "none";
-      }
-    });
-  }
-  document.querySelectorAll(".quick-base-url-btn").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const url = btn.getAttribute("data-url");
-      const model = btn.getAttribute("data-model");
-      if (el.onlineAiBaseUrlInput) el.onlineAiBaseUrlInput.value = url;
-      if (el.onlineAiModelIdInput) el.onlineAiModelIdInput.value = model;
-    });
-  });
-  if (el.testOnlineAiBtn) el.testOnlineAiBtn.addEventListener("click", testOnlineAiSettings);
-  if (el.saveOnlineAiBtn) el.saveOnlineAiBtn.addEventListener("click", saveOnlineAiSettings);
+  // 在线 AI 模型配置与管理事件
+  if (el.onlineModelSelect) el.onlineModelSelect.addEventListener("change", handleOnlineModelSelectChange);
+  if (el.newOnlineModelBtn) el.newOnlineModelBtn.addEventListener("click", handleNewOnlineModel);
+  if (el.deleteOnlineModelBtn) el.deleteOnlineModelBtn.addEventListener("click", handleDeleteOnlineModel);
+  if (el.testOnlineModelBtn) el.testOnlineModelBtn.addEventListener("click", handleTestOnlineModel);
+  if (el.saveOnlineModelBtn) el.saveOnlineModelBtn.addEventListener("click", handleSaveOnlineModel);
 
   // 主界面顶部栏一键主题切换按钮
   if (el.topThemeToggleBtn) {
@@ -1937,7 +1930,73 @@ async function triggerExtraction() {
   const btn = el.quickExtractBtn;
   const origText = btn.innerText;
 
-  // 1. 检查离线模型就绪与启动状态
+  // 1. 检查选中的模型类型 (离线 vs 在线)
+  const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+  let modelSource = "offline";
+  let modelIdentifier = "";
+
+  if (chosenVal.startsWith("online:")) {
+    modelSource = "online";
+    modelIdentifier = chosenVal.slice("online:".length);
+  } else if (chosenVal.startsWith("offline:")) {
+    modelSource = "offline";
+    modelIdentifier = chosenVal.slice("offline:".length);
+  } else {
+    modelIdentifier = chosenVal;
+  }
+
+  // 场景 1: 在线云端模型 (无需启动本地 llama-server)
+  if (modelSource === "online") {
+    btn.disabled = true;
+    btn.innerText = "正在云端提取...";
+
+    try {
+      const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
+      const templateName = selectedOpt ? selectedOpt.text : "自定提取";
+
+      const res = await fetch("/api/extract", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          doc_id: state.currentDocId,
+          template_name: templateName,
+          fields: state.currentRules,
+          use_ai: true,
+          model_type: "online",
+          online_model_id: modelIdentifier,
+          custom_prompt: state.customPromptTemplate,
+        }),
+      });
+
+      if (!res.ok) {
+        let err = {};
+        try { err = await res.json(); } catch (_) {}
+        showAlertDialog({
+          title: "在线提取失败",
+          message: err.error || "云端模型未能成功响应",
+          type: "danger",
+        });
+        return;
+      }
+
+      const snapshot = await res.json();
+      await loadDocuments();
+      selectSnapshot(state.currentDocId, snapshot.id);
+      switchInspectorTab("audit");
+    } catch (e) {
+      showAlertDialog({
+        title: "提取异常",
+        message: e.message,
+        type: "danger",
+      });
+    } finally {
+      btn.disabled = false;
+      btn.innerText = origText;
+    }
+    return;
+  }
+
+  // 场景 2: 离线本地模型
   let availableModels = [];
   try {
     const localRes = await fetch("/api/models/local");
@@ -1954,7 +2013,6 @@ async function triggerExtraction() {
     console.error("检查离线模型失败:", e);
   }
 
-  // 场景A：尚未下载或导入任何离线模型
   if (availableModels.length === 0) {
     const shouldGoSettings = await showConfirmDialog({
       title: "未检测到离线模型",
@@ -1971,13 +2029,11 @@ async function triggerExtraction() {
     return;
   }
 
-  // 场景B：离线模型已存在但未启动
-  // 获取当前选中的模型或首个可用模型
-  let targetModel = el.footerModelSelect ? el.footerModelSelect.value : null;
+  let targetModel = modelIdentifier;
   if (!targetModel || !availableModels.includes(targetModel)) {
     targetModel = availableModels[0];
     if (el.footerModelSelect) {
-      el.footerModelSelect.value = targetModel;
+      el.footerModelSelect.value = `offline:${targetModel}`;
     }
   }
 
@@ -1993,9 +2049,9 @@ async function triggerExtraction() {
     }
   }
 
-  // 2. 执行敏感信息提取
+  // 执行本地模型敏感信息提取
   btn.disabled = true;
-  btn.innerText = "正在混合提取...";
+  btn.innerText = "正在本地提取...";
 
   try {
     const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
@@ -2009,6 +2065,7 @@ async function triggerExtraction() {
         template_name: templateName,
         fields: state.currentRules,
         use_ai: true,
+        model_type: "offline",
         custom_prompt: state.customPromptTemplate,
       }),
     });
@@ -2018,7 +2075,7 @@ async function triggerExtraction() {
       try { err = await res.json(); } catch (_) {}
       showAlertDialog({
         title: "提取失败",
-        message: err.error || "模型提取未能成功完成",
+        message: err.error || "本地模型提取未能成功完成",
         type: "danger",
       });
       return;
@@ -2027,8 +2084,6 @@ async function triggerExtraction() {
     const snapshot = await res.json();
     await loadDocuments();
     selectSnapshot(state.currentDocId, snapshot.id);
-
-    // 方案C核心体验：提取成功后自动平滑切换到「敏感清单」Tab
     switchInspectorTab("audit");
   } catch (e) {
     showAlertDialog({
@@ -2307,7 +2362,7 @@ function switchSettingsTab(tabName) {
   } else if (tabName === "online-ai") {
     if (el.tabSetOnlineAiBtn) el.tabSetOnlineAiBtn.classList.add("active");
     if (el.paneSetOnlineAi) el.paneSetOnlineAi.style.display = "flex";
-    loadOnlineAiSettings();
+    loadOnlineModelsSettings();
   } else if (tabName === "rules") {
     if (el.tabSetRulesBtn) el.tabSetRulesBtn.classList.add("active");
     if (el.paneSetRules) el.paneSetRules.style.display = "flex";
@@ -2319,54 +2374,157 @@ function switchSettingsTab(tabName) {
   }
 }
 
-// 加载在线 AI 模型配置
-async function loadOnlineAiSettings() {
-  try {
-    const res = await fetch("/api/settings/online-ai");
-    if (res.ok) {
-      const cfg = await res.json();
-      if (el.onlineAiEnabledToggle) el.onlineAiEnabledToggle.checked = !!cfg.enabled;
-      if (el.onlineAiBaseUrlInput) el.onlineAiBaseUrlInput.value = cfg.base_url || "https://api.deepseek.com/v1";
-      if (el.onlineAiApiKeyInput) el.onlineAiApiKeyInput.value = cfg.api_key || "";
-      if (el.onlineAiModelIdInput) el.onlineAiModelIdInput.value = cfg.model_id || "deepseek-chat";
-      if (el.onlineAiTempInput) el.onlineAiTempInput.value = cfg.temperature !== undefined ? cfg.temperature : 0.3;
+// 渲染在线模型下拉菜单选项
+function renderOnlineModelOptions() {
+  if (!el.onlineModelSelect) return;
+  if (!state.onlineModels || state.onlineModels.length === 0) {
+    el.onlineModelSelect.innerHTML = `<option value="">(暂无已存模型，点击新建)</option>`;
+    return;
+  }
 
-      const enabled = !!cfg.enabled;
-      if (el.onlineAiFormBlock) {
-        el.onlineAiFormBlock.style.opacity = enabled ? "1" : "0.5";
-        el.onlineAiFormBlock.style.pointerEvents = enabled ? "auto" : "none";
-      }
-    }
-  } catch (e) {
-    console.error("加载在线 AI 设置失败:", e);
+  el.onlineModelSelect.innerHTML = state.onlineModels
+    .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`)
+    .join("");
+
+  if (state.activeOnlineModelId) {
+    el.onlineModelSelect.value = state.activeOnlineModelId;
   }
 }
 
-// 保存在线 AI 模型配置
-async function saveOnlineAiSettings() {
-  try {
-    const payload = {
-      enabled: el.onlineAiEnabledToggle ? el.onlineAiEnabledToggle.checked : false,
-      base_url: el.onlineAiBaseUrlInput ? el.onlineAiBaseUrlInput.value.trim() : "https://api.deepseek.com/v1",
-      api_key: el.onlineAiApiKeyInput ? el.onlineAiApiKeyInput.value.trim() : "",
-      model_id: el.onlineAiModelIdInput ? el.onlineAiModelIdInput.value.trim() : "deepseek-chat",
-      temperature: el.onlineAiTempInput ? parseFloat(el.onlineAiTempInput.value) || 0.3 : 0.3,
-    };
+// 将指定模型配置填充到表单
+function fillOnlineModelForm(profile) {
+  if (!profile) {
+    state.editingOnlineModelId = null;
+    if (el.onlineModelNameInput) el.onlineModelNameInput.value = "";
+    if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = "https://api.deepseek.com/v1";
+    if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = "";
+    if (el.onlineModelIdInput) el.onlineModelIdInput.value = "deepseek-chat";
+    if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
+    return;
+  }
 
-    const res = await fetch("/api/settings/online-ai", {
+  state.editingOnlineModelId = profile.id;
+  if (el.onlineModelNameInput) el.onlineModelNameInput.value = profile.name || "";
+  if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = profile.base_url || "https://api.deepseek.com/v1";
+  if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = profile.api_key || "";
+  if (el.onlineModelIdInput) el.onlineModelIdInput.value = profile.model_id || "deepseek-chat";
+  if (el.onlineModelTempInput) el.onlineModelTempInput.value = profile.temperature !== undefined ? profile.temperature : 0.1;
+  if (el.onlineModelTestStatusText) el.onlineModelTestStatusText.innerText = "";
+}
+
+// 加载全部在线模型配置列表及激活项
+async function loadOnlineModelsSettings() {
+  try {
+    const res = await fetch("/api/settings/online-models");
+    if (res.ok) {
+      state.onlineModels = await res.json();
+    }
+
+    const activeRes = await fetch("/api/settings/online-models/active");
+    if (activeRes.ok) {
+      const data = await activeRes.json();
+      state.activeOnlineModelId = data.active_id || (state.onlineModels[0] ? state.onlineModels[0].id : null);
+    }
+
+    renderOnlineModelOptions();
+
+    const current = state.onlineModels.find((m) => m.id === state.activeOnlineModelId) || state.onlineModels[0];
+    fillOnlineModelForm(current);
+  } catch (e) {
+    console.error("加载在线模型配置失败:", e);
+  }
+}
+
+// 切换选择已存模型
+async function handleOnlineModelSelectChange(e) {
+  const selectedId = e.target.value;
+  state.activeOnlineModelId = selectedId;
+  const target = state.onlineModels.find((m) => m.id === selectedId);
+  fillOnlineModelForm(target);
+
+  // 记录为全局当前激活项
+  try {
+    await fetch("/api/settings/online-models/active", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ active_id: selectedId }),
+    });
+    // 联动刷新主界面底部模型下拉列表
+    await populateFooterModelSelect();
+  } catch (_) {}
+}
+
+// 点击新建模型
+function handleNewOnlineModel() {
+  state.editingOnlineModelId = null;
+  if (el.onlineModelNameInput) {
+    el.onlineModelNameInput.value = "新模型配置";
+    el.onlineModelNameInput.focus();
+    el.onlineModelNameInput.select();
+  }
+  if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = "https://api.deepseek.com/v1";
+  if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = "";
+  if (el.onlineModelIdInput) el.onlineModelIdInput.value = "deepseek-chat";
+  if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
+  if (el.onlineModelTestStatusText) {
+    el.onlineModelTestStatusText.innerText = "正在新建模型配置，填写后点击右侧「保存配置」";
+    el.onlineModelTestStatusText.style.color = "var(--text-dim)";
+  }
+}
+
+// 保存当前在线模型配置
+async function handleSaveOnlineModel() {
+  const name = el.onlineModelNameInput ? el.onlineModelNameInput.value.trim() : "";
+  const baseUrl = el.onlineModelBaseUrlInput ? el.onlineModelBaseUrlInput.value.trim() : "";
+  const apiKey = el.onlineModelApiKeyInput ? el.onlineModelApiKeyInput.value.trim() : "";
+  const modelId = el.onlineModelIdInput ? el.onlineModelIdInput.value.trim() : "";
+  const temp = el.onlineModelTempInput ? parseFloat(el.onlineModelTempInput.value) || 0.1 : 0.1;
+
+  if (!name) {
+    showAlertDialog({ title: "提示", message: "请输入模型名称！", type: "warning" });
+    return;
+  }
+  if (!baseUrl) {
+    showAlertDialog({ title: "提示", message: "请输入 API 服务地址 (Base URL)！", type: "warning" });
+    return;
+  }
+  if (!modelId) {
+    showAlertDialog({ title: "提示", message: "请输入模型标识 (Model ID)！", type: "warning" });
+    return;
+  }
+
+  const payload = {
+    id: state.editingOnlineModelId || "",
+    name: name,
+    base_url: baseUrl,
+    api_key: apiKey,
+    model_id: modelId,
+    temperature: temp,
+  };
+
+  try {
+    const res = await fetch("/api/settings/online-models", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
 
     if (res.ok) {
-      if (el.onlineAiTestStatusText) {
-        el.onlineAiTestStatusText.innerText = "在线 AI 配置已保存！";
-        el.onlineAiTestStatusText.style.color = "var(--success)";
+      const saved = await res.json();
+      state.activeOnlineModelId = saved.id;
+      state.editingOnlineModelId = saved.id;
+
+      if (el.onlineModelTestStatusText) {
+        el.onlineModelTestStatusText.innerText = "✓ 模型配置已保存！";
+        el.onlineModelTestStatusText.style.color = "var(--success)";
       }
+
+      await loadOnlineModelsSettings();
+      await populateFooterModelSelect();
+
       showAlertDialog({
         title: "保存成功",
-        message: "在线 AI 模型配置已成功保存并生效！",
+        message: `模型配置「${name}」已成功保存并就绪！`,
         type: "success",
       });
     } else {
@@ -2374,7 +2532,7 @@ async function saveOnlineAiSettings() {
       try { err = await res.json(); } catch (_) {}
       showAlertDialog({
         title: "保存失败",
-        message: err.error || "未知错误",
+        message: err.error || "未能保存模型配置",
         type: "danger",
       });
     }
@@ -2387,22 +2545,97 @@ async function saveOnlineAiSettings() {
   }
 }
 
-// 测试在线 AI 模型连通性
-async function testOnlineAiSettings() {
-  if (el.onlineAiTestStatusText) {
-    el.onlineAiTestStatusText.innerText = "正在向云端 API 发送连通性探测...";
-    el.onlineAiTestStatusText.style.color = "var(--text-dim)";
+// 删除当前在线模型配置
+async function handleDeleteOnlineModel() {
+  const currentId = el.onlineModelSelect ? el.onlineModelSelect.value : state.activeOnlineModelId;
+  if (!currentId) return;
+
+  const current = state.onlineModels.find((m) => m.id === currentId);
+  const name = current ? current.name : "当前配置";
+
+  if (state.onlineModels.length <= 1) {
+    showAlertDialog({
+      title: "无法删除",
+      message: "至少需要保留一个在线模型配置！",
+      type: "warning",
+    });
+    return;
   }
+
+  const confirmed = await showConfirmDialog({
+    title: "确认删除",
+    message: `确定要删除在线模型配置「${name}」吗？删除后将无法恢复。`,
+    confirmText: "删除",
+    cancelText: "取消",
+    isDanger: true,
+  });
+
+  if (!confirmed) return;
+
+  try {
+    const res = await fetch(`/api/settings/online-models/${encodeURIComponent(currentId)}`, {
+      method: "DELETE",
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      state.activeOnlineModelId = data.active_id;
+      await loadOnlineModelsSettings();
+      await populateFooterModelSelect();
+      showAlertDialog({
+        title: "删除成功",
+        message: `模型配置「${name}」已成功删除。`,
+        type: "success",
+      });
+    } else {
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "删除失败",
+        message: err.error || "删除失败",
+        type: "danger",
+      });
+    }
+  } catch (e) {
+    showAlertDialog({
+      title: "删除异常",
+      message: e.message,
+      type: "danger",
+    });
+  }
+}
+
+// 测试在线模型连通性
+async function handleTestOnlineModel() {
+  const baseUrl = el.onlineModelBaseUrlInput ? el.onlineModelBaseUrlInput.value.trim() : "";
+  const apiKey = el.onlineModelApiKeyInput ? el.onlineModelApiKeyInput.value.trim() : "";
+  const modelId = el.onlineModelIdInput ? el.onlineModelIdInput.value.trim() : "";
+
+  if (!baseUrl || !modelId) {
+    showAlertDialog({
+      title: "信息不完整",
+      message: "请先填写 API 服务地址和模型标识再进行测试！",
+      type: "warning",
+    });
+    return;
+  }
+
+  if (el.onlineModelTestStatusText) {
+    el.onlineModelTestStatusText.innerText = "正在向云端 API 发送连通性探测...";
+    el.onlineModelTestStatusText.style.color = "var(--text-dim)";
+  }
+
   try {
     const payload = {
-      enabled: true,
-      base_url: el.onlineAiBaseUrlInput ? el.onlineAiBaseUrlInput.value.trim() : "https://api.deepseek.com/v1",
-      api_key: el.onlineAiApiKeyInput ? el.onlineAiApiKeyInput.value.trim() : "",
-      model_id: el.onlineAiModelIdInput ? el.onlineAiModelIdInput.value.trim() : "deepseek-chat",
-      temperature: el.onlineAiTempInput ? parseFloat(el.onlineAiTempInput.value) || 0.3 : 0.3,
+      id: "test",
+      name: "test",
+      base_url: baseUrl,
+      api_key: apiKey,
+      model_id: modelId,
+      temperature: 0.1,
     };
 
-    const res = await fetch("/api/settings/online-ai/test", {
+    const res = await fetch("/api/settings/online-models/test", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -2410,20 +2643,20 @@ async function testOnlineAiSettings() {
 
     const data = await res.json();
     if (res.ok) {
-      if (el.onlineAiTestStatusText) {
-        el.onlineAiTestStatusText.innerText = `✓ 连通成功: ${data.message}`;
-        el.onlineAiTestStatusText.style.color = "var(--success)";
+      if (el.onlineModelTestStatusText) {
+        el.onlineModelTestStatusText.innerText = `✓ ${data.message}`;
+        el.onlineModelTestStatusText.style.color = "var(--success)";
       }
     } else {
-      if (el.onlineAiTestStatusText) {
-        el.onlineAiTestStatusText.innerText = `✗ 连通失败: ${data.error}`;
-        el.onlineAiTestStatusText.style.color = "var(--danger)";
+      if (el.onlineModelTestStatusText) {
+        el.onlineModelTestStatusText.innerText = `✗ ${data.error}`;
+        el.onlineModelTestStatusText.style.color = "var(--danger)";
       }
     }
   } catch (e) {
-    if (el.onlineAiTestStatusText) {
-      el.onlineAiTestStatusText.innerText = `✗ 网络异常: ${e.message}`;
-      el.onlineAiTestStatusText.style.color = "var(--danger)";
+    if (el.onlineModelTestStatusText) {
+      el.onlineModelTestStatusText.innerText = `✗ 网络异常: ${e.message}`;
+      el.onlineModelTestStatusText.style.color = "var(--danger)";
     }
   }
 }
@@ -2713,22 +2946,31 @@ async function resetTargetModelDefaultPrompt() {
   }
 }
 
-// 方案一：动态填充与更新底部模型下拉列表 (集成 models/ 目录下的 gguf 与已下载的预设)
+// 动态填充与更新底部模型下拉列表 (支持离线本地模型与在线大模型双轨分组)
 async function populateFooterModelSelect() {
   if (!el.footerModelSelect) return;
   const currentSelected = el.footerModelSelect.value;
   
   try {
+    // 1. 获取离线模型
     const localRes = await fetch("/api/models/local");
     const localModels = localRes.ok ? await localRes.json() : [];
 
-    const availableModels = new Set(localModels);
+    const availableOfflineModels = new Set(localModels);
     if (state.modelPresets) {
-      state.modelPresets.filter((m) => m.is_downloaded).forEach((m) => availableModels.add(m.filename));
+      state.modelPresets.filter((m) => m.is_downloaded).forEach((m) => availableOfflineModels.add(m.filename));
     }
 
-    if (availableModels.size === 0) {
-      el.footerModelSelect.innerHTML = `<option value="">无就绪模型 (前往设置导入)</option>`;
+    // 2. 获取在线模型
+    if (!state.onlineModels || state.onlineModels.length === 0) {
+      try {
+        const onlineRes = await fetch("/api/settings/online-models");
+        if (onlineRes.ok) state.onlineModels = await onlineRes.json();
+      } catch (_) {}
+    }
+
+    if (availableOfflineModels.size === 0 && (!state.onlineModels || state.onlineModels.length === 0)) {
+      el.footerModelSelect.innerHTML = `<option value="">无就绪模型 (前往设置添加)</option>`;
       el.footerModelSelect.disabled = true;
       if (el.footerModelToggle) el.footerModelToggle.disabled = true;
       return;
@@ -2738,42 +2980,107 @@ async function populateFooterModelSelect() {
     if (el.footerModelToggle) el.footerModelToggle.disabled = false;
 
     let optionsHtml = "";
-    availableModels.forEach((file) => {
-      const isRunning = state.activeModelName === file;
-      optionsHtml += `<option value="${escapeHtml(file)}">${escapeHtml(file)}${isRunning ? " (运行中)" : ""}</option>`;
-    });
+
+    // 离线模型分组
+    if (availableOfflineModels.size > 0) {
+      optionsHtml += `<optgroup label="离线本地模型 (GGUF)">`;
+      availableOfflineModels.forEach((file) => {
+        const isRunning = state.activeModelName === file;
+        optionsHtml += `<option value="offline:${escapeHtml(file)}">${escapeHtml(file)}${isRunning ? " (运行中)" : ""}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
+
+    // 在线模型分组
+    if (state.onlineModels && state.onlineModels.length > 0) {
+      optionsHtml += `<optgroup label="在线云端模型 (API)">`;
+      state.onlineModels.forEach((m) => {
+        optionsHtml += `<option value="online:${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
 
     el.footerModelSelect.innerHTML = optionsHtml;
 
-    // 优先选中当前运行中的模型，否则选中之前选中的或首项
-    if (state.activeModelName && availableModels.has(state.activeModelName)) {
-      el.footerModelSelect.value = state.activeModelName;
-    } else if (currentSelected && availableModels.has(currentSelected)) {
+    // 选中策略
+    if (state.activeModelName && availableOfflineModels.has(state.activeModelName)) {
+      el.footerModelSelect.value = `offline:${state.activeModelName}`;
+    } else if (currentSelected && el.footerModelSelect.querySelector(`option[value="${currentSelected}"]`)) {
       el.footerModelSelect.value = currentSelected;
+    } else if (state.activeOnlineModelId && state.onlineModels.some(m => m.id === state.activeOnlineModelId)) {
+      el.footerModelSelect.value = `online:${state.activeOnlineModelId}`;
     }
+
+    updateFooterModelStripState();
   } catch (e) {
     console.error("填充底部模型下拉列表失败:", e);
   }
 }
 
-// 方案一：用户在底部下拉框中切换选择的模型
-async function handleFooterModelSelectChange(e) {
-  const chosenFile = e.target.value;
-  if (!chosenFile) return;
+// 刷新底部控制条指示灯与拨杆状态
+function updateFooterModelStripState() {
+  const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+  const footerDot = el.footerModelDot;
+  const footerToggle = el.footerModelToggle;
 
-  // 如果当前拨杆处于开启状态，且选中的不是当前正在运行的模型，则自动无缝热切换启动
-  if (el.footerModelToggle && el.footerModelToggle.checked && state.activeModelName !== chosenFile) {
-    el.footerModelDot.className = "status-indicator-dot offline";
-    await startLlamaModel(chosenFile);
+  if (chosenVal.startsWith("online:")) {
+    if (footerDot) footerDot.className = "status-indicator-dot online";
+    if (footerToggle) {
+      footerToggle.checked = true;
+      footerToggle.disabled = false;
+    }
+  } else if (chosenVal.startsWith("offline:")) {
+    const filename = chosenVal.slice("offline:".length);
+    const isRunning = state.activeModelName === filename;
+    if (footerDot) footerDot.className = isRunning ? "status-indicator-dot online" : "status-indicator-dot offline";
+    if (footerToggle) {
+      footerToggle.checked = isRunning;
+      footerToggle.disabled = false;
+    }
   }
 }
 
-// 底部离线模型开关 Toggle 触发处理 (一键开启当前下拉选中的模型，或关闭当前模型)
-async function handleFooterModelToggle(e) {
-  const shouldStart = e.target.checked;
-  if (shouldStart) {
-    const chosenFile = el.footerModelSelect ? el.footerModelSelect.value : null;
+// 用户在底部下拉框中切换选择的模型
+async function handleFooterModelSelectChange(e) {
+  const chosenVal = e.target.value;
+  if (!chosenVal) return;
 
+  if (chosenVal.startsWith("online:")) {
+    const onlineId = chosenVal.slice("online:".length);
+    state.activeOnlineModelId = onlineId;
+    updateFooterModelStripState();
+    try {
+      await fetch("/api/settings/online-models/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ active_id: onlineId }),
+      });
+    } catch (_) {}
+  } else if (chosenVal.startsWith("offline:")) {
+    const chosenFile = chosenVal.slice("offline:".length);
+    // 如果当前拨杆处于开启状态，且选中的不是当前正在运行的模型，则自动无缝热切换启动
+    if (el.footerModelToggle && el.footerModelToggle.checked && state.activeModelName !== chosenFile) {
+      el.footerModelDot.className = "status-indicator-dot offline";
+      await startLlamaModel(chosenFile);
+    } else {
+      updateFooterModelStripState();
+    }
+  }
+}
+
+// 底部模型开关 Toggle 触发处理
+async function handleFooterModelToggle(e) {
+  const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+  if (chosenVal.startsWith("online:")) {
+    // 在线模型无需启动本地服务，Toggle 保持开启
+    e.target.checked = true;
+    return;
+  }
+
+  const chosenFile = chosenVal.startsWith("offline:") ? chosenVal.slice("offline:".length) : chosenVal;
+  const shouldStart = e.target.checked;
+
+  if (shouldStart) {
     if (!chosenFile) {
       showAlertDialog({
         title: "离线模型未就绪",
@@ -2799,7 +3106,7 @@ async function handleFooterModelToggle(e) {
       await syncActiveModelStatus(true);
     }
   } else {
-    // 一键关闭当前模型
+    // 一键关闭当前离线模型
     await stopLlamaModel();
   }
 }

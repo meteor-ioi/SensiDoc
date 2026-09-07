@@ -368,68 +368,70 @@
         </div>
       </div>
 
-      <!-- 板块 1.5: 在线 AI 模型 (OpenAI 兼容 API) -->
+      <!-- 板块 1.5: 在线 AI 模型 (OpenAI 兼容 API 极简配置) -->
       <div class="settings-tab-pane" id="paneSetOnlineAi" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 10px;">
-        <!-- 中间表单区域 (自适应填充) -->
-        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-          <!-- 启用开关卡片 -->
-          <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0;">
-            <div>
-              <div style="font-size: 12.5px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 6px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
-                <span>启用在线 AI 模型辅助 (提示词深度进化)</span>
-              </div>
-              <div style="font-size: 11px; color: var(--text-mute); margin-top: 2px;">开启后，寻优评测将调用云端大模型自动诊断小模型错题并进化出最佳 Prompt；关闭时使用纯离线模式。</div>
-            </div>
-            <label class="toggle-switch">
-              <input type="checkbox" id="onlineAiEnabledToggle">
-              <span class="toggle-slider"></span>
+        <!-- 顶部：模型配置选择与管理栏 -->
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0;">
+          <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+            <label style="font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
+              <span>当前配置:</span>
             </label>
+            <select id="onlineModelSelect" class="select-field" style="flex: 1; min-width: 0; padding: 4px 8px; font-size: 11.5px; height: 28px;">
+            </select>
+          </div>
+          <div style="display: flex; gap: 6px; flex-shrink: 0;">
+            <button type="button" id="newOnlineModelBtn" class="btn sm" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px;" title="新建一个在线模型配置">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>新建</span>
+            </button>
+            <button type="button" id="deleteOnlineModelBtn" class="btn sm danger" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px;" title="删除当前在线模型配置">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              <span>删除</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 中间表单区域 -->
+        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
+          <div>
+            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型名称：</label>
+            <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：DeepSeek-V3 (推荐)" style="width: 100%; box-sizing: border-box;">
           </div>
 
-          <!-- 配置表单 -->
-          <div id="onlineAiFormBlock" style="display: flex; flex-direction: column; gap: 10px; opacity: 0.5; pointer-events: none; transition: opacity 0.2s;">
-            <div>
-              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
-                <label style="font-size: 11.5px; font-weight: 500; color: var(--text);">API 服务地址 (Base URL)：</label>
-                <div style="display: flex; gap: 4px;">
-                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.deepseek.com/v1" data-model="deepseek-chat">DeepSeek 官方</button>
-                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.openai.com/v1" data-model="gpt-4o">OpenAI 官方</button>
-                  <button type="button" class="btn xs quick-base-url-btn" data-url="https://api.siliconflow.cn/v1" data-model="deepseek-ai/DeepSeek-V3">硅基流动</button>
-                </div>
-              </div>
-              <input type="text" id="onlineAiBaseUrlInput" class="input-text" placeholder="https://api.deepseek.com/v1" style="width: 100%; box-sizing: border-box;">
-            </div>
+          <div>
+            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 服务地址 (Base URL)：</label>
+            <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="https://api.deepseek.com/v1" style="width: 100%; box-sizing: border-box;">
+          </div>
 
-            <div>
-              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 密钥 (API Key)：</label>
-              <input type="password" id="onlineAiApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; box-sizing: border-box;">
-            </div>
+          <div>
+            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 密钥 (API Key)：</label>
+            <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; box-sizing: border-box;">
+          </div>
 
-            <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
-              <div>
-                <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型标识 (Model ID)：</label>
-                <input type="text" id="onlineAiModelIdInput" class="input-text" placeholder="deepseek-chat" style="width: 100%; box-sizing: border-box;">
-              </div>
-              <div>
-                <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">采样温度 (Temp)：</label>
-                <input type="number" id="onlineAiTempInput" class="input-text" min="0" max="1" step="0.1" value="0.3" style="width: 100%; box-sizing: border-box;">
-              </div>
+          <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+            <div>
+              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型标识 (Model ID)：</label>
+              <input type="text" id="onlineModelIdInput" class="input-text" placeholder="deepseek-chat" style="width: 100%; box-sizing: border-box;">
+            </div>
+            <div>
+              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">采样温度 (Temp)：</label>
+              <input type="number" id="onlineModelTempInput" class="input-text" min="0" max="1" step="0.1" value="0.1" style="width: 100%; box-sizing: border-box;">
             </div>
           </div>
         </div>
 
         <!-- 底部固定操作按钮栏 -->
         <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; flex-shrink: 0;">
-          <div id="onlineAiTestStatusText" style="font-size: 11px; color: var(--text-mute);"></div>
+          <div id="onlineModelTestStatusText" style="font-size: 11px; color: var(--text-mute);"></div>
           <div style="display: flex; gap: 8px;">
-            <button id="testOnlineAiBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;">
+            <button type="button" id="testOnlineModelBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-              <span>测试 API 连通性</span>
+              <span>测试连通性</span>
             </button>
-            <button id="saveOnlineAiBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
+            <button type="button" id="saveOnlineModelBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              <span>保存在线配置</span>
+              <span>保存配置</span>
             </button>
           </div>
         </div>

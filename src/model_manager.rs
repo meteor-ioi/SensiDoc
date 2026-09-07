@@ -46,8 +46,8 @@ pub struct ModelManager {
 impl ModelManager {
     pub fn new() -> Self {
         let (progress_tx, _) = broadcast::channel(100);
-        let models_dir = PathBuf::from("models");
-        let llama_bin_path = PathBuf::from("bin/llama-server");
+        let models_dir = crate::paths::get_models_dir();
+        let llama_bin_path = crate::paths::get_llama_bin_path();
 
         if !models_dir.exists() {
             let _ = std::fs::create_dir_all(&models_dir);
@@ -374,8 +374,7 @@ end try"#;
             .stderr(Stdio::piped());
 
         // macOS 动态链接库环境变量绑定
-        let current_dir = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-        let lib_dir = current_dir.join("lib");
+        let lib_dir = crate::paths::get_lib_dir();
         if lib_dir.exists() {
             cmd.env("DYLD_LIBRARY_PATH", &lib_dir);
         }

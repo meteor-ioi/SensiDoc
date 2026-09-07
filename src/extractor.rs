@@ -359,6 +359,121 @@ impl Extractor {
             .as_str()
             .unwrap_or("[]");
 
+        Ok(Self::parse_llm_json_response(content))
+    }
+
+    /// 异步向在线大模型 (OpenAI 兼容 API 协议) 发送提取请求并解析返回结果
+    pub async fn query_online_llm(
+        base_url: &str,
+        api_key: &str,
+        model_id: &str,
+        temperature: f32,
+        system_prompt: &str,
+        user_text: &str,
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
+
+        let trimmed_url = base_url.trim_end_matches('/');
+        let url = if trimmed_url.ends_with("/chat/completions") {
+            trimmed_url.to_string()
+        } else {
+            format!("{}/chat/completions", trimmed_url)
+        };
+
+        // 使用 <document> 标签隔离文档正文，强力抵御文档内潜藏的提示词污染
+        let user_content = if user_text.starts_with("<document>") {
+            user_text.to_string()
+        } else {
+            format!("<document>\n{}\n</document>", user_text)
+        };
+
+        let request_payload = serde_json::json!({
+            "model": model_id,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": user_content }
+            ],
+            "temperature": temperature,
+            "max_tokens": 2048
+        });
+
+        let mut req = client.post(&url).json(&request_payload);
+        if !api_key.trim().is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", api_key.trim()));
+        }
+
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| format!("请求在线 API 失败: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_text = resp.text().await.unwrap_or_default();
+            return Err(format!("在线 API 返回错误 [{status}]: {err_text}"));
+        }
+
+        let json_body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("解析在线 API 响应 JSON 失败: {e}"))?;
+
+        let content = json_body["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("[]");
+
+        Ok(Self::parse_llm_json_response(content))
+    }
+
+    /// 测试在线模型连通性 (低开销探针)
+    pub async fn test_online_model_connection(
+        base_url: &str,
+        api_key: &str,
+        model_id: &str,
+    ) -> Result<String, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(15))
+            .build()
+            .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
+
+        let trimmed_url = base_url.trim_end_matches('/');
+        let url = if trimmed_url.ends_with("/chat/completions") {
+            trimmed_url.to_string()
+        } else {
+            format!("{}/chat/completions", trimmed_url)
+        };
+
+        let request_payload = serde_json::json!({
+            "model": model_id,
+            "messages": [
+                { "role": "user", "content": "ping" }
+            ],
+            "max_tokens": 5
+        });
+
+        let start = std::time::Instant::now();
+        let mut req = client.post(&url).json(&request_payload);
+        if !api_key.trim().is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", api_key.trim()));
+        }
+
+        let resp = req.send().await.map_err(|e| format!("网络连接异常: {e}"))?;
+        let elapsed = start.elapsed().as_millis();
+
+        if resp.status().is_success() {
+            Ok(format!("连通成功 (延迟 {}ms)", elapsed))
+        } else {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            Err(format!("接口返回错误 [{status}]: {body}"))
+        }
+    }
+
+    /// 统一解析 LLM 返回的文本内容为实体项列表
+    pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
         // 智能截取 JSON 片段：优先匹配 [..] 数组，若无则匹配 {..} 对象
         let cleaned_json = if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
             if end > start {
@@ -496,7 +611,7 @@ impl Extractor {
             }
         }
 
-        Ok(items)
+        items
     }
 
     /// 位置重叠冲突消解与结果合并去重，并基于启用的规则自动补充分类与风险等级

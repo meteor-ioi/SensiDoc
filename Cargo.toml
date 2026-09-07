@@ -30,4 +30,6 @@ regex = "1.11"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 sysinfo = "0.33"
+wry = "0.56.1"
+tao = "0.37.0"
 

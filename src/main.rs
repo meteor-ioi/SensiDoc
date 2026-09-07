@@ -3,6 +3,7 @@ mod converter;
 mod exporter;
 mod extractor;
 mod model_manager;
+mod paths;
 mod session;
 
 use axum::{
@@ -20,7 +21,7 @@ use extractor::{Extractor, RuleField, RulePreset};
 use futures_util::stream::Stream;
 use model_manager::ModelManager;
 use serde::{Deserialize, Serialize};
-use session::{DocumentItem, ExtractionSnapshot, ModelPromptProfile, OnlineAiConfig, SessionManager};
+use session::{DocumentItem, ExtractionSnapshot, ModelPromptProfile, OnlineModelProfile, SessionManager};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -71,6 +72,10 @@ struct ExtractRequest {
     fields: Vec<RuleField>,
     use_ai: bool,
     #[serde(default)]
+    model_type: Option<String>,
+    #[serde(default)]
+    online_model_id: Option<String>,
+    #[serde(default)]
     custom_prompt: Option<String>,
 }
 
@@ -109,6 +114,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::process::exit(0);
     });
 
+    let web_dir = paths::get_web_dir();
+    tracing::info!("Using static web directory: {:?}", web_dir);
+
     let app = Router::new()
         .route("/api/health", get(health_check))
         .route("/api/convert", post(convert_document))
@@ -128,25 +136,119 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/models/prompts/all", get(get_all_model_prompts))
         .route("/api/models/{filename}/prompt", get(get_model_prompt).post(save_model_prompt))
         .route("/api/models/{filename}/benchmark", post(run_model_auto_benchmark))
-        .route("/api/settings/online-ai", get(get_online_ai_settings).post(save_online_ai_settings))
-        .route("/api/settings/online-ai/test", post(test_online_ai_settings))
+        .route("/api/settings/online-models", get(get_online_models).post(save_online_model))
+        .route("/api/settings/online-models/active", get(get_active_online_model).post(set_active_online_model))
+        .route("/api/settings/online-models/{id}", delete(delete_online_model))
+        .route("/api/settings/online-models/test", post(test_online_model))
         .route("/api/models/import", post(import_external_model))
         .route("/api/models/pick-and-import", post(pick_and_import_model).get(pick_and_import_model))
         .route("/api/models/start", post(start_model))
         .route("/api/models/stop", post(stop_model))
         .route("/api/models/download", post(download_model))
         .route("/api/models/download/progress", get(download_progress_sse))
-        .fallback_service(ServeDir::new("web"))
+        .fallback_service(ServeDir::new(web_dir))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    tracing::info!("SensiDoc web server listening on http://{}", addr);
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    // 检查是否有 --server 或 --headless 参数，支持纯无头后端服务模式
+    let args: Vec<String> = std::env::args().collect();
+    let is_headless = args.iter().any(|a| a == "--server" || a == "--headless");
 
-    Ok(())
+    // 启动 Axum 后端服务
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(l) => {
+            tracing::info!("SensiDoc HTTP Service listening on http://{}", addr);
+            l
+        }
+        Err(e) => {
+            tracing::warn!("绑定端口 3000 失败 (可能已有服务在运行): {e}");
+            if is_headless {
+                return Ok(());
+            }
+            // 若端口已占且非 headless，直接用 WebView 打开已有服务
+            return launch_desktop_gui(model_mgr.clone(), "http://127.0.0.1:3000");
+        }
+    };
+
+    // 在 Tokio 异步任务中托管 Axum 服务
+    tokio::spawn(async move {
+        if let Err(err) = axum::serve(listener, app).await {
+            tracing::error!("Axum 服务异常: {err}");
+        }
+    });
+
+    // 等待服务端口就绪
+    tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
+
+    if is_headless {
+        tracing::info!("SensiDoc 以 Headless 无头服务器模式运行中 (访问 http://127.0.0.1:3000)...");
+        tokio::signal::ctrl_c().await.ok();
+        model_mgr.stop_server().await;
+        return Ok(());
+    }
+
+    // 默认以独立原生桌面 GUI 窗口模式启动
+    launch_desktop_gui(model_mgr, "http://127.0.0.1:3000")
+}
+
+/// 启动独立原生桌面客户端窗口 (Tao + Wry)
+fn launch_desktop_gui(
+    model_mgr: Arc<ModelManager>,
+    app_url: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use tao::{
+        dpi::LogicalSize,
+        event::{Event, StartCause, WindowEvent},
+        event_loop::{ControlFlow, EventLoop},
+        window::WindowBuilder,
+    };
+    use wry::WebViewBuilder;
+
+    tracing::info!("正在拉起 SensiDoc 独立原生桌面窗口...");
+
+    let event_loop = EventLoop::new();
+    let window = WindowBuilder::new()
+        .with_title("SensiDoc - 离线信息审计与脱敏工具")
+        .with_inner_size(LogicalSize::new(1280.0, 840.0))
+        .with_min_inner_size(LogicalSize::new(960.0, 600.0))
+        .build(&event_loop)?;
+
+    let _webview = WebViewBuilder::new()
+        .with_url(app_url)
+        .build(&window)?;
+
+    let shutdown_mgr = model_mgr.clone();
+
+    event_loop.run(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::NewEvents(StartCause::Init) => {
+                tracing::info!("SensiDoc 原生窗口初始化成功");
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                ..
+            } => {
+                tracing::info!("收到窗口关闭事件，正在安全释放模型进程并退出客户端...");
+                let mgr = shutdown_mgr.clone();
+                std::thread::spawn(move || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    rt.block_on(async {
+                        mgr.stop_server().await;
+                    });
+                    std::process::exit(0);
+                });
+                *control_flow = ControlFlow::Exit;
+            }
+            _ => (),
+        }
+    });
 }
 
 async fn health_check() -> Json<serde_json::Value> {
@@ -399,11 +501,38 @@ async fn extract_sensitive_info(
     );
 
     if payload.use_ai {
-        // 对超长文档分块 (Chunking) 送入模型处理
+        let is_online = payload.model_type.as_deref() == Some("online");
         let chunks = Extractor::chunk_text(&doc.markdown, 2500);
-        for (_offset, chunk_text) in chunks {
-            if let Ok(items) = Extractor::query_llm(8081, &system_prompt_used, &chunk_text).await {
-                ai_items.extend(items);
+
+        if is_online {
+            let online_models = state.session_mgr.get_online_models().await;
+            let active_id = state.session_mgr.get_active_online_model_id().await;
+            let target_cfg = if let Some(id) = &payload.online_model_id {
+                online_models.iter().find(|m| &m.id == id).cloned()
+            } else {
+                online_models.iter().find(|m| Some(&m.id) == active_id.as_ref()).cloned().or_else(|| online_models.first().cloned())
+            };
+
+            if let Some(cfg) = target_cfg {
+                for (_offset, chunk_text) in chunks {
+                    if let Ok(items) = Extractor::query_online_llm(
+                        &cfg.base_url,
+                        &cfg.api_key,
+                        &cfg.model_id,
+                        cfg.temperature,
+                        &system_prompt_used,
+                        &chunk_text,
+                    ).await {
+                        ai_items.extend(items);
+                    }
+                }
+            }
+        } else {
+            // 本地离线模型处理
+            for (_offset, chunk_text) in chunks {
+                if let Ok(items) = Extractor::query_llm(8081, &system_prompt_used, &chunk_text).await {
+                    ai_items.extend(items);
+                }
             }
         }
     }
@@ -414,7 +543,19 @@ async fn extract_sensitive_info(
 
     // 获取当前实际执行本次提取的模型名称
     let model_name = if payload.use_ai {
-        state.model_mgr.get_active_model().await
+        if payload.model_type.as_deref() == Some("online") {
+            if let Some(cfg_id) = &payload.online_model_id {
+                if let Some(cfg) = state.session_mgr.get_online_model_by_id(cfg_id).await {
+                    Some(format!("[在线] {}", cfg.name))
+                } else {
+                    Some("[在线] 在线大模型".to_string())
+                }
+            } else {
+                Some("[在线] 在线大模型".to_string())
+            }
+        } else {
+            state.model_mgr.get_active_model().await
+        }
     } else {
         Some("正则规则引擎".to_string())
     };
@@ -617,10 +758,7 @@ async fn run_model_auto_benchmark(
         }
     }
 
-    let online_cfg = state.session_mgr.get_online_ai_config().await;
-    let online_cfg_opt = if online_cfg.enabled { Some(&online_cfg) } else { None };
-
-    match BenchmarkEngine::run_benchmark(&filename, 8081, online_cfg_opt).await {
+    match BenchmarkEngine::run_benchmark(&filename, 8081).await {
         Ok(report) => Ok(Json(report)),
         Err(err) => Err((
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -629,27 +767,64 @@ async fn run_model_auto_benchmark(
     }
 }
 
-async fn get_online_ai_settings(
+async fn get_online_models(
     State(state): State<AppState>,
-) -> Json<OnlineAiConfig> {
-    Json(state.session_mgr.get_online_ai_config().await)
+) -> Json<Vec<OnlineModelProfile>> {
+    Json(state.session_mgr.get_online_models().await)
 }
 
-async fn save_online_ai_settings(
+async fn get_active_online_model(
     State(state): State<AppState>,
-    Json(payload): Json<OnlineAiConfig>,
 ) -> Json<serde_json::Value> {
-    state.session_mgr.save_online_ai_config(payload).await;
+    let active_id = state.session_mgr.get_active_online_model_id().await;
     Json(serde_json::json!({
-        "status": "success",
-        "message": "在线 AI 模型设置已成功保存"
+        "active_id": active_id
     }))
 }
 
-async fn test_online_ai_settings(
-    Json(payload): Json<OnlineAiConfig>,
+#[derive(Deserialize)]
+struct SetActiveOnlineModelRequest {
+    active_id: Option<String>,
+}
+
+async fn set_active_online_model(
+    State(state): State<AppState>,
+    Json(payload): Json<SetActiveOnlineModelRequest>,
+) -> Json<serde_json::Value> {
+    state.session_mgr.set_active_online_model_id(payload.active_id).await;
+    Json(serde_json::json!({
+        "status": "success"
+    }))
+}
+
+async fn save_online_model(
+    State(state): State<AppState>,
+    Json(payload): Json<OnlineModelProfile>,
+) -> Json<OnlineModelProfile> {
+    let saved = state.session_mgr.save_online_model(payload).await;
+    Json(saved)
+}
+
+async fn delete_online_model(
+    State(state): State<AppState>,
+    AxumPath(id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    match BenchmarkEngine::test_online_ai_connection(&payload).await {
+    match state.session_mgr.delete_online_model(&id).await {
+        Ok(active_id) => Ok(Json(serde_json::json!({
+            "status": "success",
+            "active_id": active_id
+        }))),
+        Err(e) => Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: e }),
+        )),
+    }
+}
+
+async fn test_online_model(
+    Json(payload): Json<OnlineModelProfile>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    match Extractor::test_online_model_connection(&payload.base_url, &payload.api_key, &payload.model_id).await {
         Ok(msg) => Ok(Json(serde_json::json!({
             "status": "success",
             "message": msg
