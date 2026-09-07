@@ -2332,6 +2332,19 @@ div.prompt-area-box {
   to { transform: rotate(360deg); }
 }
 
+/* 提示词中 {FIELDS_DEFINITION} 变量插槽专属醒目着色 */
+.prompt-var-tag {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+  border-radius: 2px;
+  font-weight: 700;
+}
+
+[data-theme="dark"] .prompt-var-tag {
+  color: #60a5fa;
+  background: rgba(96, 165, 250, 0.18);
+}
+
 /* 标准表单输入框与下拉选择框 (与全站 Geist 风格和圆角弧度保持 100% 统一) */
 .input-text,
 .select-field {

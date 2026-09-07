@@ -334,7 +334,7 @@
           </button>
           <button class="settings-tab-btn" id="tabSetRulesBtn">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="4" x2="20" y1="21" y2="21"></line><line x1="4" x2="20" y1="14" y2="14"></line><line x1="4" x2="20" y1="7" y2="7"></line><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="14" r="2"></circle><circle cx="10" cy="21" r="2"></circle></svg>
-            <span>提取规则与提示词</span>
+            <span>提取规则</span>
           </button>
           <button class="settings-tab-btn" id="tabSetAppearanceBtn">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
@@ -471,9 +471,12 @@
             </div>
           </div>
 
-          <!-- 编辑区 -->
+          <!-- 编辑区 (带变量着色高亮背景层) -->
           <div id="panePromptEdit" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
-            <textarea id="promptTemplateInput" class="prompt-area-box" style="flex: 1; height: 100%; width: 100%; box-sizing: border-box; resize: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; padding: 10px 12px; color: var(--text);" placeholder="输入系统提示词模板..."></textarea>
+            <div class="prompt-editor-wrap" style="position: relative; flex: 1; min-height: 0; width: 100%; height: 100%; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;">
+              <div id="promptHighlightBackdrop" style="position: absolute; inset: 0; padding: 10px 12px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; color: var(--text); pointer-events: none; overflow: hidden; box-sizing: border-box; margin: 0;"></div>
+              <textarea id="promptTemplateInput" class="prompt-area-box" style="position: absolute; inset: 0; height: 100%; width: 100%; box-sizing: border-box; resize: none; background: transparent; border: none; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; padding: 10px 12px; color: transparent; caret-color: var(--text); overflow-y: auto; outline: none; margin: 0;" placeholder="输入系统提示词模板..."></textarea>
+            </div>
           </div>
 
           <!-- 预览区 -->
@@ -484,9 +487,7 @@
 
         <!-- 3. 底部固定操作栏 -->
         <div style="border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
-          <div style="font-size: 11px; color: var(--text-mute); display: flex; align-items: center; gap: 8px;">
-            <span>变量插槽：<code style="color: var(--accent);">{FIELDS_DEFINITION}</code></span>
-            <span style="color: var(--border);">|</span>
+          <div style="font-size: 11px; color: var(--text-mute);">
             <span>输出规范：<code style="color: var(--text-dim);">[{"field":"字段名","text":"原文"}]</code></span>
           </div>
           <div style="display: flex; gap: 8px;">

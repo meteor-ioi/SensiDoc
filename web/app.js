@@ -190,6 +190,7 @@ const el = {
   tabPromptPreviewBtn: document.getElementById("tabPromptPreviewBtn"),
   panePromptEdit: document.getElementById("panePromptEdit"),
   panePromptPreview: document.getElementById("panePromptPreview"),
+  promptHighlightBackdrop: document.getElementById("promptHighlightBackdrop"),
   promptTemplateInput: document.getElementById("promptTemplateInput"),
   fullPromptPreview: document.getElementById("fullPromptPreview"),
   resetToModelDefaultPromptBtn: document.getElementById("resetToModelDefaultPromptBtn"),
@@ -925,7 +926,18 @@ function initEventListeners() {
   if (el.saveModelCustomPromptBtn) {
     el.saveModelCustomPromptBtn.addEventListener("click", saveTargetModelCustomPrompt);
   }
-  if (el.promptTemplateInput) el.promptTemplateInput.addEventListener("input", updatePromptPreview);
+  if (el.promptTemplateInput) {
+    el.promptTemplateInput.addEventListener("input", () => {
+      renderPromptHighlight();
+      updatePromptPreview();
+    });
+    el.promptTemplateInput.addEventListener("scroll", () => {
+      if (el.promptHighlightBackdrop) {
+        el.promptHighlightBackdrop.scrollTop = el.promptTemplateInput.scrollTop;
+        el.promptHighlightBackdrop.scrollLeft = el.promptTemplateInput.scrollLeft;
+      }
+    });
+  }
 
   // 查看原始 JSON 数据模态框事件
   el.viewRawJsonBtn.addEventListener("click", openRawJsonModal);
@@ -2506,6 +2518,17 @@ function initAppearanceSettings() {
   applyUiScale(savedScale);
 }
 
+// 渲染提示词编辑框背景高亮 (将 {FIELDS_DEFINITION} 变量专属醒目着色)
+function renderPromptHighlight() {
+  if (!el.promptHighlightBackdrop || !el.promptTemplateInput) return;
+  const raw = el.promptTemplateInput.value;
+  let escaped = escapeHtml(raw);
+  escaped = escaped.replace(/\{FIELDS_DEFINITION\}/g, `<span class="prompt-var-tag">{FIELDS_DEFINITION}</span>`);
+  el.promptHighlightBackdrop.innerHTML = escaped + (raw.endsWith("\n") ? "<br/>&nbsp;" : "");
+  el.promptHighlightBackdrop.scrollTop = el.promptTemplateInput.scrollTop;
+  el.promptHighlightBackdrop.scrollLeft = el.promptTemplateInput.scrollLeft;
+}
+
 // 切换提示词卡片内部的双拨杆：编辑提示词 vs 实时预览
 function switchPromptTab(tabName) {
   const isEdit = tabName === "edit";
@@ -2517,7 +2540,9 @@ function switchPromptTab(tabName) {
   if (el.panePromptEdit) el.panePromptEdit.style.display = isEdit ? "flex" : "none";
   if (el.panePromptPreview) el.panePromptPreview.style.display = isPrev ? "flex" : "none";
 
-  if (isPrev) {
+  if (isEdit) {
+    renderPromptHighlight();
+  } else if (isPrev) {
     updatePromptPreview();
   }
 }
@@ -2600,6 +2625,7 @@ async function loadTargetModelPrompt(modelFilename) {
     if (res.ok) {
       const profile = await res.json();
       if (el.promptTemplateInput) el.promptTemplateInput.value = profile.custom_prompt || PROMPT_BASELINE_V1;
+      renderPromptHighlight();
       updatePromptPreview();
     }
   } catch (e) {
@@ -2668,6 +2694,7 @@ async function resetTargetModelDefaultPrompt() {
   }
 
   if (el.promptTemplateInput) el.promptTemplateInput.value = defaultTemplate;
+  renderPromptHighlight();
   updatePromptPreview();
 
   // 同步写回后端
