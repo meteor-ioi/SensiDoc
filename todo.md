@@ -687,3 +687,59 @@
 - [x] 52.4 **全链路端到端功能验证与回归测试**：
   - 13 项 Cargo 单元测试全部通过（100% 绿灯），前端 JS/CSS 语法检查通过。
 
+---
+
+## 阶段五十三：提示词变量插槽着色与提取规则板块极简化 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 53.1 **提示词变量插槽醒目着色与底栏说明精简**：
+  - 在 [`web/app.js`](file:///Users/icychick/Projects/SensiDoc/web/app.js) 的 `renderPromptHighlight` 中将 `{FIELDS_DEFINITION}` 变量渲染为独立醒目的 `.prompt-var-tag` 标签着色；
+  - 彻底移除底部操作栏中冗余的「底部的变量插槽：{FIELDS_DEFINITION}」说明文本，使操作区更加清爽。
+- [x] 53.2 **设置中心 Tab 标签文案精简**：
+  - 将设置面板顶部 Tab「提取规则与提示词」简化重命名为「**提取规则**」（[`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html)）。
+
+---
+
+## 阶段五十四：在线模型设置下拉化管理与双轨提取调度重构 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 54.1 **设置中心「在线模型」板块职责重塑**：
+  - 将 Tab 标签更名为「**在线模型**」，彻底剥离原先提示词模板调优定位，转型为标准云端模型调用与管理中心；
+  - 已保存模型重构为顶部下拉菜单管理（`#onlineModelSelect`），选中模型自动同步表单配置，支持新建、保存、删除与连通性测试。
+- [x] 54.2 **表单纯净新建与参数拓展**：
+  - 新建模型时表单完全清空（不预填充），BaseURL 默认展示 OpenAI 官方示例提示；
+  - 参数配置区新增 `--top-k 50` 与 `--repeat-penalty 1.1` 自定义参数项。
+- [x] 54.3 **主工作台底部提取模型双轨分组调度**：
+  - 在 [`web/app.js`](file:///Users/icychick/Projects/SensiDoc/web/app.js) 的 `populateFooterModelSelect` 中将底部提取模型下拉框重构为双轨分组：
+    - `离线本地模型 (GGUF)`：枚举当前已就绪的本地离线模型，展示运行中状态并支持启停；
+    - `在线云端模型 (API)`：动态聚合已保存的在线模型配置；
+  - 在「立即执行提取」时根据所选前缀（`offline:` / `online:`）无缝路由至本地小模型推理或云端大模型 API。
+
+---
+
+## 阶段五十五：离线模型列表加载修复与操作文案精简 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 55.1 **离线模型与测试评测记录加载恢复**：
+  - 修复设置模态框打开与选项卡切换时离线模型列表未加载的问题，在模态框打开及 Tab 切换事件中主动调用 `loadModelPresets()`；
+  - 恢复 `models/` 目录下已下载模型、魔搭推荐模型列表及模型专属评测记录（F1 分数徽标）的完整展示。
+- [x] 55.2 **操作按钮文案极简化**：
+  - 将离线模型列表中的操作按钮由「一键下载」与「载入启动」精简为「**下载**」与「**启动**」。
+
+---
+
+## 阶段五十六：外观显示 Tab 文案精简与全局 UI 缩放滑动条重构 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 56.1 **Tab 标签文案精简**：
+  - 将设置中心顶部的「外观与显示」选项卡重命名为「**外观显示**」（[`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html)）。
+- [x] 56.2 **全局 UI 缩放滑动条重构**：
+  - 将离散 Pill 按钮组重构为缩放滑动条（`<input type="range" id="uiScaleSlider" min="100" max="200" step="5">`）；
+  - 缩放刻度严格对齐既有比例（100% ~ 200%，步长 5%），覆盖 100%, 110%, 115%, 120%, 125%, 130%, 140%, 150%, 175%, 200%；
+  - 底部均匀分布关键刻度标签（100% 默认、125%、150%、175%、200%），支持点击标签快速定位；
+  - 滑动时实时联动右上角数值徽标、页面 CSS `--ui-scale` 与 `zoom`，并持久化到 `localStorage`。
+
+---
+
+## 阶段五十七：前端初始化异常排查、DOM 引用防御性加固与静态资源缓存控制 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 57.1 **缺失 DOM 引用补全与未捕获异常排查**：
+  - 排查并修复了 `web/app.js` 的 `el` 对象中缺失 `rawJsonModal`、`viewRawJsonBtn`、`closeRawJsonModalBtn`、`copyRawJsonBtn`、`rawJsonCodeBlock` 导致 `initEventListeners` 抛出 `Uncaught TypeError` 并阻塞后续 `loadDocuments()` 与 `loadModelPresets()` 执行的问题。
+- [x] 57.2 **全事件监听器防御性加固**：
+  - 为 `web/app.js` 中所有事件监听器绑定增加空值安全防护（`if (el.xxx)`），确保个别 DOM 缺失时不阻断整个前端生命周期。
+- [x] 57.3 **静态资源缓存控制与实机端到端验证**：
+  - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中为 `style.css` 与 `app.js` 引入版本查询参数（`?v=1.1.2`），避免浏览器加载旧版缓存脚本；
+  - 经 Chrome Headless 实测验证，10 份测试文档、各版本历史快照时光机记录（14 个快照、10 个快照等）及模型评测徽标均已完整恢复正常展示。
+
+
