@@ -565,8 +565,8 @@ function openSnapshotRulesModal() {
       el.snapModalFieldsList.innerHTML = '<div style="padding: 10px; text-align: center; color: var(--text-mute); font-size: 11.5px;">本次快照未记录特定规则字段（使用默认内置规则）</div>';
     } else {
       fields.forEach((f) => {
-        const riskBadgeText = f.risk_level === "high" ? "高危" : f.risk_level === "low" ? "低危" : "中危";
-        const riskBadgeClass = f.risk_level === "high" ? "danger" : f.risk_level === "low" ? "success" : "warning";
+        const riskBadgeText = f.risk_level === "high" ? "高" : f.risk_level === "low" ? "低" : "中";
+        const riskBadgeClass = f.risk_level === "high" ? "danger" : f.risk_level === "low" ? "neutral" : "warning";
         const itemEl = document.createElement("div");
         itemEl.className = "snap-field-item";
         itemEl.innerHTML = `
@@ -575,7 +575,7 @@ function openSnapshotRulesModal() {
             <span class="snap-field-desc">${escapeHtml(f.description || "无描述")}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="badge ${riskBadgeClass}" style="font-size: 10px; padding: 2px 6px;">${riskBadgeText}</span>
+            <span class="badge ${riskBadgeClass}" style="font-size: 10px; padding: 2px 6px;" title="优先级: ${riskBadgeText}">${riskBadgeText}</span>
             <span style="font-size: 10.5px; color: ${f.is_enabled ? "var(--success)" : "var(--text-mute)"};">${f.is_enabled ? "启用" : "未启用"}</span>
           </div>
         `;
@@ -1631,12 +1631,12 @@ function renderFieldTags() {
   state.fieldTags.forEach((tag) => {
     const chip = document.createElement("span");
     chip.className = "tag-chip";
-    const riskCn = tag.risk_level === "high" ? "高危" : tag.risk_level === "medium" ? "中危" : "低危";
+    const riskCn = tag.risk_level === "high" ? "高" : tag.risk_level === "low" ? "低" : "中";
     chip.innerHTML = `
       <span class="tag-chip-name">＋ ${escapeHtml(tag.name)}</span>
       <span class="tag-chip-del" title="从标签库中删除此标签"><svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></span>
     `;
-    chip.title = `点击快速注入：${tag.description || "无描述"} [${riskCn}]`;
+    chip.title = `点击快速注入：${tag.description || "无描述"} [优先级: ${riskCn}]`;
 
     // 点击标签主体快速注入规则 (按添加时间倒序插入在最前)
     chip.querySelector(".tag-chip-name").addEventListener("click", (e) => {
@@ -1697,17 +1697,18 @@ function renderFieldTags() {
   });
 }
 
-// 渲染右侧规则定义卡片流 (支持开关、字段名修改、风险等级轮换、描述调整、保存标签与删除)
+// 渲染右侧规则定义卡片流 (支持开关、字段名修改、优先级轮换、描述调整、保存标签与删除)
 function renderRulesTable() {
   el.ruleCardList.innerHTML = "";
-  const total = state.currentRules.length;
-  el.ruleTotalCount.innerText = total;
-  el.rulesCountBadge.innerText = total;
+  el.ruleTotalCount.innerText = state.currentRules.length;
+  if (el.rulesCountBadge) {
+    el.rulesCountBadge.innerText = state.currentRules.length;
+  }
 
-  if (total === 0) {
+  if (state.currentRules.length === 0) {
     el.ruleCardList.innerHTML = `
-      <div style="padding: 24px 10px; text-align: center; color: var(--text-mute); font-size: 12px; border: 1px dashed var(--border); border-radius: var(--radius-sm);">
-        点击上方标签或「＋ 新增规则」添加规则
+      <div style="padding: 24px 12px; text-align: center; color: var(--text-mute); font-size: 11.5px; line-height: 1.6;">
+        当前暂无生效规则<br>请从上方选取标签或点击「+ 新增规则」添加
       </div>
     `;
     return;
@@ -1718,7 +1719,7 @@ function renderRulesTable() {
     card.className = "rule-card";
 
     const riskClass = rule.risk_level === "high" ? "high" : rule.risk_level === "low" ? "low" : "medium";
-    const riskCn = rule.risk_level === "high" ? "高危" : rule.risk_level === "low" ? "低危" : "中危";
+    const riskCn = rule.risk_level === "high" ? "高" : rule.risk_level === "low" ? "低" : "中";
 
     card.innerHTML = `
       <div class="rule-card-header">
@@ -1727,7 +1728,7 @@ function renderRulesTable() {
           <input type="text" value="${escapeHtml(rule.name)}" class="rule-name-input" placeholder="字段名称" title="点击编辑字段名">
         </div>
         <div class="rule-actions">
-          <span class="risk-badge ${riskClass}" title="点击轮换风险等级: 高危 / 中危 / 低危">${riskCn}</span>
+          <span class="risk-badge ${riskClass}" title="点击切换优先级: 高 / 中 / 低">${riskCn}</span>
           <button class="save-tag-mini-btn" title="保存至常用标签库">存标签</button>
           <span class="delete-btn" title="删除此规则" style="display: inline-flex; align-items: center;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
         </div>
@@ -1752,7 +1753,7 @@ function renderRulesTable() {
       state.currentRules[idx].description = e.target.value;
     });
 
-    // 事件绑定：点击风险等级徽标轮换 (中危 -> 高危 -> 低危 -> 中危)
+    // 事件绑定：点击优先级徽标轮换 (中 -> 高 -> 低 -> 中)
     const riskBadge = card.querySelector(".risk-badge");
     riskBadge.addEventListener("click", () => {
       const current = state.currentRules[idx].risk_level;
@@ -2261,13 +2262,13 @@ function renderAuditList(items) {
     card.setAttribute("data-sensi-text", item.text);
 
     const riskClass = item.risk_level === "high" ? "high" : item.risk_level === "low" ? "low" : "medium";
-    const riskCn = item.risk_level === "high" ? "高危" : item.risk_level === "low" ? "低危" : "中危";
+    const riskCn = item.risk_level === "high" ? "高" : item.risk_level === "low" ? "低" : "中";
     const sourceLabel = item.source === "regex" ? "规则正则" : "端侧小模型";
 
     card.innerHTML = `
       <div class="card-top">
         <span class="card-text">${escapeHtml(item.text)}</span>
-        <span class="card-tag ${riskClass}" title="风险等级: ${riskCn}">${item.category}</span>
+        <span class="card-tag ${riskClass}" title="优先级: ${riskCn}">${item.category}</span>
       </div>
       <div class="card-bottom">
         <span class="card-meta-pill">出现 ${item.count} 次</span>
@@ -3253,11 +3254,12 @@ function exportCsv() {
   }
 
   const items = state.currentSnapshot.items;
-  let csvContent = "\uFEFF敏感词,字段分类,风险等级,出现频次,检出来源\n";
+  let csvContent = "\uFEFF敏感词,字段分类,优先级,出现频次,检出来源\n";
 
   items.forEach((item) => {
     const cleanText = item.text.replace(/"/g, '""');
-    csvContent += `"${cleanText}","${item.category}","${item.risk_level}",${item.count},"${item.source}"\n`;
+    const priCn = item.risk_level === "high" ? "高" : item.risk_level === "low" ? "低" : "中";
+    csvContent += `"${cleanText}","${item.category}","${priCn}",${item.count},"${item.source}"\n`;
   });
 
   const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });

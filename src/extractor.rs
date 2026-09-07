@@ -284,17 +284,22 @@ impl Extractor {
   }
 ]"#;
 
-    /// 根据当前启用的字段列表生成纯净的字段描述块（移除业务展示的风险等级噪音，提升小模型实体聚焦度）
+    /// 根据当前启用的字段列表生成字段描述块（注入高/中/低优先级，强化大模型注意力聚焦与必抽实体召回率）
     pub fn format_fields_definition(fields: &[RuleField]) -> String {
         let mut defs = Vec::new();
         for f in fields.iter().filter(|f| f.is_enabled) {
+            let pri = match f.risk_level.as_str() {
+                "high" => "高",
+                "low" => "低",
+                _ => "中",
+            };
             defs.push(format!(
-                "- 字段[{}]：{}",
-                f.name, f.description
+                "- 字段[{}] (优先级: {})：{}",
+                f.name, pri, f.description
             ));
         }
         if defs.is_empty() {
-            "- （当前未启用任何特定字段，请根据上下文提取常见隐私与商业涉密信息）".to_string()
+            "- （当前未启用任何特定字段，请根据上下文提取核心业务实体信息）".to_string()
         } else {
             defs.join("\n")
         }

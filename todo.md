@@ -742,4 +742,20 @@
   - 在 [`web/index.html`](file:///Users/icychick/Projects/SensiDoc/web/index.html) 中为 `style.css` 与 `app.js` 引入版本查询参数（`?v=1.1.2`），避免浏览器加载旧版缓存脚本；
   - 经 Chrome Headless 实测验证，10 份测试文档、各版本历史快照时光机记录（14 个快照、10 个快照等）及模型评测徽标均已完整恢复正常展示。
 
+---
+
+## 阶段五十八：规则标签与提示词重构（「风险等级」升级为「优先级」） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 58.1 **企业基准多方案离线实测对照**：
+  - 编写并运行 [`tests/test_priority_benchmark.py`](file:///Users/icychick/Projects/SensiDoc/tests/test_priority_benchmark.py)，对 10 份企业基准测试文档进行 4 组策略全量测试；
+  - 实测证明：行内注入 `(优先级: 高/中/低)` 使综合 F1 由 **77.70% 提升至 81.86%**，核心高优先级字段召回率由 **57.50% 显著提升至 65.00%**，精准率保持 100%（零误报）。
+- [x] 58.2 **提示词字段定义生成引擎升级 (`src/extractor.rs`)**：
+  - 在 `format_fields_definition` 中为每个启用字段注入 `(优先级: 高/中/低)` 行内权重提示，引导大模型在多字段长文本提取时进行合理注意力分配。
+- [x] 58.3 **前端 UI 优先级文案与徽标精简重构 (`web/app.js` / `web/index.html`)**：
+  - 规则卡片（`#ruleCardList`）、常用标签库（`#tagPool`）、快照审查模态框（`#snapshotRulesModal`）及审计命中清单（`#auditList`）中，原「高危/中危/低危」统一升级为精简的「**高**」、「**中**」、「**低**」优先级徽标与提示；
+  - 导出 CSV 表头由「风险等级」更新为「优先级」，值对应输出「高/中/低」；
+  - 保持底层数据模型完全向下兼容历史快照与保存模板。
+- [x] 58.4 **全链路端到端功能验证与回归测试**：
+  - 13 项 Cargo 单元测试 100% 绿灯通过，前端 JS 语法检查通过，Chrome 浏览器实机验证展示正常。
+
+
 
