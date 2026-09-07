@@ -867,7 +867,7 @@ function initEventListeners() {
     el.addFieldBtn.addEventListener("click", () => {
       state.currentRules.unshift({
         name: "新字段",
-        description: "提取特征与上下文模式描述",
+        description: "",
         risk_level: "medium",
         is_enabled: true,
       });
@@ -1734,7 +1734,7 @@ function renderRulesTable() {
         </div>
       </div>
       <div class="rule-desc-row">
-        <input type="text" value="${escapeHtml(rule.description)}" class="rule-desc-input" placeholder="输入上下文提取特征描述 (组合进入 System Prompt)">
+        <input type="text" value="${escapeHtml(rule.description || "")}" class="rule-desc-input" placeholder="输入上下文提取特征描述 (组合进入 System Prompt)">
       </div>
     `;
 

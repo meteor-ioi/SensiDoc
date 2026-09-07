@@ -1675,23 +1675,34 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 }
 
 .rule-desc-row {
-  margin-top: 5px;
+  margin-top: 6px;
   padding-left: 22px;
 }
 
 .rule-desc-input {
   width: 100%;
+  box-sizing: border-box;
   font-size: 11px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-dim);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
   outline: none;
-  padding: 2px 4px;
-  border-radius: 3px;
+  padding: 4px 7px;
+  border-radius: var(--radius-sm);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.rule-desc-input::placeholder {
+  color: var(--text-mute);
+}
+
+.rule-desc-input:hover {
+  border-color: var(--border-strong);
 }
 
 .rule-desc-input:focus {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
   background: var(--surface);
   color: var(--text);
 }
