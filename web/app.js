@@ -107,6 +107,11 @@ const el = {
   auditList: document.getElementById("auditList"),
   exportCsvBtn: document.getElementById("exportCsvBtn"),
   exportDesensBtn: document.getElementById("exportDesensBtn"),
+  viewRawJsonBtn: document.getElementById("viewRawJsonBtn"),
+  rawJsonModal: document.getElementById("rawJsonModal"),
+  closeRawJsonModalBtn: document.getElementById("closeRawJsonModalBtn"),
+  copyRawJsonBtn: document.getElementById("copyRawJsonBtn"),
+  rawJsonCodeBlock: document.getElementById("rawJsonCodeBlock"),
 
   // 预览区底部信息栏：统计项、缩放按钮、快照时光机与执行模型
   previewStatsDoc: document.getElementById("previewStatsDoc"),
@@ -605,13 +610,13 @@ async function copySnapshotPrompt() {
 // 事件监听器注册
 function initEventListeners() {
   // 预览 vs 源码模式拨杆切换
-  el.viewRenderedBtn.addEventListener("click", () => switchPreviewMode("rendered"));
-  el.viewSourceBtn.addEventListener("click", () => switchPreviewMode("source"));
+  if (el.viewRenderedBtn) el.viewRenderedBtn.addEventListener("click", () => switchPreviewMode("rendered"));
+  if (el.viewSourceBtn) el.viewSourceBtn.addEventListener("click", () => switchPreviewMode("source"));
 
   // 方案C：工作台 Segmented Tabs 切换
-  el.tabRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
-  el.tabAuditBtn.addEventListener("click", () => switchInspectorTab("audit"));
-  el.backToRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
+  if (el.tabRulesBtn) el.tabRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
+  if (el.tabAuditBtn) el.tabAuditBtn.addEventListener("click", () => switchInspectorTab("audit"));
+  if (el.backToRulesBtn) el.backToRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
 
   // 预览区字体缩放控制 (放大 / 缩小 / 恢复)
   if (el.zoomInBtn) {
@@ -728,18 +733,26 @@ function initEventListeners() {
   }
 
   // 模态框打开与关闭
-  el.settingsBtn.addEventListener("click", () => {
-    el.settingsModal.classList.add("open");
-    loadModelPresets();
-  });
-  el.closeModalBtn.addEventListener("click", () => el.settingsModal.classList.remove("open"));
-  el.settingsModal.addEventListener("click", (e) => {
-    if (e.target === el.settingsModal) el.settingsModal.classList.remove("open");
-  });
+  if (el.settingsBtn) {
+    el.settingsBtn.addEventListener("click", () => {
+      if (el.settingsModal) el.settingsModal.classList.add("open");
+      loadModelPresets();
+    });
+  }
+  if (el.closeModalBtn) {
+    el.closeModalBtn.addEventListener("click", () => {
+      if (el.settingsModal) el.settingsModal.classList.remove("open");
+    });
+  }
+  if (el.settingsModal) {
+    el.settingsModal.addEventListener("click", (e) => {
+      if (e.target === el.settingsModal) el.settingsModal.classList.remove("open");
+    });
+  }
 
   // 文件导入与全侧边栏拖拽投放
-  el.addFilesBtn.addEventListener("click", () => el.fileInput.click());
-  el.fileInput.addEventListener("change", (e) => handleFilesUpload(e.target.files));
+  if (el.addFilesBtn) el.addFilesBtn.addEventListener("click", () => el.fileInput && el.fileInput.click());
+  if (el.fileInput) el.fileInput.addEventListener("change", (e) => handleFilesUpload(e.target.files));
 
   // 全侧边栏拖拽响应：使用计数器避免拖过子元素时产生的闪烁
   let sidebarDragCounter = 0;
@@ -818,7 +831,7 @@ function initEventListeners() {
   }
 
   // 保存当前规则为新场景模板
-  el.saveTemplateBtn.addEventListener("click", openSaveTemplateModal);
+  if (el.saveTemplateBtn) el.saveTemplateBtn.addEventListener("click", openSaveTemplateModal);
 
   // 删除当前选中的自定义模板
   if (el.deleteTemplateBtn) {
@@ -831,43 +844,47 @@ function initEventListeners() {
   }
 
   // 预设模板切换
-  el.presetSelect.addEventListener("change", (e) => {
-    updateDeleteTemplateBtnVisibility();
-    const presetId = e.target.value;
-    if (!presetId) {
-      // 切换为空模板
-      state.currentRules = [];
-      renderRulesTable();
-      return;
-    }
-    const found = state.rulePresets.find((p) => p.id === presetId);
-    if (found) {
-      state.currentRules = JSON.parse(JSON.stringify(found.fields));
-      renderRulesTable();
-    }
-  });
+  if (el.presetSelect) {
+    el.presetSelect.addEventListener("change", (e) => {
+      updateDeleteTemplateBtnVisibility();
+      const presetId = e.target.value;
+      if (!presetId) {
+        // 切换为空模板
+        state.currentRules = [];
+        renderRulesTable();
+        return;
+      }
+      const found = state.rulePresets.find((p) => p.id === presetId);
+      if (found) {
+        state.currentRules = JSON.parse(JSON.stringify(found.fields));
+        renderRulesTable();
+      }
+    });
+  }
 
   // 新增字段 (按添加时间倒序排列在最顶部，避免被底部遮挡)
-  el.addFieldBtn.addEventListener("click", () => {
-    state.currentRules.unshift({
-      name: "新字段",
-      description: "提取特征与上下文模式描述",
-      risk_level: "medium",
-      is_enabled: true,
-    });
-    renderRulesTable();
-    if (el.ruleCardList) {
-      el.ruleCardList.scrollTop = 0;
-      const firstInput = el.ruleCardList.querySelector(".rule-card:first-child .rule-name-input");
-      if (firstInput) {
-        firstInput.focus();
-        firstInput.select();
+  if (el.addFieldBtn) {
+    el.addFieldBtn.addEventListener("click", () => {
+      state.currentRules.unshift({
+        name: "新字段",
+        description: "提取特征与上下文模式描述",
+        risk_level: "medium",
+        is_enabled: true,
+      });
+      renderRulesTable();
+      if (el.ruleCardList) {
+        el.ruleCardList.scrollTop = 0;
+        const firstInput = el.ruleCardList.querySelector(".rule-card:first-child .rule-name-input");
+        if (firstInput) {
+          firstInput.focus();
+          firstInput.select();
+        }
       }
-    }
-  });
+    });
+  }
 
   // 立即提取
-  el.quickExtractBtn.addEventListener("click", triggerExtraction);
+  if (el.quickExtractBtn) el.quickExtractBtn.addEventListener("click", triggerExtraction);
 
   // 方案一：底部模型下拉选择与启停联动
   if (el.footerModelSelect) {
@@ -957,16 +974,22 @@ function initEventListeners() {
   }
 
   // 查看原始 JSON 数据模态框事件
-  el.viewRawJsonBtn.addEventListener("click", openRawJsonModal);
-  el.closeRawJsonModalBtn.addEventListener("click", () => el.rawJsonModal.classList.remove("open"));
-  el.rawJsonModal.addEventListener("click", (e) => {
-    if (e.target === el.rawJsonModal) el.rawJsonModal.classList.remove("open");
-  });
-  el.copyRawJsonBtn.addEventListener("click", copyRawJsonToClipboard);
+  if (el.viewRawJsonBtn) el.viewRawJsonBtn.addEventListener("click", openRawJsonModal);
+  if (el.closeRawJsonModalBtn) {
+    el.closeRawJsonModalBtn.addEventListener("click", () => {
+      if (el.rawJsonModal) el.rawJsonModal.classList.remove("open");
+    });
+  }
+  if (el.rawJsonModal) {
+    el.rawJsonModal.addEventListener("click", (e) => {
+      if (e.target === el.rawJsonModal) el.rawJsonModal.classList.remove("open");
+    });
+  }
+  if (el.copyRawJsonBtn) el.copyRawJsonBtn.addEventListener("click", copyRawJsonToClipboard);
 
   // 导出操作
-  el.exportCsvBtn.addEventListener("click", exportCsv);
-  el.exportDesensBtn.addEventListener("click", exportDesensitizedDoc);
+  if (el.exportCsvBtn) el.exportCsvBtn.addEventListener("click", exportCsv);
+  if (el.exportDesensBtn) el.exportDesensBtn.addEventListener("click", exportDesensitizedDoc);
 
   // 初始化左右侧面板宽度拖拽拉伸调整器
   setupPanelResizers();
