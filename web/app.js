@@ -727,7 +727,10 @@ function initEventListeners() {
   }
 
   // 模态框打开与关闭
-  el.settingsBtn.addEventListener("click", () => el.settingsModal.classList.add("open"));
+  el.settingsBtn.addEventListener("click", () => {
+    el.settingsModal.classList.add("open");
+    loadModelPresets();
+  });
   el.closeModalBtn.addEventListener("click", () => el.settingsModal.classList.remove("open"));
   el.settingsModal.addEventListener("click", (e) => {
     if (e.target === el.settingsModal) el.settingsModal.classList.remove("open");
@@ -2371,6 +2374,7 @@ function switchSettingsTab(tabName) {
   if (tabName === "model") {
     if (el.tabSetModelBtn) el.tabSetModelBtn.classList.add("active");
     if (el.paneSetModel) el.paneSetModel.style.display = "block";
+    loadModelPresets();
   } else if (tabName === "online-ai") {
     if (el.tabSetOnlineAiBtn) el.tabSetOnlineAiBtn.classList.add("active");
     if (el.paneSetOnlineAi) el.paneSetOnlineAi.style.display = "flex";
@@ -3305,13 +3309,8 @@ async function autoLoadModelOptimalPrompt(filename) {
 // 加载模型管理
 async function loadModelPresets() {
   try {
-    const res = await fetch("/api/models/presets");
-    if (res.ok) {
-      state.modelPresets = await res.json();
-      renderModelPresets();
-    }
-
-    const [localRes, profilesRes] = await Promise.all([
+    const [presetsRes, localRes, profilesRes] = await Promise.all([
+      fetch("/api/models/presets"),
       fetch("/api/models/local"),
       fetch("/api/models/prompts/all").catch(() => ({ ok: false })),
     ]);
@@ -3323,46 +3322,64 @@ async function loadModelPresets() {
       } catch (_) {}
     }
 
+    if (presetsRes.ok) {
+      state.modelPresets = await presetsRes.json();
+      renderModelPresets(promptProfiles);
+    }
+
     if (localRes.ok) {
       const localModels = await localRes.json();
-      if (localModels.length === 0) {
-        el.localModelsList.innerHTML = `<div style="font-size: 11px; color: var(--text-mute);">models/ 目录下暂无本地模型，请点击上方「选取本地 GGUF 模型」添加</div>`;
-      } else {
-        el.localModelsList.innerHTML = localModels
-          .map((m) => {
-            const isActive = state.activeModelName === m;
-            const isStarting = state.startingModel === m;
-            return `
-              <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 5px; background: var(--surface-2);">
-                <div style="flex: 1; min-width: 0; margin-right: 8px;">
-                  <div style="font-family: var(--font-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500;" title="${m}">${m}</div>
-                </div>
-                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                  ${
-                    isActive
-                      ? `<button class="btn sm stop-local-btn" data-file="${m}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
-                      : isStarting
-                      ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-                      : `<button class="btn primary sm start-local-btn" data-file="${m}">载入启动</button>`
-                  }
-                </div>
-              </div>
-            `;
-          })
-          .join("");
+      if (el.localModelsList) {
+        if (localModels.length === 0) {
+          el.localModelsList.innerHTML = `<div style="font-size: 11px; color: var(--text-mute); padding: 4px 0;">models/ 目录下暂无本地模型，请点击上方「选取本地 GGUF 模型」添加</div>`;
+        } else {
+          el.localModelsList.innerHTML = localModels
+            .map((m) => {
+              const isActive = state.activeModelName === m;
+              const isStarting = state.startingModel === m;
+              const prof = promptProfiles[m];
+              const profileBadgeHtml = prof
+                ? `<div style="display: flex; align-items: center; gap: 4px; margin-top: 4px;">
+                     <span class="badge success" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+                       <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+                       <span>评测记录: ${escapeHtml(prof.profile_name)}${prof.f1_score !== undefined && prof.f1_score !== null ? ` (F1: ${(prof.f1_score * 100).toFixed(1)}%)` : ''}</span>
+                     </span>
+                   </div>`
+                : "";
 
-        el.localModelsList.querySelectorAll(".start-local-btn").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            const file = btn.getAttribute("data-file");
-            startLlamaModel(file);
-          });
-        });
+              return `
+                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 5px; background: var(--surface-2);">
+                  <div style="flex: 1; min-width: 0; margin-right: 8px;">
+                    <div style="font-family: var(--font-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500;" title="${escapeHtml(m)}">${escapeHtml(m)}</div>
+                    ${profileBadgeHtml}
+                  </div>
+                  <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                    ${
+                      isActive
+                        ? `<button class="btn sm stop-local-btn" data-file="${escapeHtml(m)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+                        : isStarting
+                        ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
+                        : `<button class="btn primary sm start-local-btn" data-file="${escapeHtml(m)}">载入启动</button>`
+                    }
+                  </div>
+                </div>
+              `;
+            })
+            .join("");
 
-        el.localModelsList.querySelectorAll(".stop-local-btn").forEach((btn) => {
-          btn.addEventListener("click", () => {
-            stopLlamaModel();
+          el.localModelsList.querySelectorAll(".start-local-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              const file = btn.getAttribute("data-file");
+              startLlamaModel(file);
+            });
           });
-        });
+
+          el.localModelsList.querySelectorAll(".stop-local-btn").forEach((btn) => {
+            btn.addEventListener("click", () => {
+              stopLlamaModel();
+            });
+          });
+        }
       }
     }
   } catch (e) {
@@ -3371,7 +3388,8 @@ async function loadModelPresets() {
 }
 
 // 渲染模型列表
-function renderModelPresets() {
+function renderModelPresets(promptProfiles = {}) {
+  if (!el.modelPresetsList) return;
   el.modelPresetsList.innerHTML = "";
 
   state.modelPresets.forEach((m) => {
@@ -3381,24 +3399,34 @@ function renderModelPresets() {
 
     const isActive = state.activeModelName === m.filename || m.is_active;
     const isStarting = state.startingModel === m.filename;
+    const prof = promptProfiles[m.filename];
+    const profileBadgeHtml = prof
+      ? `<div style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
+           <span class="badge success" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
+             <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+             <span>评测记录: ${escapeHtml(prof.profile_name)}${prof.f1_score !== undefined && prof.f1_score !== null ? ` (F1: ${(prof.f1_score * 100).toFixed(1)}%)` : ''}</span>
+           </span>
+         </div>`
+      : "";
 
     item.innerHTML = `
-      <div style="flex: 1;">
-        <div class="model-info-title">${m.name} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${m.size_desc})</span></div>
-        <div class="model-info-desc">${m.description}</div>
+      <div style="flex: 1; min-width: 0;">
+        <div class="model-info-title">${escapeHtml(m.name)} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${escapeHtml(m.size_desc)})</span></div>
+        <div class="model-info-desc">${escapeHtml(m.description)}</div>
+        ${profileBadgeHtml}
         <div class="progress-bar-wrap" id="prog-wrap-${m.id}">
           <div class="progress-bar-fill" id="prog-fill-${m.id}"></div>
         </div>
         <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: none;"></div>
       </div>
-      <div>
+      <div style="flex-shrink: 0;">
         ${
           m.is_downloaded
             ? isActive
-              ? `<button class="btn sm stop-model-btn" data-file="${m.filename}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+              ? `<button class="btn sm stop-model-btn" data-file="${escapeHtml(m.filename)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
               : isStarting
               ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-              : `<button class="btn primary sm start-model-btn" data-file="${m.filename}">载入启动</button>`
+              : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">载入启动</button>`
             : `<button class="btn sm download-model-btn" data-id="${m.id}">一键下载</button>`
         }
       </div>
