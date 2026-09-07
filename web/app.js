@@ -168,6 +168,8 @@ const el = {
   onlineModelApiKeyInput: document.getElementById("onlineModelApiKeyInput"),
   onlineModelIdInput: document.getElementById("onlineModelIdInput"),
   onlineModelTempInput: document.getElementById("onlineModelTempInput"),
+  onlineModelTopKInput: document.getElementById("onlineModelTopKInput"),
+  onlineModelRepeatPenaltyInput: document.getElementById("onlineModelRepeatPenaltyInput"),
   onlineModelTestStatusText: document.getElementById("onlineModelTestStatusText"),
   testOnlineModelBtn: document.getElementById("testOnlineModelBtn"),
   saveOnlineModelBtn: document.getElementById("saveOnlineModelBtn"),
@@ -885,6 +887,16 @@ function initEventListeners() {
   if (el.deleteOnlineModelBtn) el.deleteOnlineModelBtn.addEventListener("click", handleDeleteOnlineModel);
   if (el.testOnlineModelBtn) el.testOnlineModelBtn.addEventListener("click", handleTestOnlineModel);
   if (el.saveOnlineModelBtn) el.saveOnlineModelBtn.addEventListener("click", handleSaveOnlineModel);
+  if (el.onlineModelNameInput) {
+    el.onlineModelNameInput.addEventListener("input", () => {
+      if (state.editingOnlineModelId === null && el.onlineModelSelect) {
+        const opt = el.onlineModelSelect.querySelector("option[value='__NEW_DRAFT__']");
+        if (opt) {
+          opt.textContent = el.onlineModelNameInput.value.trim() || "+ 新建模型...";
+        }
+      }
+    });
+  }
 
   // 主界面顶部栏一键主题切换按钮
   if (el.topThemeToggleBtn) {
@@ -2377,16 +2389,26 @@ function switchSettingsTab(tabName) {
 // 渲染在线模型下拉菜单选项
 function renderOnlineModelOptions() {
   if (!el.onlineModelSelect) return;
-  if (!state.onlineModels || state.onlineModels.length === 0) {
-    el.onlineModelSelect.innerHTML = `<option value="">(暂无已存模型，点击新建)</option>`;
-    return;
+  let optionsHtml = "";
+
+  if (state.editingOnlineModelId === null) {
+    const draftName = (el.onlineModelNameInput && el.onlineModelNameInput.value.trim()) || "+ 新建模型...";
+    optionsHtml += `<option value="__NEW_DRAFT__">${escapeHtml(draftName)}</option>`;
   }
 
-  el.onlineModelSelect.innerHTML = state.onlineModels
-    .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`)
-    .join("");
+  if (state.onlineModels && state.onlineModels.length > 0) {
+    optionsHtml += state.onlineModels
+      .map((m) => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`)
+      .join("");
+  } else if (!optionsHtml) {
+    optionsHtml = `<option value="">(暂无已存模型，点击新建)</option>`;
+  }
 
-  if (state.activeOnlineModelId) {
+  el.onlineModelSelect.innerHTML = optionsHtml;
+
+  if (state.editingOnlineModelId === null) {
+    el.onlineModelSelect.value = "__NEW_DRAFT__";
+  } else if (state.activeOnlineModelId) {
     el.onlineModelSelect.value = state.activeOnlineModelId;
   }
 }
@@ -2396,19 +2418,24 @@ function fillOnlineModelForm(profile) {
   if (!profile) {
     state.editingOnlineModelId = null;
     if (el.onlineModelNameInput) el.onlineModelNameInput.value = "";
-    if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = "https://api.deepseek.com/v1";
+    if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = "";
     if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = "";
-    if (el.onlineModelIdInput) el.onlineModelIdInput.value = "deepseek-chat";
+    if (el.onlineModelIdInput) el.onlineModelIdInput.value = "";
     if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
+    if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = 50;
+    if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = 1.1;
+    if (el.onlineModelTestStatusText) el.onlineModelTestStatusText.innerText = "";
     return;
   }
 
   state.editingOnlineModelId = profile.id;
   if (el.onlineModelNameInput) el.onlineModelNameInput.value = profile.name || "";
-  if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = profile.base_url || "https://api.deepseek.com/v1";
+  if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = profile.base_url || "";
   if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = profile.api_key || "";
-  if (el.onlineModelIdInput) el.onlineModelIdInput.value = profile.model_id || "deepseek-chat";
+  if (el.onlineModelIdInput) el.onlineModelIdInput.value = profile.model_id || "";
   if (el.onlineModelTempInput) el.onlineModelTempInput.value = profile.temperature !== undefined ? profile.temperature : 0.1;
+  if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = profile.top_k !== undefined ? profile.top_k : 50;
+  if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1;
   if (el.onlineModelTestStatusText) el.onlineModelTestStatusText.innerText = "";
 }
 
@@ -2426,10 +2453,16 @@ async function loadOnlineModelsSettings() {
       state.activeOnlineModelId = data.active_id || (state.onlineModels[0] ? state.onlineModels[0].id : null);
     }
 
+    if (state.editingOnlineModelId !== null) {
+      state.editingOnlineModelId = state.activeOnlineModelId;
+    }
+
     renderOnlineModelOptions();
 
-    const current = state.onlineModels.find((m) => m.id === state.activeOnlineModelId) || state.onlineModels[0];
-    fillOnlineModelForm(current);
+    if (state.editingOnlineModelId !== null) {
+      const current = state.onlineModels.find((m) => m.id === state.activeOnlineModelId) || state.onlineModels[0];
+      fillOnlineModelForm(current);
+    }
   } catch (e) {
     console.error("加载在线模型配置失败:", e);
   }
@@ -2438,7 +2471,15 @@ async function loadOnlineModelsSettings() {
 // 切换选择已存模型
 async function handleOnlineModelSelectChange(e) {
   const selectedId = e.target.value;
+  if (selectedId === "__NEW_DRAFT__") {
+    handleNewOnlineModel();
+    return;
+  }
+
   state.activeOnlineModelId = selectedId;
+  state.editingOnlineModelId = selectedId;
+  renderOnlineModelOptions();
+
   const target = state.onlineModels.find((m) => m.id === selectedId);
   fillOnlineModelForm(target);
 
@@ -2457,17 +2498,14 @@ async function handleOnlineModelSelectChange(e) {
 // 点击新建模型
 function handleNewOnlineModel() {
   state.editingOnlineModelId = null;
+  renderOnlineModelOptions();
+  fillOnlineModelForm(null);
+
   if (el.onlineModelNameInput) {
-    el.onlineModelNameInput.value = "新模型配置";
     el.onlineModelNameInput.focus();
-    el.onlineModelNameInput.select();
   }
-  if (el.onlineModelBaseUrlInput) el.onlineModelBaseUrlInput.value = "https://api.deepseek.com/v1";
-  if (el.onlineModelApiKeyInput) el.onlineModelApiKeyInput.value = "";
-  if (el.onlineModelIdInput) el.onlineModelIdInput.value = "deepseek-chat";
-  if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
   if (el.onlineModelTestStatusText) {
-    el.onlineModelTestStatusText.innerText = "正在新建模型配置，填写后点击右侧「保存配置」";
+    el.onlineModelTestStatusText.innerText = "已进入新建模式，请填写配置参数后点击右侧「保存配置」";
     el.onlineModelTestStatusText.style.color = "var(--text-dim)";
   }
 }
@@ -2479,6 +2517,8 @@ async function handleSaveOnlineModel() {
   const apiKey = el.onlineModelApiKeyInput ? el.onlineModelApiKeyInput.value.trim() : "";
   const modelId = el.onlineModelIdInput ? el.onlineModelIdInput.value.trim() : "";
   const temp = el.onlineModelTempInput ? parseFloat(el.onlineModelTempInput.value) || 0.1 : 0.1;
+  const topK = el.onlineModelTopKInput ? parseInt(el.onlineModelTopKInput.value, 10) || 50 : 50;
+  const repeatPenalty = el.onlineModelRepeatPenaltyInput ? parseFloat(el.onlineModelRepeatPenaltyInput.value) || 1.1 : 1.1;
 
   if (!name) {
     showAlertDialog({ title: "提示", message: "请输入模型名称！", type: "warning" });
@@ -2500,6 +2540,8 @@ async function handleSaveOnlineModel() {
     api_key: apiKey,
     model_id: modelId,
     temperature: temp,
+    top_k: topK,
+    repeat_penalty: repeatPenalty,
   };
 
   try {

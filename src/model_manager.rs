@@ -370,6 +370,10 @@ end try"#;
             .arg("4096")
             .arg("--host")
             .arg("127.0.0.1")
+            .arg("--top-k")
+            .arg("50")
+            .arg("--repeat-penalty")
+            .arg("1.1")
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 

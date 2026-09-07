@@ -52,6 +52,10 @@ pub struct OnlineModelProfile {
     pub model_id: String,
     #[serde(default = "default_temperature")]
     pub temperature: f32,
+    #[serde(default = "default_top_k")]
+    pub top_k: u32,
+    #[serde(default = "default_repeat_penalty")]
+    pub repeat_penalty: f32,
 }
 
 fn default_base_url() -> String {
@@ -66,6 +70,14 @@ fn default_temperature() -> f32 {
     0.1
 }
 
+fn default_top_k() -> u32 {
+    50
+}
+
+fn default_repeat_penalty() -> f32 {
+    1.1
+}
+
 fn default_online_models() -> Vec<OnlineModelProfile> {
     vec![OnlineModelProfile {
         id: "deepseek-v3".to_string(),
@@ -74,6 +86,8 @@ fn default_online_models() -> Vec<OnlineModelProfile> {
         api_key: String::new(),
         model_id: "deepseek-chat".to_string(),
         temperature: 0.1,
+        top_k: 50,
+        repeat_penalty: 1.1,
     }]
 }
 

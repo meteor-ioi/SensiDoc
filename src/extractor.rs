@@ -336,6 +336,8 @@ impl Extractor {
                 { "role": "user", "content": user_content }
             ],
             "temperature": 0.1,
+            "top_k": 50,
+            "repeat_penalty": 1.1,
             "max_tokens": 1024
         });
 
@@ -368,6 +370,8 @@ impl Extractor {
         api_key: &str,
         model_id: &str,
         temperature: f32,
+        top_k: u32,
+        repeat_penalty: f32,
         system_prompt: &str,
         user_text: &str,
     ) -> Result<Vec<SensitiveItem>, String> {
@@ -397,6 +401,8 @@ impl Extractor {
                 { "role": "user", "content": user_content }
             ],
             "temperature": temperature,
+            "top_k": top_k,
+            "repeat_penalty": repeat_penalty,
             "max_tokens": 2048
         });
 

@@ -520,6 +520,8 @@ async fn extract_sensitive_info(
                         &cfg.api_key,
                         &cfg.model_id,
                         cfg.temperature,
+                        cfg.top_k,
+                        cfg.repeat_penalty,
                         &system_prompt_used,
                         &chunk_text,
                     ).await {
