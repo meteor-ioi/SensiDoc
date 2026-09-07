@@ -1734,7 +1734,7 @@ function renderRulesTable() {
         </div>
       </div>
       <div class="rule-desc-row">
-        <input type="text" value="${escapeHtml(rule.description || "")}" class="rule-desc-input" placeholder="输入上下文提取特征描述 (组合进入 System Prompt)">
+        <input type="text" value="${escapeHtml(rule.description || "")}" class="rule-desc-input" placeholder="请输入提取目标的特征描述">
       </div>
     `;
 
