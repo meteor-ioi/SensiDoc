@@ -338,7 +338,7 @@
           </button>
           <button class="settings-tab-btn" id="tabSetAppearanceBtn">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"></circle><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"></circle><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
-            <span>外观与显示</span>
+            <span>外观显示</span>
           </button>
         </div>
         <button id="closeModalBtn" class="btn sm" style="position: absolute; right: 0;">关闭</button>
@@ -515,7 +515,7 @@
         </div>
       </div>
 
-      <!-- 板块 3: 外观与显示设定 (正常尺寸主题切换 + 100%~150% 纯切换按钮) -->
+      <!-- 板块 4: 外观显示设定 (正常尺寸主题切换 + 缩放滑动条) -->
       <div class="settings-tab-pane" id="paneSetAppearance" style="display: none; flex: 1; overflow-y: auto;">
         <div style="display: flex; flex-direction: column; gap: 16px;">
           <!-- 功能 1: 主题模式切换 (正常紧凑尺寸) -->
@@ -540,7 +540,7 @@
             </div>
           </div>
 
-          <!-- 功能 2: UI 显示缩放比 (纯按钮组，范围 100% ~ 200%) -->
+          <!-- 功能 2: UI 显示缩放比 (缩放滑动条，范围 100% ~ 200%) -->
           <div class="appearance-setting-card">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
               <div>
@@ -550,18 +550,30 @@
               <div class="ui-scale-badge" id="uiScaleDisplayBadge">100%</div>
             </div>
 
-            <!-- 纯切换按钮组 (100% ~ 200%) -->
-            <div class="scale-preset-pills">
-              <button type="button" class="scale-pill-btn active" data-scale="100">100% (默认)</button>
-              <button type="button" class="scale-pill-btn" data-scale="110">110%</button>
-              <button type="button" class="scale-pill-btn" data-scale="115">115%</button>
-              <button type="button" class="scale-pill-btn" data-scale="120">120%</button>
-              <button type="button" class="scale-pill-btn" data-scale="125">125%</button>
-              <button type="button" class="scale-pill-btn" data-scale="130">130%</button>
-              <button type="button" class="scale-pill-btn" data-scale="140">140%</button>
-              <button type="button" class="scale-pill-btn" data-scale="150">150%</button>
-              <button type="button" class="scale-pill-btn" data-scale="175">175%</button>
-              <button type="button" class="scale-pill-btn" data-scale="200">200%</button>
+            <!-- 缩放滑动条调节 (100% ~ 200%) -->
+            <div class="ui-scale-slider-container">
+              <div class="scale-slider-track-wrap">
+                <input type="range" id="uiScaleSlider" min="100" max="200" step="5" value="100" list="scaleTickmarks" class="ui-scale-slider" />
+                <datalist id="scaleTickmarks">
+                  <option value="100" label="100%"></option>
+                  <option value="110"></option>
+                  <option value="115"></option>
+                  <option value="120"></option>
+                  <option value="125" label="125%"></option>
+                  <option value="130"></option>
+                  <option value="140"></option>
+                  <option value="150" label="150%"></option>
+                  <option value="175" label="175%"></option>
+                  <option value="200" label="200%"></option>
+                </datalist>
+              </div>
+              <div class="scale-slider-ticks">
+                <span class="scale-tick" data-scale="100">100% (默认)</span>
+                <span class="scale-tick" data-scale="125">125%</span>
+                <span class="scale-tick" data-scale="150">150%</span>
+                <span class="scale-tick" data-scale="175">175%</span>
+                <span class="scale-tick" data-scale="200">200%</span>
+              </div>
             </div>
           </div>
         </div>

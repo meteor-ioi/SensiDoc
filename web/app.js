@@ -177,7 +177,7 @@ const el = {
   // 寻优模式徽标
   benchmarkModeBadge: document.getElementById("benchmarkModeBadge"),
 
-  // 外观与显示设置组件
+  // 外观显示设置组件
   topThemeToggleBtn: document.getElementById("topThemeToggleBtn"),
   topThemeIcon: document.getElementById("topThemeIcon"),
   topThemeText: document.getElementById("topThemeText"),
@@ -185,6 +185,7 @@ const el = {
   themeBtnLight: document.getElementById("themeBtnLight"),
   themeBtnDark: document.getElementById("themeBtnDark"),
   uiScaleDisplayBadge: document.getElementById("uiScaleDisplayBadge"),
+  uiScaleSlider: document.getElementById("uiScaleSlider"),
 
   // 模型管理
   importLocalGgufBtn: document.getElementById("importLocalGgufBtn"),
@@ -911,11 +912,19 @@ function initEventListeners() {
   if (el.themeBtnLight) el.themeBtnLight.addEventListener("click", () => applyThemeMode("light"));
   if (el.themeBtnDark) el.themeBtnDark.addEventListener("click", () => applyThemeMode("dark"));
 
-  // 外观设置：UI 缩放按钮组切换 (100% ~ 150%)
-  document.querySelectorAll(".scale-pill-btn").forEach((pill) => {
-    pill.addEventListener("click", () => {
-      const scaleVal = parseInt(pill.getAttribute("data-scale"), 10);
+  // 外观显示：UI 缩放滑动条与刻度点击
+  if (el.uiScaleSlider) {
+    el.uiScaleSlider.addEventListener("input", (e) => {
+      const scaleVal = parseInt(e.target.value, 10);
       applyUiScale(scaleVal);
+    });
+  }
+  document.querySelectorAll(".scale-tick").forEach((tick) => {
+    tick.addEventListener("click", () => {
+      const scaleVal = parseInt(tick.getAttribute("data-scale"), 10);
+      if (!isNaN(scaleVal)) {
+        applyUiScale(scaleVal);
+      }
     });
   });
 
@@ -2760,7 +2769,7 @@ function cycleThemeMode() {
   applyThemeMode(nextMode);
 }
 
-// 切换与应用 UI 缩放比 (纯按钮组切换，范围 100% ~ 200%)
+// 切换与应用 UI 缩放比 (滑动条调节，范围 100% ~ 200%)
 function applyUiScale(percent) {
   const clamped = Math.max(100, Math.min(percent, 200));
   const scaleRatio = (clamped / 100).toFixed(2);
@@ -2774,15 +2783,10 @@ function applyUiScale(percent) {
     el.uiScaleDisplayBadge.innerText = `${clamped}%`;
   }
 
-  // 更新预设 Pills 高亮态
-  document.querySelectorAll(".scale-pill-btn").forEach((pill) => {
-    const pVal = parseInt(pill.getAttribute("data-scale"), 10);
-    if (pVal === clamped) {
-      pill.classList.add("active");
-    } else {
-      pill.classList.remove("active");
-    }
-  });
+  // 同步滑动条控件数值
+  if (el.uiScaleSlider && parseInt(el.uiScaleSlider.value, 10) !== clamped) {
+    el.uiScaleSlider.value = clamped;
+  }
 
   // 持久化存储
   localStorage.setItem("sensidoc_ui_scale", clamped);
