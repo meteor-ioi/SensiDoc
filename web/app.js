@@ -8,6 +8,7 @@ const state = {
   fieldTags: [],
   modelPresets: [],
   activeModelName: null,
+  startingModel: null, // 当前正在载入拉起中的模型文件名
   selectedSensiText: null, // 当前选中的敏感词，用于保持持续高亮
   highlightIndices: {},    // 用于同一个敏感词多个位置的轮转跟踪
   customPromptTemplate: null, // 用户自定义微调的提示词模板
@@ -51,70 +52,6 @@ const PROMPT_BASELINE_V1 = `你是一个专业的数据安全审计与敏感信�
   }
 ]
 严禁输出任何 markdown 格式标记、前言、解释或额外的文本内容。`;
-
-const BUILTIN_PROMPT_STRATEGIES = [
-  {
-    key: "v4_ultra_compact",
-    name: "🏆 V4_超轻量极简直接抽取版",
-    macro_recall: 0.925,
-    macro_precision: 0.900,
-    macro_f1: 0.912,
-    avg_time_ms: 280,
-    template: PROMPT_V4_ULTRA_COMPACT,
-    is_winner: true,
-  },
-  {
-    key: "v1_baseline",
-    name: "🔹 V1_默认结构基准版",
-    macro_recall: 0.841,
-    macro_precision: 0.875,
-    macro_f1: 0.857,
-    avg_time_ms: 340,
-    template: PROMPT_BASELINE_V1,
-    is_winner: false,
-  },
-  {
-    key: "v2_cot",
-    name: "🔹 V2_严格两阶段思考抽取版",
-    macro_recall: 0.780,
-    macro_precision: 0.892,
-    macro_f1: 0.832,
-    avg_time_ms: 510,
-    template: `【任务】：从给定文本中提取符合定义的敏感实体。
-
-【字段定义】：
-{FIELDS_DEFINITION}
-
-【分析步骤】：
-1. 逐句通读文本，定位所有可能存在敏感信息的上下文片段；
-2. 严格核对字段定义与格式规则，排除无关信息；
-3. 输出纯 JSON 对象数组：[{"field": "字段名", "text": "原文原词"}]。`,
-    is_winner: false,
-  },
-  {
-    key: "v3_fewshot",
-    name: "🔹 V3_少样本示例加固版",
-    macro_recall: 0.850,
-    macro_precision: 0.878,
-    macro_f1: 0.864,
-    avg_time_ms: 420,
-    template: `【指令】：从文本中提取所有符合定义的敏感信息，输出纯 JSON 数组。
-
-【字段定义】：
-{FIELDS_DEFINITION}
-
-【示例】：
-输入："联系人张三，电话13800138000，身份证110101199003072345"
-输出：[{"field": "MOBILE_PHONE", "text": "13800138000"}, {"field": "ID_CARD", "text": "110101199003072345"}]
-
-【规则】：
-1. 逐行提取所有出现的敏感原词，不要遗漏；
-2. 严格输出标准 JSON 数组，不输出任何解释说明。`,
-    is_winner: false,
-  },
-];
-
-let currentModelStrategies = [];
 
 // DOM 元素引用
 const el = {
@@ -246,50 +183,17 @@ const el = {
   localModelsList: document.getElementById("localModelsList"),
   activeModelStatus: document.getElementById("activeModelStatus"),
 
-  // 规则与提示词管理 (支持针对目标模型调优、自动寻优、实时预览)
+  // 规则与提示词管理 (极简化：单层模型设置 + 编辑/预览极简双拨杆)
   promptTargetModelSelect: document.getElementById("promptTargetModelSelect"),
-  promptModelProfileBadge: document.getElementById("promptModelProfileBadge"),
-  triggerPromptBenchmarkBtn: document.getElementById("triggerPromptBenchmarkBtn"),
-  resetToModelDefaultPromptBtn: document.getElementById("resetToModelDefaultPromptBtn"),
-  saveModelCustomPromptBtn: document.getElementById("saveModelCustomPromptBtn"),
-  tabPromptOptimizeBtn: document.getElementById("tabPromptOptimizeBtn"),
+  promptModelSizeBadge: document.getElementById("promptModelSizeBadge"),
   tabPromptEditBtn: document.getElementById("tabPromptEditBtn"),
   tabPromptPreviewBtn: document.getElementById("tabPromptPreviewBtn"),
-  panePromptOptimize: document.getElementById("panePromptOptimize"),
   panePromptEdit: document.getElementById("panePromptEdit"),
   panePromptPreview: document.getElementById("panePromptPreview"),
-  promptTabHint: document.getElementById("promptTabHint"),
   promptTemplateInput: document.getElementById("promptTemplateInput"),
   fullPromptPreview: document.getElementById("fullPromptPreview"),
-  promptStrategySelect: document.getElementById("promptStrategySelect"),
-  tabStrategyDetailBox: document.getElementById("tabStrategyDetailBox"),
-  strategyMetricsBar: document.getElementById("strategyMetricsBar"),
-  strategyMetricsValues: document.getElementById("strategyMetricsValues"),
-  strategyBadgeTag: document.getElementById("strategyBadgeTag"),
-  strategyPromptPreview: document.getElementById("strategyPromptPreview"),
-  saveModelCustomPromptBtnText: document.getElementById("saveModelCustomPromptBtnText"),
-  tabBenchmarkLoadingBox: document.getElementById("tabBenchmarkLoadingBox"),
-  tabBenchmarkStatusText: document.getElementById("tabBenchmarkStatusText"),
-
-  // 原始 JSON 弹窗
-  rawJsonModal: document.getElementById("rawJsonModal"),
-  closeRawJsonModalBtn: document.getElementById("closeRawJsonModalBtn"),
-  copyRawJsonBtn: document.getElementById("copyRawJsonBtn"),
-  rawJsonCodeBlock: document.getElementById("rawJsonCodeBlock"),
-  viewRawJsonBtn: document.getElementById("viewRawJsonBtn"),
-
-  // 自动寻优评测模态框
-  autoBenchmarkModal: document.getElementById("autoBenchmarkModal"),
-  closeBenchmarkModalBtn: document.getElementById("closeBenchmarkModalBtn"),
-  benchmarkModelName: document.getElementById("benchmarkModelName"),
-  benchmarkLoadingBox: document.getElementById("benchmarkLoadingBox"),
-  benchmarkStatusText: document.getElementById("benchmarkStatusText"),
-  benchmarkResultsBox: document.getElementById("benchmarkResultsBox"),
-  benchmarkTableBody: document.getElementById("benchmarkTableBody"),
-  benchmarkConclusionCard: document.getElementById("benchmarkConclusionCard"),
-  benchmarkFooterActions: document.getElementById("benchmarkFooterActions"),
-  cancelBenchmarkAdoptBtn: document.getElementById("cancelBenchmarkAdoptBtn"),
-  adoptWinnerPromptBtn: document.getElementById("adoptWinnerPromptBtn"),
+  resetToModelDefaultPromptBtn: document.getElementById("resetToModelDefaultPromptBtn"),
+  saveModelCustomPromptBtn: document.getElementById("saveModelCustomPromptBtn"),
 
   // 中央二次确认模态框
   confirmModal: document.getElementById("confirmModal"),
@@ -744,64 +648,6 @@ function initEventListeners() {
     });
   }
 
-  // 自动寻优评测模态框事件
-  if (el.closeBenchmarkModalBtn && el.autoBenchmarkModal) {
-    el.closeBenchmarkModalBtn.addEventListener("click", () => {
-      el.autoBenchmarkModal.classList.remove("open");
-    });
-  }
-  if (el.cancelBenchmarkAdoptBtn && el.autoBenchmarkModal) {
-    el.cancelBenchmarkAdoptBtn.addEventListener("click", () => {
-      el.autoBenchmarkModal.classList.remove("open");
-    });
-  }
-  if (el.autoBenchmarkModal) {
-    el.autoBenchmarkModal.addEventListener("click", (e) => {
-      if (e.target === el.autoBenchmarkModal) {
-        el.autoBenchmarkModal.classList.remove("open");
-      }
-    });
-  }
-  if (el.adoptWinnerPromptBtn) {
-    el.adoptWinnerPromptBtn.addEventListener("click", async () => {
-      if (!currentBenchmarkReport || !currentBenchmarkModel) return;
-      try {
-        const payload = {
-          profile_name: currentBenchmarkReport.winner_name,
-          f1_score: currentBenchmarkReport.winner_f1,
-          custom_prompt: currentBenchmarkReport.winner_template,
-        };
-        const res = await fetch(`/api/models/${encodeURIComponent(currentBenchmarkModel)}/prompt`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-        if (res.ok) {
-          state.customPromptTemplate = currentBenchmarkReport.winner_template;
-          if (el.promptTemplateInput) el.promptTemplateInput.value = currentBenchmarkReport.winner_template;
-          if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
-          
-          if (el.promptTargetModelSelect) {
-            el.promptTargetModelSelect.value = currentBenchmarkModel;
-          }
-          await loadTargetModelPrompt(currentBenchmarkModel);
-          await loadModelPresets();
-          showAlertDialog({
-            title: "保存成功",
-            message: `已成功将【${currentBenchmarkReport.winner_name}】保存为模型 ${currentBenchmarkModel} 的默认最佳提示词！`,
-            type: "success",
-          });
-        }
-      } catch (e) {
-        showAlertDialog({
-          title: "保存失败",
-          message: `保存提示词失败: ${e.message}`,
-          type: "danger",
-        });
-      }
-    });
-  }
-
   // 全局键盘快捷响应 (Esc 关闭模态框 / Enter 确认)
   document.addEventListener("keydown", (e) => {
     if (el.confirmModal && el.confirmModal.classList.contains("open")) {
@@ -819,7 +665,6 @@ function initEventListeners() {
       }
       if (el.snapshotPickerWrapper) el.snapshotPickerWrapper.classList.remove("open");
       if (el.snapshotRulesModal) el.snapshotRulesModal.classList.remove("open");
-      if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
       if (el.settingsModal) el.settingsModal.classList.remove("open");
       if (el.rawJsonModal) el.rawJsonModal.classList.remove("open");
     }
@@ -988,15 +833,23 @@ function initEventListeners() {
     }
   });
 
-  // 新增字段
+  // 新增字段 (按添加时间倒序排列在最顶部，避免被底部遮挡)
   el.addFieldBtn.addEventListener("click", () => {
-    state.currentRules.push({
+    state.currentRules.unshift({
       name: "新字段",
       description: "提取特征与上下文模式描述",
       risk_level: "medium",
       is_enabled: true,
     });
     renderRulesTable();
+    if (el.ruleCardList) {
+      el.ruleCardList.scrollTop = 0;
+      const firstInput = el.ruleCardList.querySelector(".rule-card:first-child .rule-name-input");
+      if (firstInput) {
+        firstInput.focus();
+        firstInput.select();
+      }
+    }
   });
 
   // 立即提取
@@ -1057,30 +910,13 @@ function initEventListeners() {
     });
   });
 
-  // 提取规则设定与提示词管理事件
-  if (el.tabPromptOptimizeBtn) el.tabPromptOptimizeBtn.addEventListener("click", () => switchPromptTab("optimize"));
+  // 提取规则设定与提示词管理事件 (极简双拨杆切换与保存)
   if (el.tabPromptEditBtn) el.tabPromptEditBtn.addEventListener("click", () => switchPromptTab("edit"));
   if (el.tabPromptPreviewBtn) el.tabPromptPreviewBtn.addEventListener("click", () => switchPromptTab("preview"));
-
-  if (el.promptStrategySelect) {
-    el.promptStrategySelect.addEventListener("change", (e) => {
-      renderSelectedStrategy(e.target.value);
-    });
-  }
 
   if (el.promptTargetModelSelect) {
     el.promptTargetModelSelect.addEventListener("change", (e) => {
       loadTargetModelPrompt(e.target.value);
-    });
-  }
-  if (el.triggerPromptBenchmarkBtn) {
-    el.triggerPromptBenchmarkBtn.addEventListener("click", () => {
-      const model = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : state.activeModelName;
-      if (!model) {
-        showAlertDialog({ title: "提示", message: "请先选择需要寻优的目标模型！", type: "info" });
-        return;
-      }
-      triggerPromptBenchmark(model);
     });
   }
   if (el.resetToModelDefaultPromptBtn) {
@@ -1750,7 +1586,7 @@ function renderFieldTags() {
     `;
     chip.title = `点击快速注入：${tag.description || "无描述"} [${riskCn}]`;
 
-    // 点击标签主体快速注入规则
+    // 点击标签主体快速注入规则 (按添加时间倒序插入在最前)
     chip.querySelector(".tag-chip-name").addEventListener("click", (e) => {
       e.stopPropagation();
       const exists = state.currentRules.some((r) => r.name === tag.name);
@@ -1762,8 +1598,11 @@ function renderFieldTags() {
         });
         return;
       }
-      state.currentRules.push(JSON.parse(JSON.stringify(tag)));
+      state.currentRules.unshift(JSON.parse(JSON.stringify(tag)));
       renderRulesTable();
+      if (el.ruleCardList) {
+        el.ruleCardList.scrollTop = 0;
+      }
     });
 
     // 点击小叉号从公共标签库删除该标签
@@ -2667,96 +2506,23 @@ function initAppearanceSettings() {
   applyUiScale(savedScale);
 }
 
-// 切换提示词卡片内部的 Tab：AI优化 vs 自定义编辑 vs 系统提示词预览
+// 切换提示词卡片内部的双拨杆：编辑提示词 vs 实时预览
 function switchPromptTab(tabName) {
-  const isOpt = tabName === "optimize";
   const isEdit = tabName === "edit";
   const isPrev = tabName === "preview";
 
-  if (el.tabPromptOptimizeBtn) el.tabPromptOptimizeBtn.classList.toggle("active", isOpt);
   if (el.tabPromptEditBtn) el.tabPromptEditBtn.classList.toggle("active", isEdit);
   if (el.tabPromptPreviewBtn) el.tabPromptPreviewBtn.classList.toggle("active", isPrev);
 
-  if (el.panePromptOptimize) el.panePromptOptimize.style.display = isOpt ? "flex" : "none";
   if (el.panePromptEdit) el.panePromptEdit.style.display = isEdit ? "flex" : "none";
   if (el.panePromptPreview) el.panePromptPreview.style.display = isPrev ? "flex" : "none";
 
-  if (el.saveModelCustomPromptBtnText) {
-    el.saveModelCustomPromptBtnText.innerText = isOpt ? "采纳设为专属提示词" : "保存为该模型专属提示词";
-  }
-
-  if (el.promptTabHint) {
-    if (isOpt) {
-      el.promptTabHint.innerHTML = `基准评测集：10 篇高保真场景文档`;
-    } else {
-      el.promptTabHint.innerHTML = `包含占位符：<code style="color: var(--danger);">{FIELDS_DEFINITION}</code>`;
-    }
-  }
-
   if (isPrev) {
-    // 切换到预览时即时计算变量注入后的完整 prompt
     updatePromptPreview();
   }
 }
 
-// 填充策略版本下拉菜单 (仅显示简洁策略名，如 🏆 V4_超轻量极简直接抽取版)
-function populateStrategyDropdown(activeProfileName = null) {
-  if (!el.promptStrategySelect) return;
-  const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
-
-  let optionsHtml = "";
-  strategies.forEach((s) => {
-    optionsHtml += `<option value="${escapeHtml(s.key)}">${escapeHtml(s.name)}</option>`;
-  });
-  el.promptStrategySelect.innerHTML = optionsHtml;
-
-  let targetKey = strategies[0].key;
-  if (activeProfileName) {
-    const matched = strategies.find((s) => {
-      const cleanTarget = activeProfileName.replace(/\(.*?\)/g, "").trim();
-      const cleanName = s.name.replace(/\(.*?\)/g, "").trim();
-      return cleanTarget.includes(cleanName) || cleanName.includes(cleanTarget) || s.key === activeProfileName;
-    });
-    if (matched) targetKey = matched.key;
-  }
-  el.promptStrategySelect.value = targetKey;
-  renderSelectedStrategy(targetKey);
-}
-
-// 渲染选中的策略详情 (更新指标条与提示词只读预览框)
-function renderSelectedStrategy(strategyKey) {
-  const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
-  const item = strategies.find((s) => s.key === strategyKey) || strategies[0];
-  if (!item) return;
-
-  if (el.strategyMetricsValues) {
-    const f1Pct = item.macro_f1 !== undefined && item.macro_f1 !== null ? `${(item.macro_f1 * 100).toFixed(1)}%` : "-";
-    const recallPct = item.macro_recall !== undefined && item.macro_recall !== null ? `${(item.macro_recall * 100).toFixed(1)}%` : "-";
-    const precPct = item.macro_precision !== undefined && item.macro_precision !== null ? `${(item.macro_precision * 100).toFixed(1)}%` : "-";
-    const timeMs = item.avg_time_ms ? `${item.avg_time_ms}ms` : "-";
-
-    el.strategyMetricsValues.innerHTML = `
-      <span>综合 F1: <strong style="color: var(--success); font-size: 11.5px;">${f1Pct}</strong></span>
-      <span>召回率(R): <strong style="color: var(--text);">${recallPct}</strong></span>
-      <span>精准率(P): <strong style="color: var(--text);">${precPct}</strong></span>
-      <span>单篇耗时: <strong style="color: var(--text);">${timeMs}</strong></span>
-    `;
-  }
-
-  if (el.strategyBadgeTag) {
-    if (item.is_winner) {
-      el.strategyBadgeTag.innerHTML = `<span class="badge success" style="font-size: 10px; padding: 2px 6px; font-weight: 600;">推荐最佳策略</span>`;
-    } else {
-      el.strategyBadgeTag.innerHTML = `<span class="badge" style="font-size: 10px; padding: 2px 6px; color: var(--text-dim);">备选策略</span>`;
-    }
-  }
-
-  if (el.strategyPromptPreview) {
-    el.strategyPromptPreview.innerText = item.template || "";
-  }
-}
-
-// 初始化设置弹窗内的提示词设定 (支持多模型针对性调优)
+// 初始化设置弹窗内的提示词设定 (支持多模型预设)
 async function initPromptSettings() {
   await populatePromptTargetModelSelect();
 }
@@ -2778,12 +2544,11 @@ async function populatePromptTargetModelSelect() {
     if (availableModels.size === 0) {
       el.promptTargetModelSelect.innerHTML = `<option value="">无就绪模型 (前往离线模型导入)</option>`;
       el.promptTargetModelSelect.disabled = true;
-      if (el.triggerPromptBenchmarkBtn) el.triggerPromptBenchmarkBtn.disabled = true;
+      if (el.promptModelSizeBadge) el.promptModelSizeBadge.innerText = "未就绪";
       return;
     }
 
     el.promptTargetModelSelect.disabled = false;
-    if (el.triggerPromptBenchmarkBtn) el.triggerPromptBenchmarkBtn.disabled = false;
 
     let optionsHtml = "";
     availableModels.forEach((file) => {
@@ -2808,19 +2573,33 @@ async function populatePromptTargetModelSelect() {
   }
 }
 
-// 加载指定模型的专属提示词档案
+// 加载指定模型的专属提示词档案与尺寸智能标签
 async function loadTargetModelPrompt(modelFilename) {
   if (!modelFilename) return;
+
+  // 依据模型尺寸或名称生成智能推荐标签
+  if (el.promptModelSizeBadge) {
+    const lower = modelFilename.toLowerCase();
+    if (lower.includes("qwen") || lower.includes("1.5b")) {
+      el.promptModelSizeBadge.innerText = "1.5B 轻量推荐 (极简单抽)";
+      el.promptModelSizeBadge.className = "badge primary";
+    } else if (lower.includes("lfm") || lower.includes("450m") || lower.includes("350m")) {
+      el.promptModelSizeBadge.innerText = "450M 超轻量加固 (防漂移)";
+      el.promptModelSizeBadge.className = "badge primary";
+    } else if (lower.includes("7b") || lower.includes("8b") || lower.includes("14b")) {
+      el.promptModelSizeBadge.innerText = "通用大模型推荐";
+      el.promptModelSizeBadge.className = "badge primary";
+    } else {
+      el.promptModelSizeBadge.innerText = "预设基准模板";
+      el.promptModelSizeBadge.className = "badge";
+    }
+  }
 
   try {
     const res = await fetch(`/api/models/${encodeURIComponent(modelFilename)}/prompt`);
     if (res.ok) {
       const profile = await res.json();
-      if (el.promptTemplateInput) el.promptTemplateInput.value = profile.custom_prompt;
-      
-      // 填充并联动 AI 优化策略下拉菜单
-      populateStrategyDropdown(profile.profile_name);
-
+      if (el.promptTemplateInput) el.promptTemplateInput.value = profile.custom_prompt || PROMPT_BASELINE_V1;
       updatePromptPreview();
     }
   } catch (e) {
@@ -2836,22 +2615,7 @@ async function saveTargetModelCustomPrompt() {
     return;
   }
 
-  let promptText = "";
-  let profileName = "专属自定义优化版";
-  let f1Score = null;
-
-  const isOptTab = el.panePromptOptimize && el.panePromptOptimize.style.display !== "none";
-  if (isOptTab) {
-    const strategies = currentModelStrategies.length > 0 ? currentModelStrategies : BUILTIN_PROMPT_STRATEGIES;
-    const selectedKey = el.promptStrategySelect ? el.promptStrategySelect.value : strategies[0].key;
-    const selectedItem = strategies.find((s) => s.key === selectedKey) || strategies[0];
-    promptText = selectedItem.template;
-    profileName = selectedItem.name;
-    f1Score = selectedItem.macro_f1 || null;
-  } else {
-    promptText = el.promptTemplateInput ? el.promptTemplateInput.value.trim() : "";
-  }
-
+  const promptText = el.promptTemplateInput ? el.promptTemplateInput.value.trim() : "";
   if (!promptText) {
     showAlertDialog({ title: "提示", message: "系统提示词内容不能为空！", type: "info" });
     return;
@@ -2867,9 +2631,8 @@ async function saveTargetModelCustomPrompt() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        profile_name: profileName,
+        profile_name: "自定义专属版",
         custom_prompt: promptText,
-        f1_score: f1Score,
       }),
     });
 
@@ -2877,10 +2640,7 @@ async function saveTargetModelCustomPrompt() {
       if (state.activeModelName === modelFilename) {
         state.customPromptTemplate = promptText;
       }
-      if (el.promptTemplateInput) el.promptTemplateInput.value = promptText;
-      await loadTargetModelPrompt(modelFilename);
-      await loadModelPresets();
-      showAlertDialog({ title: "保存成功", message: `已成功将【${profileName}】设为模型 ${modelFilename} 的专属提示词！`, type: "success" });
+      showAlertDialog({ title: "保存成功", message: `已成功保存为模型 ${modelFilename} 的专属提示词！`, type: "success" });
     } else {
       const err = await res.json();
       showAlertDialog({ title: "保存失败", message: err.error || "未知错误", type: "danger" });
@@ -2898,16 +2658,13 @@ async function resetTargetModelDefaultPrompt() {
   const lower = modelFilename.toLowerCase();
   let defaultTemplate = PROMPT_BASELINE_V1;
   let profileName = "V1_默认基准版";
-  let f1 = null;
 
-  if (lower.includes("qwen")) {
+  if (lower.includes("qwen") || lower.includes("1.5b")) {
     defaultTemplate = PROMPT_V4_ULTRA_COMPACT;
-    profileName = "V4_超轻量极简直接抽取版 (Qwen 推荐)";
-    f1 = 0.912;
-  } else if (lower.includes("lfm")) {
+    profileName = "V4_超轻量极简直接抽取版 (1.5B 推荐)";
+  } else if (lower.includes("lfm") || lower.includes("450m")) {
     defaultTemplate = PROMPT_BASELINE_V1;
-    profileName = "V1_默认基准版 (LFM 结构加固推荐)";
-    f1 = 0.8571;
+    profileName = "V1_默认结构加固版 (450M 推荐)";
   }
 
   if (el.promptTemplateInput) el.promptTemplateInput.value = defaultTemplate;
@@ -2921,10 +2678,9 @@ async function resetTargetModelDefaultPrompt() {
       body: JSON.stringify({
         profile_name: profileName,
         custom_prompt: defaultTemplate,
-        f1_score: f1,
       }),
     });
-    await loadTargetModelPrompt(modelFilename);
+    showAlertDialog({ title: "已恢复", message: `已成功恢复为模型 ${modelFilename} 的推荐预设模板！`, type: "success" });
   } catch (e) {
     console.error("恢复默认提示词失败:", e);
   }
@@ -3147,9 +2903,6 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-let currentBenchmarkModel = null;
-let currentBenchmarkReport = null;
-
 // 自动载入模型绑定的最佳提示词模板
 async function autoLoadModelOptimalPrompt(filename) {
   if (!filename) return;
@@ -3202,6 +2955,7 @@ async function loadModelPresets() {
         el.localModelsList.innerHTML = localModels
           .map((m) => {
             const isActive = state.activeModelName === m;
+            const isStarting = state.startingModel === m;
             return `
               <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 5px; background: var(--surface-2);">
                 <div style="flex: 1; min-width: 0; margin-right: 8px;">
@@ -3211,6 +2965,8 @@ async function loadModelPresets() {
                   ${
                     isActive
                       ? `<button class="btn sm stop-local-btn" data-file="${m}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+                      : isStarting
+                      ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
                       : `<button class="btn primary sm start-local-btn" data-file="${m}">载入启动</button>`
                   }
                 </div>
@@ -3248,6 +3004,7 @@ function renderModelPresets() {
     item.id = `preset-box-${m.id}`;
 
     const isActive = state.activeModelName === m.filename || m.is_active;
+    const isStarting = state.startingModel === m.filename;
 
     item.innerHTML = `
       <div style="flex: 1;">
@@ -3263,6 +3020,8 @@ function renderModelPresets() {
           m.is_downloaded
             ? isActive
               ? `<button class="btn sm stop-model-btn" data-file="${m.filename}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+              : isStarting
+              ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
               : `<button class="btn primary sm start-model-btn" data-file="${m.filename}">载入启动</button>`
             : `<button class="btn sm download-model-btn" data-id="${m.id}">一键下载</button>`
         }
@@ -3327,10 +3086,14 @@ async function stopLlamaModel() {
   }
 }
 
-// 启动模型
+// 启动模型 (带按钮与全局状态 Loading 动效)
 async function startLlamaModel(filename) {
+  state.startingModel = filename;
+  renderModelPresets();
+  await loadModelPresets();
+
   if (el.activeModelStatus) {
-    el.activeModelStatus.innerText = `正在启动模型: ${filename}...`;
+    el.activeModelStatus.innerText = `正在载入启动模型: ${filename}...`;
   }
   if (el.footerModelDot) {
     el.footerModelDot.className = "status-indicator-dot offline";
@@ -3366,178 +3129,9 @@ async function startLlamaModel(filename) {
     });
     await syncActiveModelStatus();
     return false;
-  }
-}
-
-// 执行自动寻优基准测试 (同时支持 Tab 内嵌入与模态框)
-async function triggerPromptBenchmark(filename) {
-  if (!filename) {
-    showAlertDialog({ title: "提示", message: "请先选择需要寻优的目标模型！", type: "info" });
-    return;
-  }
-  currentBenchmarkModel = filename;
-  currentBenchmarkReport = null;
-
-  switchPromptTab("optimize");
-
-  if (el.benchmarkModelName) el.benchmarkModelName.innerText = filename;
-  if (el.benchmarkLoadingBox) el.benchmarkLoadingBox.style.display = "flex";
-  if (el.benchmarkResultsBox) el.benchmarkResultsBox.style.display = "none";
-  if (el.benchmarkFooterActions) el.benchmarkFooterActions.style.display = "none";
-  if (el.benchmarkStatusText) {
-    el.benchmarkStatusText.innerText = `正在对模型 ${filename} 执行 4 轮基准测试矩阵 (10篇文档)...`;
-  }
-
-  if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "flex";
-  if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "none";
-  if (el.tabBenchmarkStatusText) {
-    el.tabBenchmarkStatusText.innerText = `正在对模型 ${filename} 执行 4 轮提示词盲测矩阵 (10篇文档)...`;
-  }
-
-  try {
-    const res = await fetch(`/api/models/${encodeURIComponent(filename)}/benchmark`, {
-      method: "POST",
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      throw new Error(err.error || "评测失败");
-    }
-    const report = await res.json();
-    currentBenchmarkReport = report;
-    renderBenchmarkReport(report);
-  } catch (e) {
-    if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "none";
-    if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "flex";
-    showAlertDialog({ title: "寻优评测异常", message: e.message, type: "danger" });
-    if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
-  }
-}
-
-// 打开自动寻优基准测试模态框 (兼容旧入口)
-async function openAutoBenchmarkModal(filename) {
-  if (el.autoBenchmarkModal) {
-    el.autoBenchmarkModal.classList.add("open");
-  }
-  await triggerPromptBenchmark(filename);
-}
-
-// 渲染评测报告矩阵 (更新 Tab 策略下拉选择器与指标)
-function renderBenchmarkReport(report) {
-  if (el.benchmarkLoadingBox) el.benchmarkLoadingBox.style.display = "none";
-  if (el.benchmarkResultsBox) el.benchmarkResultsBox.style.display = "flex";
-  if (el.benchmarkFooterActions) el.benchmarkFooterActions.style.display = "flex";
-
-  if (el.tabBenchmarkLoadingBox) el.tabBenchmarkLoadingBox.style.display = "none";
-  if (el.tabStrategyDetailBox) el.tabStrategyDetailBox.style.display = "flex";
-
-  if (report.candidates && report.candidates.length > 0) {
-    currentModelStrategies = report.candidates.map((c) => {
-      const isWin = c.key === report.winner_key;
-      let cleanName = c.name.replace(/\(.*?\)/g, "").trim();
-      if (isWin && !cleanName.startsWith("🏆")) {
-        cleanName = `🏆 ${cleanName.replace(/^[🔹🏆🤖]\s*/, "")}`;
-      } else if (!isWin && !cleanName.startsWith("🔹") && !cleanName.startsWith("🤖")) {
-        cleanName = `🔹 ${cleanName.replace(/^[🔹🏆🤖]\s*/, "")}`;
-      }
-      return {
-        key: c.key,
-        name: cleanName,
-        macro_recall: c.macro_recall,
-        macro_precision: c.macro_precision,
-        macro_f1: c.macro_f1,
-        avg_time_ms: c.avg_time_ms,
-        template: c.template,
-        is_winner: isWin,
-      };
-    });
-  }
-
-  populateStrategyDropdown(report.winner_name || report.winner_key);
-
-  const modeBadgeHtml = report.mode === "online_evolved"
-    ? `<span class="badge primary" style="font-size: 10.5px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg><span>在线 AI 深度进化 (${escapeHtml(report.online_model_used || "在线大模型")})</span></span>`
-    : `<span class="badge" style="font-size: 10.5px; padding: 2px 6px; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg><span>离线范式池盲测</span></span>`;
-
-  if (el.benchmarkModeBadge) el.benchmarkModeBadge.innerHTML = modeBadgeHtml;
-
-  const rowsHtml = (report.candidates || []).map((c) => {
-    const isWinner = c.key === report.winner_key;
-    const ratingBadge = isWinner
-      ? '<span class="badge success" style="font-size: 10px; padding: 2px 6px; font-weight: 600; display: inline-flex; align-items: center; gap: 3px;"><svg class="lucide-icon xs" viewBox="0 0 24 24" style="width: 11px; height: 11px;"><path d="m2 4 3 12h14l3-12-6 7-4-7-4 7-6-7zm3 16h14"></path></svg><span>最优胜出</span></span>'
-      : (c.macro_f1 >= 0.85 ? '<span class="badge primary" style="font-size: 10px; padding: 2px 6px;">良好</span>' : '<span class="badge" style="font-size: 10px; padding: 2px 6px; color: var(--text-mute);">一般</span>');
-
-    return `
-      <tr class="${isWinner ? 'winner-row' : ''}">
-        <td style="padding: 6px 8px;">
-          <div style="font-weight: 600; color: var(--text);">${escapeHtml(c.name)}</div>
-          <div style="font-size: 10px; color: var(--text-mute);">${escapeHtml(c.description || "")}</div>
-        </td>
-        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11px;">${(c.macro_recall * 100).toFixed(1)}%</td>
-        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11px;">${(c.macro_precision * 100).toFixed(1)}%</td>
-        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 11.5px; font-weight: ${isWinner ? '700' : '500'}; color: ${isWinner ? 'var(--success)' : 'var(--text)'};">${(c.macro_f1 * 100).toFixed(1)}%</td>
-        <td style="padding: 6px; text-align: center; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-dim);">${c.avg_time_ms}ms</td>
-        <td style="padding: 6px; text-align: center;">${ratingBadge}</td>
-      </tr>
-    `;
-  }).join("");
-
-  if (el.benchmarkTableBody) el.benchmarkTableBody.innerHTML = rowsHtml;
-
-  const conclusionHtml = `
-    <div style="font-weight: 600; color: var(--success); margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
-      <svg class="lucide-icon xs" viewBox="0 0 24 24" style="color: var(--success); width: 12px; height: 12px;"><circle cx="12" cy="8" r="6"></circle><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"></path></svg>
-      <span>寻优结论与建议</span>
-    </div>
-    <div style="color: var(--text); font-size: 11px; line-height: 1.4;">${escapeHtml(report.conclusion)}</div>
-  `;
-
-  if (el.benchmarkConclusionCard) el.benchmarkConclusionCard.innerHTML = conclusionHtml;
-}
-
-// 采纳最优提示词方案
-async function adoptWinnerPromptFromReport() {
-  if (!currentBenchmarkReport || !currentBenchmarkModel) return;
-  try {
-    const payload = {
-      profile_name: currentBenchmarkReport.winner_name,
-      f1_score: currentBenchmarkReport.winner_f1,
-      custom_prompt: currentBenchmarkReport.winner_template,
-    };
-    const res = await fetch(`/api/models/${encodeURIComponent(currentBenchmarkModel)}/prompt`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      state.customPromptTemplate = currentBenchmarkReport.winner_template;
-      if (el.promptTemplateInput) el.promptTemplateInput.value = currentBenchmarkReport.winner_template;
-      if (el.autoBenchmarkModal) el.autoBenchmarkModal.classList.remove("open");
-
-      if (el.promptTargetModelSelect) {
-        el.promptTargetModelSelect.value = currentBenchmarkModel;
-      }
-      await loadTargetModelPrompt(currentBenchmarkModel);
-      await loadModelPresets();
-      showAlertDialog({
-        title: "采纳成功",
-        message: `已成功将【${currentBenchmarkReport.winner_name}】采纳并设为模型 ${currentBenchmarkModel} 的专属最佳提示词！`,
-        type: "success",
-      });
-    } else {
-      let err = {};
-      try { err = await res.json(); } catch (_) {}
-      showAlertDialog({
-        title: "采纳失败",
-        message: err.error || "未能成功处理采纳请求",
-        type: "danger",
-      });
-    }
-  } catch (e) {
-    showAlertDialog({
-      title: "采纳异常",
-      message: e.message,
-      type: "danger",
-    });
+  } finally {
+    state.startingModel = null;
+    await loadModelPresets();
   }
 }
 

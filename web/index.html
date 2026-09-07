@@ -435,105 +435,68 @@
         </div>
       </div>
 
-      <!-- 板块 2: 提取规则设定与提示词管理 -->
+      <!-- 板块 2: 提取规则设定与提示词管理 (极简化单层工作区) -->
       <div class="settings-tab-pane" id="paneSetRules" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px;">
-        <!-- 1. 目标模型针对性调优 (极简单行) -->
+        <!-- 1. 目标模型针对性设置 (支持尺寸智能标签) -->
         <div style="padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
           <div style="display: flex; align-items: center; gap: 6px;">
             <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
-            <span style="font-size: 12px; font-weight: 600; color: var(--text);">目标模型针对性调优：</span>
+            <span style="font-size: 12px; font-weight: 600; color: var(--text);">目标模型：</span>
           </div>
-          <select id="promptTargetModelSelect" class="select-field" style="max-width: 320px;">
-            <!-- 动态载入已支持/已下载的模型列表 -->
-          </select>
+          <div style="display: flex; align-items: center; gap: 8px; flex: 1; max-width: 440px; justify-content: flex-end;">
+            <select id="promptTargetModelSelect" class="select-field" style="flex: 1; max-width: 310px;">
+              <!-- 动态载入已支持/已下载的模型列表 -->
+            </select>
+            <span id="promptModelSizeBadge" class="badge primary" style="font-size: 11px; padding: 3px 8px; font-weight: 500; white-space: nowrap;">预设模板</span>
+          </div>
         </div>
 
-        <!-- 2. 提示词定制与实时预览 (Tab 切换「AI优化」vs「自定义编辑」vs「预览」) -->
-        <div class="prompt-box-card" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px;">
-          <div class="prompt-tab-header" style="flex-shrink: 0;">
-            <div class="settings-tab-nav" style="background: var(--surface);">
-              <button type="button" class="settings-tab-btn active" id="tabPromptOptimizeBtn" style="display: inline-flex; align-items: center; gap: 4px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                <span>AI优化</span>
-              </button>
-              <button type="button" class="settings-tab-btn" id="tabPromptEditBtn" style="display: inline-flex; align-items: center; gap: 4px;">
+        <!-- 2. 系统提示词配置工作区 (带 [编辑提示词] / [实时预览] 极简双拨杆) -->
+        <div class="prompt-box-card" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2);">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><line x1="10" x2="8" y1="9" y2="9"></line></svg>
+              <span style="font-size: 12px; font-weight: 600; color: var(--text);">系统提示词配置</span>
+            </div>
+            <!-- 极简双拨杆 -->
+            <div class="settings-tab-nav" style="background: var(--surface); padding: 2px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+              <button type="button" class="settings-tab-btn active" id="tabPromptEditBtn" style="padding: 3px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
                 <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"></path></svg>
-                <span>自定义编辑</span>
+                <span>编辑提示词</span>
               </button>
-              <button type="button" class="settings-tab-btn" id="tabPromptPreviewBtn" style="display: inline-flex; align-items: center; gap: 4px;">
+              <button type="button" class="settings-tab-btn" id="tabPromptPreviewBtn" style="padding: 3px 10px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
                 <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                <span>预览</span>
+                <span>实时预览</span>
               </button>
             </div>
-            <div id="promptTabHint" style="font-size: 11px; color: var(--text-mute);">
-              基准评测集：10 篇高保真场景文档
-            </div>
           </div>
 
-          <!-- Tab 1: AI 提示词自动寻优与多策略浏览面板 -->
-          <div class="prompt-tab-content" id="panePromptOptimize" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
-            <div class="prompt-optimize-container" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;">
-              <!-- 顶部控制条：左侧策略版本下拉选择器，右侧重新寻优按钮 -->
-              <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 6px; border-bottom: 1px solid var(--border); gap: 10px; flex-shrink: 0;">
-                <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-                  <span style="font-size: 12px; font-weight: 600; color: var(--text); flex-shrink: 0;">调优策略版本：</span>
-                  <select id="promptStrategySelect" class="select-field" style="flex: 1; max-width: 320px; font-size: 11.5px;">
-                    <!-- 动态注入候选策略版本 -->
-                  </select>
-                </div>
-                <button type="button" id="triggerPromptBenchmarkBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;" title="使用 10 篇基准测试集重新执行多轮盲测矩阵">
-                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-                  <span>重新自动寻优评测</span>
-                </button>
-              </div>
-
-              <!-- 运行状态与进度指示 (寻优跑测时呈现) -->
-              <div id="tabBenchmarkLoadingBox" style="display: none; flex-direction: column; align-items: center; justify-content: center; padding: 24px 16px; gap: 8px;">
-                <div class="benchmark-spinner" style="width: 22px; height: 22px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-                <div id="tabBenchmarkStatusText" style="font-size: 11.5px; color: var(--text); font-weight: 500;">正在对模型执行 4 轮提示词盲测矩阵 (10篇文档)...</div>
-                <div style="font-size: 10.5px; color: var(--text-mute);">每轮测试均会跑满 10 篇测试文档，预计耗时 15~35 秒</div>
-              </div>
-
-              <!-- 策略详情呈现区 (指标条 + 提示词只读预览框) -->
-              <div id="tabStrategyDetailBox" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px;">
-                <!-- 识别准确率与性能指标条 -->
-                <div id="strategyMetricsBar" style="display: flex; align-items: center; justify-content: space-between; padding: 5px 10px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11px; flex-shrink: 0;">
-                  <div id="strategyMetricsValues" style="display: flex; align-items: center; gap: 14px; color: var(--text-dim);">
-                    <!-- 动态填充指标 -->
-                  </div>
-                  <div id="strategyBadgeTag"></div>
-                </div>
-
-                <!-- 提示词模板全文只读预览框 -->
-                <div id="strategyPromptPreview" class="prompt-area-box" style="flex: 1; min-height: 0; height: 100%; background: var(--surface); user-select: text; white-space: pre-wrap; font-family: var(--font-mono); font-size: 11px; line-height: 1.5; padding: 8px 10px; overflow-y: auto;"></div>
-              </div>
-            </div>
+          <!-- 编辑区 -->
+          <div id="panePromptEdit" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
+            <textarea id="promptTemplateInput" class="prompt-area-box" style="flex: 1; height: 100%; width: 100%; box-sizing: border-box; resize: none; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; padding: 10px 12px; color: var(--text);" placeholder="输入系统提示词模板..."></textarea>
           </div>
 
-          <!-- Tab 2: 自定义编辑系统提示词 -->
-          <div class="prompt-tab-content" id="panePromptEdit" style="display: none; flex: 1; min-height: 0;">
-            <textarea id="promptTemplateInput" class="prompt-area-box" style="height: 100%; width: 100%; box-sizing: border-box; resize: none;" placeholder="输入系统提示词模板..."></textarea>
-          </div>
-
-          <!-- Tab 3: 系统提示词预览 -->
-          <div class="prompt-tab-content" id="panePromptPreview" style="display: none; flex: 1; min-height: 0;">
-            <div id="fullPromptPreview" class="prompt-area-box" style="height: 100%; width: 100%; box-sizing: border-box; overflow-y: auto;"></div>
+          <!-- 预览区 -->
+          <div id="panePromptPreview" style="display: none; flex: 1; min-height: 0; flex-direction: column;">
+            <div id="fullPromptPreview" class="prompt-area-box" style="flex: 1; height: 100%; width: 100%; box-sizing: border-box; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); font-family: var(--font-mono); font-size: 11px; line-height: 1.55; padding: 10px 12px; color: var(--text); user-select: text; white-space: pre-wrap;"></div>
           </div>
         </div>
 
         <!-- 3. 底部固定操作栏 -->
         <div style="border-top: 1px solid var(--border); padding-top: 8px; margin-top: auto; flex-shrink: 0; display: flex; justify-content: space-between; align-items: center;">
-          <div style="font-size: 11px; color: var(--text-mute);">
-            输出规范：<code style="color: var(--text);">[{"field": "字段名", "text": "原文"}]</code>
+          <div style="font-size: 11px; color: var(--text-mute); display: flex; align-items: center; gap: 8px;">
+            <span>变量插槽：<code style="color: var(--accent);">{FIELDS_DEFINITION}</code></span>
+            <span style="color: var(--border);">|</span>
+            <span>输出规范：<code style="color: var(--text-dim);">[{"field":"字段名","text":"原文"}]</code></span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <button type="button" id="resetToModelDefaultPromptBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="恢复至系统为该模型推荐的默认基准模板">
+            <button type="button" id="resetToModelDefaultPromptBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="恢复至系统为该模型推荐的预设模板">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
-              <span>恢复推荐</span>
+              <span>恢复推荐模板</span>
             </button>
             <button id="saveModelCustomPromptBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
-              <span>保存为该模型专属提示词</span>
+              <span>保存提示词</span>
             </button>
           </div>
         </div>
@@ -720,75 +683,7 @@
     </div>
   </div>
 
-  <!-- 模型提示词自动寻优评测模态框 (Auto-Prompt Benchmark) -->
-  <div class="modal-overlay" id="autoBenchmarkModal" style="z-index: 250;">
-    <div class="modal-box" style="width: 720px; max-width: 95%; max-height: 560px; display: flex; flex-direction: column; box-sizing: border-box;">
-      <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <svg class="lucide-icon sm" viewBox="0 0 24 24" style="color: var(--accent);"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
-          <span style="font-size: 13.5px; font-weight: 600; color: var(--text);">模型专属提示词自动寻优评测 (Auto Benchmark)</span>
-        </div>
-        <button id="closeBenchmarkModalBtn" class="btn sm" style="font-size: 11px;">关闭</button>
-      </div>
-      
-      <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
-        <!-- 模型信息与基准集说明 -->
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11.5px;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <div>
-              <span style="color: var(--text-mute);">评测目标：</span>
-              <strong id="benchmarkModelName" style="color: var(--text);">-</strong>
-            </div>
-            <div id="benchmarkModeBadge"></div>
-          </div>
-          <div style="color: var(--text-dim); font-size: 11px;">
-            基准集：10 篇企业高保真场景文档 (共 68 个敏感实体)
-          </div>
-        </div>
-
-        <!-- 运行状态与进度指示 -->
-        <div id="benchmarkLoadingBox" style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 28px 16px; background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-sm); gap: 10px;">
-          <div class="benchmark-spinner" style="width: 24px; height: 24px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite;"></div>
-          <div id="benchmarkStatusText" style="font-size: 12px; color: var(--text); font-weight: 500;">正在拉起模型并在后台执行 4 轮提示词盲测矩阵...</div>
-          <div style="font-size: 11px; color: var(--text-mute);">每轮测试均会跑满 10 篇企业测试文档，预计耗时 15~35 秒，请稍候</div>
-        </div>
-
-        <!-- 评测结果对比表格区域 (评测完成呈现) -->
-        <div id="benchmarkResultsBox" style="display: none; flex-direction: column; gap: 10px;">
-          <table class="benchmark-table" style="width: 100%; border-collapse: collapse; font-size: 11.5px; text-align: left;">
-            <thead>
-              <tr style="background: var(--surface-2); border-bottom: 1px solid var(--border);">
-                <th style="padding: 6px 10px;">提示词策略范式</th>
-                <th style="padding: 6px 8px; text-align: center;">查全召回率 (R)</th>
-                <th style="padding: 6px 8px; text-align: center;">精准率 (P)</th>
-                <th style="padding: 6px 8px; text-align: center;">综合 F1 分数</th>
-                <th style="padding: 6px 8px; text-align: center;">单篇耗时</th>
-                <th style="padding: 6px 8px; text-align: center;">评级</th>
-              </tr>
-            </thead>
-            <tbody id="benchmarkTableBody">
-              <!-- 动态注入行 -->
-            </tbody>
-          </table>
-
-          <!-- 胜出结论与采纳建议卡片 -->
-          <div id="benchmarkConclusionCard" style="padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); font-size: 11.5px; line-height: 1.5; color: var(--text);">
-            <!-- 动态生成 -->
-          </div>
-        </div>
-      </div>
-
-      <!-- 底部动作条 -->
-      <div id="benchmarkFooterActions" style="border-top: 1px solid var(--border); padding-top: 10px; margin-top: 4px; display: none; justify-content: flex-end; gap: 10px;">
-        <button id="cancelBenchmarkAdoptBtn" class="btn sm">暂不采纳</button>
-        <button id="adoptWinnerPromptBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 5px;">
-          <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
-          <span>设为该模型默认最佳提示词</span>
-        </button>
-      </div>
-    </div>
-  </div>
-
   <script src="app.js"></script>
 </body>
 </html>
+
