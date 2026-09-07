@@ -330,7 +330,7 @@
           </button>
           <button class="settings-tab-btn" id="tabSetOnlineAiBtn">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
-            <span>在线 AI 模型</span>
+            <span>在线模型</span>
           </button>
           <button class="settings-tab-btn" id="tabSetRulesBtn">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="4" x2="20" y1="21" y2="21"></line><line x1="4" x2="20" y1="14" y2="14"></line><line x1="4" x2="20" y1="7" y2="7"></line><circle cx="8" cy="7" r="2"></circle><circle cx="16" cy="14" r="2"></circle><circle cx="10" cy="21" r="2"></circle></svg>
@@ -368,7 +368,7 @@
         </div>
       </div>
 
-      <!-- 板块 1.5: 在线 AI 模型 (OpenAI 兼容 API 极简配置) -->
+      <!-- 板块 1.5: 在线模型 (OpenAI 兼容 API 极简配置) -->
       <div class="settings-tab-pane" id="paneSetOnlineAi" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 10px;">
         <!-- 顶部：模型配置选择与管理栏 -->
         <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0;">
@@ -396,22 +396,22 @@
         <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
           <div>
             <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型名称：</label>
-            <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：OpenAI GPT-4o / 本地 Ollama" style="width: 100%; box-sizing: border-box;">
+            <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：OpenAI GPT-4o" style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
             <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 服务地址 (Base URL)：</label>
-            <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="例如：https://api.openai.com/v1 或 http://localhost:11434/v1" style="width: 100%; box-sizing: border-box;">
+            <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="例如：https://api.openai.com/v1" style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
             <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 密钥 (API Key)：</label>
-            <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-... (无鉴权或本地服务可留空)" style="width: 100%; box-sizing: border-box;">
+            <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
             <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型标识 (Model ID)：</label>
-            <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o / deepseek-chat / qwen-max" style="width: 100%; box-sizing: border-box;">
+            <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o" style="width: 100%; box-sizing: border-box;">
           </div>
 
           <!-- 模型自定义超参数 (紧凑3列) -->
