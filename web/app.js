@@ -3359,7 +3359,7 @@ async function loadModelPresets() {
                         ? `<button class="btn sm stop-local-btn" data-file="${escapeHtml(m)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
                         : isStarting
                         ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-                        : `<button class="btn primary sm start-local-btn" data-file="${escapeHtml(m)}">载入启动</button>`
+                        : `<button class="btn primary sm start-local-btn" data-file="${escapeHtml(m)}">启动</button>`
                     }
                   </div>
                 </div>
@@ -3426,8 +3426,8 @@ function renderModelPresets(promptProfiles = {}) {
               ? `<button class="btn sm stop-model-btn" data-file="${escapeHtml(m.filename)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
               : isStarting
               ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-              : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">载入启动</button>`
-            : `<button class="btn sm download-model-btn" data-id="${m.id}">一键下载</button>`
+              : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">启动</button>`
+            : `<button class="btn sm download-model-btn" data-id="${m.id}">下载</button>`
         }
       </div>
     `;
@@ -3497,7 +3497,7 @@ async function startLlamaModel(filename) {
   await loadModelPresets();
 
   if (el.activeModelStatus) {
-    el.activeModelStatus.innerText = `正在载入启动模型: ${filename}...`;
+    el.activeModelStatus.innerText = `正在启动模型: ${filename}...`;
   }
   if (el.footerModelDot) {
     el.footerModelDot.className = "status-indicator-dot offline";
