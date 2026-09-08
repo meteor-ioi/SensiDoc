@@ -2233,8 +2233,8 @@ function renderRulesTable() {
 
   if (state.currentRules.length === 0) {
     el.ruleCardList.innerHTML = `
-      <div style="padding: 24px 12px; text-align: center; color: var(--text-mute); font-size: 11.5px; line-height: 1.6;">
-        暂无生效规则<br>可从上方选取标签/AI生成，或点击下方添加
+      <div class="rule-card-empty">
+        暂无生效规则<br>可从上方选取标签、AI生成或添加自定义规则
       </div>
     `;
     return;
@@ -2842,7 +2842,7 @@ async function triggerExtraction() {
   if (!doc) return;
 
   const btn = el.quickExtractBtn;
-  const origText = btn.innerText;
+  const origHtml = btn.innerHTML;
 
   // 1. 检查选中的模型类型 (离线 vs 在线)
   const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
@@ -2965,7 +2965,7 @@ async function triggerExtraction() {
     const started = await startLlamaModel(targetModel);
     if (!started) {
       btn.disabled = false;
-      btn.innerText = origText;
+      btn.innerHTML = origHtml;
       return;
     }
   }
@@ -3021,7 +3021,7 @@ async function triggerExtraction() {
     });
   } finally {
     btn.disabled = false;
-    btn.innerText = origText;
+    btn.innerHTML = origHtml;
   }
 }
 

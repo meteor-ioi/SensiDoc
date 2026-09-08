@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.11">
+  <link rel="stylesheet" href="style.css?v=1.2.13">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -401,15 +401,15 @@
                 </div>
               </div>
             </div>
-            <div class="rule-card-list" id="ruleCardList">
-              <!-- 动态填充规则卡片 -->
-            </div>
-
-            <!-- 方案三：列表底部常驻轻质添加规则按钮 (Notion/Linear 风格) -->
-            <button type="button" id="addFieldBtn" class="add-rule-bottom-btn" title="点击添加新规则字段">
+            <!-- 点击添加自定义规则 (置于规则列表顶部) -->
+            <button type="button" id="addFieldBtn" class="add-rule-top-btn" title="点击添加新规则字段">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               <span>点击添加自定义规则</span>
             </button>
+
+            <div class="rule-card-list" id="ruleCardList">
+              <!-- 动态填充规则卡片 -->
+            </div>
           </div>
         </div>
 
@@ -444,7 +444,7 @@
           </div>
           <button id="quickExtractBtn" class="btn primary" style="width: 100%; padding: 8px 0; justify-content: center; gap: 6px;">
             <svg class="lucide-icon sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <span>立即执行提取</span>
+            <span>立即执行</span>
           </button>
         </div>
       </div>
@@ -468,7 +468,7 @@
 
         <div class="audit-list" id="auditList" style="flex: 1; overflow-y: auto; padding: 10px 12px;">
           <p style="color: var(--text-mute); font-size: 12px; text-align: center; margin-top: 30px;">
-            暂无提取记录，点击「立即执行提取」开始审计
+            暂无提取记录，点击「立即执行」开始审计
           </p>
         </div>
 
@@ -981,7 +981,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.9"></script>
+  <script src="app.js?v=1.2.13"></script>
 </body>
 </html>
 

@@ -2235,15 +2235,29 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   padding-right: 2px;
 }
 
-/* 方案三：底部常驻轻质添加规则卡片按钮 */
+.rule-card-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 12px;
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 11.5px;
+  line-height: 1.6;
+}
+
+/* 规则列表常驻轻质添加规则卡片按钮 */
+.add-rule-top-btn,
 .add-rule-bottom-btn {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   width: 100%;
-  padding: 8px 12px;
-  margin-top: 6px;
+  padding: 7px 12px;
+  margin: 6px 0 8px;
   background: var(--surface);
   border: 1px dashed var(--border-strong);
   border-radius: var(--radius-sm);
@@ -2256,6 +2270,7 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   flex-shrink: 0;
 }
 
+.add-rule-top-btn:hover,
 .add-rule-bottom-btn:hover {
   background: var(--surface-hover);
   border-color: var(--accent);
@@ -3000,16 +3015,15 @@ div.prompt-area-box {
   color: var(--text);
 }
 
-/* 底部操作区：方案一 一体化模型下拉选择与启停控制条 */
+/* 底部操作区：方案一 一体化模型下拉选择与启停控制条 (无底纹，自然融入底部操作栏) */
 .model-control-strip {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 8px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  margin-bottom: 0;
   user-select: none;
 }
 
