@@ -214,6 +214,11 @@ const el = {
 
   // 在线 AI 模型极简配置组件
   onlineModelSelect: document.getElementById("onlineModelSelect"),
+  onlineModelSelectWrapper: document.getElementById("onlineModelSelectWrapper"),
+  onlineModelSelectBtn: document.getElementById("onlineModelSelectBtn"),
+  onlineModelSelectLabel: document.getElementById("onlineModelSelectLabel"),
+  onlineModelSelectDropdown: document.getElementById("onlineModelSelectDropdown"),
+  onlineModelSelectList: document.getElementById("onlineModelSelectList"),
   newOnlineModelBtn: document.getElementById("newOnlineModelBtn"),
   deleteOnlineModelBtn: document.getElementById("deleteOnlineModelBtn"),
   onlineModelNameInput: document.getElementById("onlineModelNameInput"),
@@ -248,6 +253,11 @@ const el = {
 
   // 规则与提示词管理 (极简化：单层模型设置 + 编辑/预览极简双拨杆)
   promptTargetModelSelect: document.getElementById("promptTargetModelSelect"),
+  promptTargetModelSelectWrapper: document.getElementById("promptTargetModelSelectWrapper"),
+  promptTargetModelSelectBtn: document.getElementById("promptTargetModelSelectBtn"),
+  promptTargetModelSelectLabel: document.getElementById("promptTargetModelSelectLabel"),
+  promptTargetModelSelectDropdown: document.getElementById("promptTargetModelSelectDropdown"),
+  promptTargetModelSelectList: document.getElementById("promptTargetModelSelectList"),
   promptModelSizeBadge: document.getElementById("promptModelSizeBadge"),
   tabPromptEditBtn: document.getElementById("tabPromptEditBtn"),
   tabPromptPreviewBtn: document.getElementById("tabPromptPreviewBtn"),
@@ -1021,6 +1031,8 @@ function initEventListeners() {
     if (typeof closeExportDropdown === "function") closeExportDropdown();
     if (typeof closePresetDropdown === "function") closePresetDropdown();
     if (typeof closeFooterModelDropdown === "function") closeFooterModelDropdown();
+    if (typeof closeOnlineModelDropdown === "function") closeOnlineModelDropdown();
+    if (typeof closePromptTargetModelDropdown === "function") closePromptTargetModelDropdown();
   }
 
   // 场景预设模板自定义下拉交互
@@ -1084,6 +1096,68 @@ function initEventListeners() {
     }
   }
 
+  // 设置面板：在线模型配置自定义下拉交互
+  if (el.onlineModelSelectBtn && el.onlineModelSelectDropdown) {
+    el.onlineModelSelectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.onlineModelSelectBtn.disabled) return;
+      const isOpen = el.onlineModelSelectDropdown.classList.contains("open");
+      closeAllDropdowns();
+      if (!isOpen) {
+        syncOnlineModelSelectUi();
+        el.onlineModelSelectDropdown.classList.add("open");
+        el.onlineModelSelectBtn.classList.add("active");
+        el.onlineModelSelectBtn.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    if (el.onlineModelSelectList) {
+      el.onlineModelSelectList.addEventListener("click", (e) => {
+        const item = e.target.closest(".custom-select-item");
+        if (!item) return;
+        const val = item.getAttribute("data-val") || "";
+        if (el.onlineModelSelect.value !== val) {
+          el.onlineModelSelect.value = val;
+          el.onlineModelSelect.dispatchEvent(new Event("change"));
+        } else {
+          syncOnlineModelSelectUi();
+        }
+        closeOnlineModelDropdown();
+      });
+    }
+  }
+
+  // 设置面板：目标微调模型自定义下拉交互
+  if (el.promptTargetModelSelectBtn && el.promptTargetModelSelectDropdown) {
+    el.promptTargetModelSelectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.promptTargetModelSelectBtn.disabled) return;
+      const isOpen = el.promptTargetModelSelectDropdown.classList.contains("open");
+      closeAllDropdowns();
+      if (!isOpen) {
+        syncPromptTargetModelSelectUi();
+        el.promptTargetModelSelectDropdown.classList.add("open");
+        el.promptTargetModelSelectBtn.classList.add("active");
+        el.promptTargetModelSelectBtn.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    if (el.promptTargetModelSelectList) {
+      el.promptTargetModelSelectList.addEventListener("click", (e) => {
+        const item = e.target.closest(".custom-select-item");
+        if (!item) return;
+        const val = item.getAttribute("data-val") || "";
+        if (el.promptTargetModelSelect.value !== val) {
+          el.promptTargetModelSelect.value = val;
+          el.promptTargetModelSelect.dispatchEvent(new Event("change"));
+        } else {
+          syncPromptTargetModelSelectUi();
+        }
+        closePromptTargetModelDropdown();
+      });
+    }
+  }
+
   // 统一的全局外部点击与 ESC 键关闭浮层处理
   document.addEventListener("click", (e) => {
     if (el.docSortWrapper && !el.docSortWrapper.contains(e.target)) {
@@ -1097,6 +1171,12 @@ function initEventListeners() {
     }
     if (el.footerModelWrapper && !el.footerModelWrapper.contains(e.target)) {
       closeFooterModelDropdown();
+    }
+    if (el.onlineModelSelectWrapper && !el.onlineModelSelectWrapper.contains(e.target)) {
+      closeOnlineModelDropdown();
+    }
+    if (el.promptTargetModelSelectWrapper && !el.promptTargetModelSelectWrapper.contains(e.target)) {
+      closePromptTargetModelDropdown();
     }
   });
 
@@ -1182,6 +1262,9 @@ function initEventListeners() {
         const opt = el.onlineModelSelect.querySelector("option[value='__NEW_DRAFT__']");
         if (opt) {
           opt.textContent = el.onlineModelNameInput.value.trim() || "+ 新建模型...";
+          if (el.onlineModelSelect.value === "__NEW_DRAFT__") {
+            syncOnlineModelSelectUi();
+          }
         }
       }
     });
@@ -1220,6 +1303,7 @@ function initEventListeners() {
   if (el.promptTargetModelSelect) {
     el.promptTargetModelSelect.addEventListener("change", (e) => {
       loadTargetModelPrompt(e.target.value);
+      syncPromptTargetModelSelectUi();
     });
   }
   if (el.resetToModelDefaultPromptBtn) {
@@ -1293,8 +1377,11 @@ function setupPanelResizers() {
   const MAX_INSPECTOR_WIDTH = 550;
   const MIN_STAGE_WIDTH = 380;
 
-  // 1. 从 localStorage 读取记忆宽度（若无则左侧默认 250px，右侧默认 350px）
-  const savedSidebarW = parseInt(localStorage.getItem("sensidoc_sidebar_width"), 10) || 250;
+  // 1. 从 localStorage 读取记忆宽度（若无或为旧默认值则左侧默认 300px，右侧默认 350px）
+  let savedSidebarW = parseInt(localStorage.getItem("sensidoc_sidebar_width"), 10);
+  if (!savedSidebarW || savedSidebarW === 250) {
+    savedSidebarW = 300;
+  }
   const savedInspectorW = parseInt(localStorage.getItem("sensidoc_inspector_width"), 10) || 350;
   root.style.setProperty("--sidebar-width", `${savedSidebarW}px`);
   root.style.setProperty("--inspector-width", `${savedInspectorW}px`);
@@ -2986,6 +3073,46 @@ function renderOnlineModelOptions() {
   } else if (state.activeOnlineModelId) {
     el.onlineModelSelect.value = state.activeOnlineModelId;
   }
+  syncOnlineModelSelectUi();
+}
+
+function closeOnlineModelDropdown() {
+  if (el.onlineModelSelectDropdown) {
+    el.onlineModelSelectDropdown.classList.remove("open");
+  }
+  if (el.onlineModelSelectBtn) {
+    el.onlineModelSelectBtn.classList.remove("active");
+    el.onlineModelSelectBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function syncOnlineModelSelectUi() {
+  if (!el.onlineModelSelect) return;
+  const currentVal = el.onlineModelSelect.value;
+  const selectedOpt = el.onlineModelSelect.selectedOptions ? el.onlineModelSelect.selectedOptions[0] : null;
+  const currentText = selectedOpt ? selectedOpt.text : (el.onlineModelSelect.options[0]?.text || "选择模型");
+
+  if (el.onlineModelSelectLabel) {
+    el.onlineModelSelectLabel.textContent = currentText;
+  }
+  if (el.onlineModelSelectBtn) {
+    el.onlineModelSelectBtn.title = currentText;
+    el.onlineModelSelectBtn.disabled = el.onlineModelSelect.disabled;
+  }
+
+  if (el.onlineModelSelectList) {
+    let itemsHtml = "";
+    Array.from(el.onlineModelSelect.options).forEach((opt) => {
+      const isSelected = opt.value === currentVal;
+      itemsHtml += `
+        <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(opt.value)}">
+          <span class="custom-select-item-text">${escapeHtml(opt.text)}</span>
+          ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+        </button>
+      `;
+    });
+    el.onlineModelSelectList.innerHTML = itemsHtml;
+  }
 }
 
 // 将指定模型配置填充到表单
@@ -3415,6 +3542,7 @@ async function populatePromptTargetModelSelect() {
       el.promptTargetModelSelect.innerHTML = `<option value="">无就绪模型 (前往离线模型导入)</option>`;
       el.promptTargetModelSelect.disabled = true;
       if (el.promptModelSizeBadge) el.promptModelSizeBadge.innerText = "未就绪";
+      syncPromptTargetModelSelectUi();
       return;
     }
 
@@ -3438,8 +3566,48 @@ async function populatePromptTargetModelSelect() {
 
     el.promptTargetModelSelect.value = targetToLoad;
     await loadTargetModelPrompt(targetToLoad);
+    syncPromptTargetModelSelectUi();
   } catch (e) {
     console.error("填充提示词目标模型下拉列表失败:", e);
+  }
+}
+
+function closePromptTargetModelDropdown() {
+  if (el.promptTargetModelSelectDropdown) {
+    el.promptTargetModelSelectDropdown.classList.remove("open");
+  }
+  if (el.promptTargetModelSelectBtn) {
+    el.promptTargetModelSelectBtn.classList.remove("active");
+    el.promptTargetModelSelectBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function syncPromptTargetModelSelectUi() {
+  if (!el.promptTargetModelSelect) return;
+  const currentVal = el.promptTargetModelSelect.value;
+  const selectedOpt = el.promptTargetModelSelect.selectedOptions ? el.promptTargetModelSelect.selectedOptions[0] : null;
+  const currentText = selectedOpt ? selectedOpt.text : (el.promptTargetModelSelect.options[0]?.text || "选择目标模型");
+
+  if (el.promptTargetModelSelectLabel) {
+    el.promptTargetModelSelectLabel.textContent = currentText;
+  }
+  if (el.promptTargetModelSelectBtn) {
+    el.promptTargetModelSelectBtn.title = currentText;
+    el.promptTargetModelSelectBtn.disabled = el.promptTargetModelSelect.disabled;
+  }
+
+  if (el.promptTargetModelSelectList) {
+    let itemsHtml = "";
+    Array.from(el.promptTargetModelSelect.options).forEach((opt) => {
+      const isSelected = opt.value === currentVal;
+      itemsHtml += `
+        <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(opt.value)}">
+          <span class="custom-select-item-text">${escapeHtml(opt.text)}</span>
+          ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+        </button>
+      `;
+    });
+    el.promptTargetModelSelectList.innerHTML = itemsHtml;
   }
 }
 

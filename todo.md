@@ -1064,8 +1064,25 @@
 - [x] 77.4 **实机视觉与跨平台回归测试**：
   - Chrome DevTools 实机验证 macOS 模式（左侧 78px 边距）、Windows 模式（右上角三联按键）与纯 Web 浏览器模式（标准无留白）；
   - 25 项 Rust 自动化单元测试（`cargo test`）全绿通过。
+---
 
-
-
-
+## 阶段七十八：macOS交通灯垂直居中、300px侧边栏、设置面板自定义下拉重构与仅DMG构建 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 78.1 **macOS 交通灯按钮垂直居中优化 (`src/main.rs`)**：
+  - 引入 `tao::dpi::LogicalPosition`，设置 `.with_traffic_light_inset(LogicalPosition::new(16.0, 15.0))`；
+  - 使红黄绿控制按钮在 44px 高度的沉浸式顶栏内垂直居中，并与 SensiDoc 软件标题在同一水平中轴线上。
+- [x] 78.2 **“文档列表”左侧面板默认显示宽度调整为 300px (`web/style.css`, `web/app.js`)**：
+  - 更新 CSS 根变量 `--sidebar-width: 300px;`；
+  - 更新 JS 默认宽度逻辑，并自动将旧默认值 250px 迁移为 300px。
+- [x] 78.3 **“设置”面板原生 `<select>` 自定义伪下拉改造 (`web/index.html`, `web/app.js`)**：
+  - 将“在线 AI 模型配置”中的 `#onlineModelSelect` 与“提取规则设定”中的 `#promptTargetModelSelect` 改造为 `.custom-select-wrapper`；
+  - 保持底层原生 `<select style="display: none;">` 零破坏兼容，上层提供自定义触发按钮与浮层菜单；
+  - 实现双向联动：选项点击后同步赋值原生 select 并分发 `change` 事件；在模型加载、表单命名输入、规则切换时自动同步自定义 UI 状态与选中对勾；
+  - 接入全局外部点击关闭与 ESC 快捷键响应。
+- [x] 78.4 **macOS 打包产物精简为纯 DMG (`scripts/build_mac_app.sh`, `.github/workflows/release.yml`)**：
+  - `build_mac_app.sh` 移除生成 `.zip` 压缩包步骤，专注生成 `.dmg` 安装映像；
+  - GitHub Actions 构建工作流移除 macOS 版本的 zip 收集项，仅上传与发布 DMG。
+- [x] 78.5 **实机交互验证与测试回归**：
+  - Chrome DevTools 实机验证设置面板两个下拉菜单的展开、切换联动及 300px 默认侧边栏宽度；
+  - 25 项 Rust 单元测试（`cargo test`）全绿通过；
+  - 本地仅 commit，不推送到 GitHub 远端。
 

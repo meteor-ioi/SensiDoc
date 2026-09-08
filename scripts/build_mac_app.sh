@@ -119,18 +119,13 @@ echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 echo "==> 正在执行本地 Ad-Hoc 代码签名..."
 codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
-# 11. 打包分发文件 (ZIP 与 DMG)
+# 11. 打包分发文件 (DMG)
 echo "==> 正在生成分发包..."
 ARCH="$(uname -m)"
-ZIP_NAME="SensiDoc-v${VERSION}-macOS-${ARCH}.zip"
 DMG_NAME="SensiDoc-v${VERSION}-macOS-${ARCH}.dmg"
 
 cd "$DIST_DIR"
-rm -f "$ZIP_NAME" "$DMG_NAME"
-
-# 制作 ZIP
-echo "==> 正在压缩为 $ZIP_NAME..."
-zip -q -r -y "$ZIP_NAME" "$APP_NAME.app"
+rm -f "$DMG_NAME"
 
 # 制作 DMG 磁盘映像 (如果 hdiutil 可用)
 if command -v hdiutil >/dev/null 2>&1; then
@@ -150,8 +145,5 @@ echo "✅ macOS 应用构建完成！"
 echo "📦 应用程序 Bundle: $APP_BUNDLE"
 if [ -f "$DIST_DIR/$DMG_NAME" ]; then
     echo "💿 DMG 安装映像: $DIST_DIR/$DMG_NAME"
-fi
-if [ -f "$DIST_DIR/$ZIP_NAME" ]; then
-    echo "🗜️ ZIP 绿色压缩包: $DIST_DIR/$ZIP_NAME"
 fi
 echo "========================================================"

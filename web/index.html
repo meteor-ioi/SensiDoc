@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.1.8">
+  <link rel="stylesheet" href="style.css?v=1.1.9">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -505,8 +505,19 @@
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
               <span>当前配置:</span>
             </label>
-            <select id="onlineModelSelect" class="select-field" style="flex: 1; min-width: 0; padding: 4px 8px; font-size: 11.5px; height: 28px;">
-            </select>
+            <div class="custom-select-wrapper" id="onlineModelSelectWrapper" style="flex: 1; min-width: 0;">
+              <button id="onlineModelSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="当前配置：无" style="height: 28px; padding: 4px 8px; font-size: 11.5px;">
+                <span class="custom-select-label" id="onlineModelSelectLabel">载入配置中...</span>
+                <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+              </button>
+              <select id="onlineModelSelect" class="select-field" style="display: none;">
+              </select>
+              <div class="custom-select-dropdown" id="onlineModelSelectDropdown" style="font-size: 12px;">
+                <div class="custom-select-list" id="onlineModelSelectList">
+                  <!-- 动态渲染 -->
+                </div>
+              </div>
+            </div>
           </div>
           <div style="display: flex; gap: 6px; flex-shrink: 0;">
             <button type="button" id="newOnlineModelBtn" class="btn sm" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px;" title="新建一个在线模型配置">
@@ -584,9 +595,20 @@
             <span style="font-size: 12px; font-weight: 600; color: var(--text);">目标模型：</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px; flex: 1; max-width: 440px; justify-content: flex-end;">
-            <select id="promptTargetModelSelect" class="select-field" style="flex: 1; max-width: 310px;">
-              <!-- 动态载入已支持/已下载的模型列表 -->
-            </select>
+            <div class="custom-select-wrapper" id="promptTargetModelSelectWrapper" style="flex: 1; max-width: 310px; min-width: 0;">
+              <button id="promptTargetModelSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="当前目标模型：无" style="height: 28px; padding: 4px 8px; font-size: 11.5px;">
+                <span class="custom-select-label" id="promptTargetModelSelectLabel">载入模型中...</span>
+                <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+              </button>
+              <select id="promptTargetModelSelect" class="select-field" style="display: none;">
+                <!-- 动态载入已支持/已下载的模型列表 -->
+              </select>
+              <div class="custom-select-dropdown" id="promptTargetModelSelectDropdown" style="font-size: 12px;">
+                <div class="custom-select-list" id="promptTargetModelSelectList">
+                  <!-- 动态渲染 -->
+                </div>
+              </div>
+            </div>
             <span id="promptModelSizeBadge" class="badge primary" style="font-size: 11px; padding: 3px 8px; font-weight: 500; white-space: nowrap;">预设模板</span>
           </div>
         </div>
@@ -890,7 +912,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.1.8"></script>
+  <script src="app.js?v=1.1.9"></script>
 </body>
 </html>
 

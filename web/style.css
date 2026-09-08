@@ -342,9 +342,9 @@ body.desktop-app.platform-win .win-window-controls {
   background: #b91c1c;
 }
 
-/* 三栏布局容器 (左侧默认 250px，右侧默认 350px，支持 CSS 变量动态调整) */
+/* 三栏布局容器 (左侧默认 300px，右侧默认 350px，支持 CSS 变量动态调整) */
 :root {
-  --sidebar-width: 250px;
+  --sidebar-width: 300px;
   --inspector-width: 350px;
 }
 

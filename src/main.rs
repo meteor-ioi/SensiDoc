@@ -239,7 +239,7 @@ fn launch_desktop_gui(
     app_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use tao::{
-        dpi::LogicalSize,
+        dpi::{LogicalPosition, LogicalSize},
         event::{Event, StartCause, WindowEvent},
         event_loop::{ControlFlow, EventLoopBuilder},
         window::WindowBuilder,
@@ -265,12 +265,13 @@ fn launch_desktop_gui(
         .with_inner_size(LogicalSize::new(1280.0, 840.0))
         .with_min_inner_size(LogicalSize::new(960.0, 600.0));
 
-    // macOS: 隐藏原生文字标题，开启全尺寸内容视图与透明标题栏，原生的红黄绿三颗交通灯浮动于左上角
+    // macOS: 隐藏原生文字标题，开启全尺寸内容视图与透明标题栏，原生的红黄绿三颗交通灯垂直居中浮动于左上角
     #[cfg(target_os = "macos")]
     let builder = builder
         .with_title_hidden(true)
         .with_titlebar_transparent(true)
-        .with_fullsize_content_view(true);
+        .with_fullsize_content_view(true)
+        .with_traffic_light_inset(LogicalPosition::new(16.0, 15.0));
 
     // Windows: 无原生系统标题栏与边框菜单，由 Web UI 顶层托管窗口拖拽与右上角控制
     #[cfg(target_os = "windows")]
