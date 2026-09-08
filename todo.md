@@ -1220,8 +1220,16 @@
 - [x] 85.5 **CI 构建产物 Artifact 名称统合与补充软件名前缀 (`.github/workflows/release.yml`)**：
   - 将 Actions 页面展示的 `macos-app-v*` 与 `windows-app-v*` 统一调整为 `sensidoc-v*-macos` 与 `sensidoc-v*-windows`，确保构件包名带有明确的 `sensidoc` 软件标识。
 
+---
 
-
-
-
-
+## 阶段八十六：左侧文档空状态区域滚动条异常排查与消除 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 86.1 **CSS 盒模型根因精确定位**：
+  - 通过 Chrome DevTools 实机测量空状态盒模型参数：`.file-list` 实际可用高度 622px（642px - 20px padding）；
+  - 子元素 `.file-list-empty` 同时设置了 `height: 100%`（622px）与 `margin: 12px`，导致计算总高度为 646px，超出包含块 24px，触发父级 `overflow-y: auto` 的纵向滚动条渲染。
+- [x] 86.2 **自适应布局重构与双重保险机制**：
+  - `web/style.css` 中将 `.file-list` 改为弹性列布局（`display: flex; flex-direction: column;`），空状态卡片采用 `flex: 1; box-sizing: border-box;` 自动撑满剩余空间，彻底移除外层 12px 冗余边距；
+  - 增加 `.file-list:has(.file-list-empty) { overflow-y: hidden; }`，在空状态及搜索无果状态下彻底关闭滚动条；
+  - 为 `.file-item` 补充 `flex-shrink: 0;`，保证多文档列表正常滚动且项高不受压迫。
+- [x] 86.3 **静态资源缓存版本迭代与实机验证**：
+  - `web/index.html` 引用版本提升为 `style.css?v=1.2.11`；
+  - 实机验证无文档空状态与搜索无果状态：`hasScrollbar: false`，`scrollHeight === clientHeight`，无任何滚动条；多文档加载状态下滚动条正常工作。

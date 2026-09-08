@@ -942,7 +942,8 @@ body.resizing-panels {
 
 /* 列表空状态 (未导入任何文档时呈现简洁的指引，不占据常驻高度) */
 .file-list-empty {
-  height: 100%;
+  flex: 1;
+  min-height: 180px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -953,7 +954,7 @@ body.resizing-panels {
   cursor: pointer;
   border: 1px dashed transparent;
   border-radius: var(--radius-md);
-  margin: 12px;
+  box-sizing: border-box;
   transition: border-color 0.15s, background 0.15s;
 }
 
@@ -985,9 +986,16 @@ body.resizing-panels {
   flex: 1;
   overflow-y: auto;
   padding: 8px 8px 12px;
+  display: flex;
+  flex-direction: column;
+}
+
+.file-list:has(.file-list-empty) {
+  overflow-y: hidden;
 }
 
 .file-item {
+  flex-shrink: 0;
   margin-bottom: 8px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
