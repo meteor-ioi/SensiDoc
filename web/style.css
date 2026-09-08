@@ -992,7 +992,7 @@ body.resizing-panels {
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--surface);
-  transition: border-color 0.12s, background 0.12s;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
   overflow: hidden;
 }
 
@@ -1003,7 +1003,8 @@ body.resizing-panels {
 
 .file-item.active {
   border-color: var(--text);
-  background: var(--surface-hover);
+  background: var(--surface-active);
+  box-shadow: 0 0 0 1px var(--text);
 }
 
 .file-card-inner {
