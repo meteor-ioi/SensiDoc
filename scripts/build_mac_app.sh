@@ -143,16 +143,10 @@ codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
 # 11. 打包分发文件 (DMG)
 echo "==> 正在生成分发包..."
-if [ "$IS_UNIVERSAL" = true ]; then
-    DMG_NAME="sensidoc-v${VERSION}-macOS-universal.dmg"
-else
-    ARCH="$(uname -m)"
-    DMG_NAME="sensidoc-v${VERSION}-macOS-${ARCH}.dmg"
-fi
-STD_DMG_NAME="sensidoc-v${VERSION}-macOS.dmg"
+DMG_NAME="sensidoc-v${VERSION}-macos-universal.dmg"
 
 cd "$DIST_DIR"
-rm -f "$DMG_NAME" "$STD_DMG_NAME"
+rm -f "$DMG_NAME"
 
 # 制作 DMG 磁盘映像 (如果 hdiutil 可用)
 if command -v hdiutil >/dev/null 2>&1; then
@@ -165,18 +159,12 @@ if command -v hdiutil >/dev/null 2>&1; then
     
     hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_TMP" -ov -format UDZO "$DMG_NAME" -quiet
     rm -rf "$DMG_TMP"
-
-    # 若为 Universal 或单架构，同步生成标准化 sensidoc-v${VERSION}-macOS.dmg
-    cp "$DMG_NAME" "$STD_DMG_NAME" 2>/dev/null || true
 fi
 
 echo "========================================================"
 echo "✅ macOS 应用构建完成！"
 echo "📦 应用程序 Bundle: $APP_BUNDLE"
-if [ -f "$DIST_DIR/$STD_DMG_NAME" ]; then
-    echo "💿 DMG 安装映像: $DIST_DIR/$STD_DMG_NAME"
-fi
-if [ -f "$DIST_DIR/$DMG_NAME" ] && [ "$DMG_NAME" != "$STD_DMG_NAME" ]; then
-    echo "💿 架构专属 DMG: $DIST_DIR/$DMG_NAME"
+if [ -f "$DIST_DIR/$DMG_NAME" ]; then
+    echo "💿 通用 DMG 安装映像: $DIST_DIR/$DMG_NAME"
 fi
 echo "========================================================"

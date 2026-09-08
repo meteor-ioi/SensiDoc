@@ -1109,7 +1109,7 @@
 - [x] 79.5 **macOS Universal 架构（M 处理器 + Intel 处理器）双兼容与产物命名 (`scripts/build_mac_app.sh`, `.github/workflows/release.yml`)**：
   - `build_mac_app.sh` 增加 `aarch64-apple-darwin` 与 `x86_64-apple-darwin` 目标构建与 `lipo -create` 通用二进制合并；
   - 一键产出兼顾 M1/M2/M3/M4 与 Intel Mac 的 Universal DMG；
-  - 产物遵循用户要求的 `sensidoc + 版本号` 命名规则：`sensidoc-v{VERSION}-macOS.dmg` 与 `sensidoc-v{VERSION}-windows-x86_64-setup.exe`。
+  - 产物采用规范全小写通用标识：`sensidoc-v{VERSION}-macos-universal.dmg` 与 `sensidoc-v{VERSION}-windows-x86_64-setup.exe`。
 - [x] 79.6 **实机视觉与功能回归测试**：
   - Chrome 实机验证 Windows 模式下字体计算值（全部统一为 Segoe UI + Microsoft YaHei）与退出二次确认弹窗的弹出与交互；
   - 25 项 Rust 后端自动化单元测试（`cargo test`）全绿通过。
