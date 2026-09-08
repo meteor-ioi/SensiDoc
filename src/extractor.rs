@@ -333,6 +333,10 @@ impl Extractor {
     /// 异步向本地 llama-server 发送提取请求并解析返回结果 (含文档边界隔离与超强容错反序列化)
     pub async fn query_llm(
         server_port: u16,
+        temperature: f32,
+        top_k: u32,
+        repeat_penalty: f32,
+        enable_thinking: bool,
         system_prompt: &str,
         user_text: &str,
     ) -> Result<Vec<SensitiveItem>, String> {
@@ -351,10 +355,10 @@ impl Extractor {
                 { "role": "system", "content": system_prompt },
                 { "role": "user", "content": user_content }
             ],
-            "temperature": 0.1,
-            "top_k": 50,
-            "repeat_penalty": 1.1,
-            "max_tokens": 1024
+            "temperature": temperature,
+            "top_k": top_k,
+            "repeat_penalty": repeat_penalty,
+            "max_tokens": if enable_thinking { 2048 } else { 1024 }
         });
 
         let resp = client
@@ -388,11 +392,12 @@ impl Extractor {
         temperature: f32,
         top_k: u32,
         repeat_penalty: f32,
+        enable_thinking: bool,
         system_prompt: &str,
         user_text: &str,
     ) -> Result<Vec<SensitiveItem>, String> {
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(90))
             .build()
             .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
 
@@ -410,7 +415,7 @@ impl Extractor {
             format!("<document>\n{}\n</document>", user_text)
         };
 
-        let request_payload = serde_json::json!({
+        let mut request_payload = serde_json::json!({
             "model": model_id,
             "messages": [
                 { "role": "system", "content": system_prompt },
@@ -419,8 +424,12 @@ impl Extractor {
             "temperature": temperature,
             "top_k": top_k,
             "repeat_penalty": repeat_penalty,
-            "max_tokens": 2048
+            "max_tokens": if enable_thinking { 4096 } else { 2048 }
         });
+
+        if enable_thinking {
+            request_payload["enable_thinking"] = serde_json::json!(true);
+        }
 
         let mut req = client.post(&url).json(&request_payload);
         if !api_key.trim().is_empty() {
@@ -496,21 +505,28 @@ impl Extractor {
 
     /// 统一解析 LLM 返回的文本内容为实体项列表
     pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
-        // 智能截取 JSON 片段：优先匹配 [..] 数组，若无则匹配 {..} 对象
-        let cleaned_json = if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
-            if end > start {
-                &content[start..=end]
-            } else {
-                content
-            }
-        } else if let (Some(start), Some(end)) = (content.find('{'), content.rfind('}')) {
-            if end > start {
-                &content[start..=end]
-            } else {
-                content
-            }
+        // 如果输出中带有思维链 <think>...</think>，优先提取 </think> 之后的最终结果
+        let content_after_think = if let Some(think_end) = content.rfind("</think>") {
+            &content[think_end + 8..]
         } else {
             content
+        };
+
+        // 智能截取 JSON 片段：优先匹配 [..] 数组，若无则匹配 {..} 对象
+        let cleaned_json = if let (Some(start), Some(end)) = (content_after_think.find('['), content_after_think.rfind(']')) {
+            if end > start {
+                &content_after_think[start..=end]
+            } else {
+                content_after_think
+            }
+        } else if let (Some(start), Some(end)) = (content_after_think.find('{'), content_after_think.rfind('}')) {
+            if end > start {
+                &content_after_think[start..=end]
+            } else {
+                content_after_think
+            }
+        } else {
+            content_after_think
         };
 
         let mut items = Vec::new();
@@ -881,5 +897,25 @@ mod tests {
         assert_eq!(item.priority, "high");
         assert_eq!(item.count, 1);
         assert_eq!(item.source, "ai");
+    }
+
+    #[test]
+    fn test_parse_llm_json_response_with_thinking() {
+        let content_with_think = r#"<think>
+首先分析文档内容：
+文档中提到了甲方公司名称为“北京华云远科技”，合同金额为“1,860,000元”。
+这里的“北京华云远科技”符合涉密企业定义。
+</think>
+[
+  {"field": "企业名称", "text": "北京华云远科技"},
+  {"field": "合同金额", "text": "1,860,000元"}
+]"#;
+
+        let items = Extractor::parse_llm_json_response(content_with_think);
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].text, "北京华云远科技");
+        assert_eq!(items[0].category, "企业名称");
+        assert_eq!(items[1].text, "1,860,000元");
+        assert_eq!(items[1].category, "合同金额");
     }
 }

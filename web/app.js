@@ -48,6 +48,10 @@ const state = {
   activeOnlineModelId: null,  // 当前激活/选中的在线模型 ID
   editingOnlineModelId: null, // 表单当前编辑的模型 ID
   downloadingModels: new Set(), // 正在下载中的模型 ID 集合
+
+  // 离线大模型推理超参数状态 (跟着模型走)
+  offlineModelProfiles: {},   // 离线模型个性化推理参数字典 { [filename]: { temperature, top_k, repeat_penalty } }
+  expandedModelDrawers: new Set(), // 当前展开推理参数抽屉的模型文件名集合
 };
 window.state = state;
 
@@ -248,6 +252,7 @@ const el = {
   onlineModelTempInput: document.getElementById("onlineModelTempInput"),
   onlineModelTopKInput: document.getElementById("onlineModelTopKInput"),
   onlineModelRepeatPenaltyInput: document.getElementById("onlineModelRepeatPenaltyInput"),
+  onlineModelThinkingBtn: document.getElementById("onlineModelThinkingBtn"),
   onlineModelTestStatusText: document.getElementById("onlineModelTestStatusText"),
   testOnlineModelBtn: document.getElementById("testOnlineModelBtn"),
   saveOnlineModelBtn: document.getElementById("saveOnlineModelBtn"),
@@ -1327,6 +1332,15 @@ function initEventListeners() {
   if (el.deleteOnlineModelBtn) el.deleteOnlineModelBtn.addEventListener("click", handleDeleteOnlineModel);
   if (el.testOnlineModelBtn) el.testOnlineModelBtn.addEventListener("click", handleTestOnlineModel);
   if (el.saveOnlineModelBtn) el.saveOnlineModelBtn.addEventListener("click", handleSaveOnlineModel);
+  if (el.onlineModelThinkingBtn) {
+    el.onlineModelThinkingBtn.addEventListener("click", () => {
+      const active = el.onlineModelThinkingBtn.classList.toggle("active");
+      const ind = el.onlineModelThinkingBtn.querySelector(".toggle-indicator");
+      const txt = el.onlineModelThinkingBtn.querySelector(".toggle-text");
+      if (ind) ind.textContent = active ? "[──●]" : "[●──]";
+      if (txt) txt.textContent = active ? "已开启" : "未开启";
+    });
+  }
   if (el.onlineModelNameInput) {
     el.onlineModelNameInput.addEventListener("input", () => {
       if (state.editingOnlineModelId === null && el.onlineModelSelect) {
@@ -3466,6 +3480,13 @@ function fillOnlineModelForm(profile) {
     if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
     if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = 50;
     if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = 1.1;
+    if (el.onlineModelThinkingBtn) {
+      el.onlineModelThinkingBtn.classList.remove("active");
+      const ind = el.onlineModelThinkingBtn.querySelector(".toggle-indicator");
+      const txt = el.onlineModelThinkingBtn.querySelector(".toggle-text");
+      if (ind) ind.textContent = "[●──]";
+      if (txt) txt.textContent = "未开启";
+    }
     if (el.onlineModelTestStatusText) el.onlineModelTestStatusText.innerText = "";
     return;
   }
@@ -3478,6 +3499,14 @@ function fillOnlineModelForm(profile) {
   if (el.onlineModelTempInput) el.onlineModelTempInput.value = profile.temperature !== undefined ? profile.temperature : 0.1;
   if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = profile.top_k !== undefined ? profile.top_k : 50;
   if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1;
+  if (el.onlineModelThinkingBtn) {
+    const isThinking = !!profile.enable_thinking;
+    el.onlineModelThinkingBtn.classList.toggle("active", isThinking);
+    const ind = el.onlineModelThinkingBtn.querySelector(".toggle-indicator");
+    const txt = el.onlineModelThinkingBtn.querySelector(".toggle-text");
+    if (ind) ind.textContent = isThinking ? "[──●]" : "[●──]";
+    if (txt) txt.textContent = isThinking ? "已开启" : "未开启";
+  }
   if (el.onlineModelTestStatusText) el.onlineModelTestStatusText.innerText = "";
 }
 
@@ -3561,6 +3590,7 @@ async function handleSaveOnlineModel() {
   const temp = el.onlineModelTempInput ? parseFloat(el.onlineModelTempInput.value) || 0.1 : 0.1;
   const topK = el.onlineModelTopKInput ? parseInt(el.onlineModelTopKInput.value, 10) || 50 : 50;
   const repeatPenalty = el.onlineModelRepeatPenaltyInput ? parseFloat(el.onlineModelRepeatPenaltyInput.value) || 1.1 : 1.1;
+  const enableThinking = el.onlineModelThinkingBtn ? el.onlineModelThinkingBtn.classList.contains("active") : false;
 
   if (!name) {
     showAlertDialog({ title: "提示", message: "请输入模型名称！", type: "warning" });
@@ -3584,6 +3614,7 @@ async function handleSaveOnlineModel() {
     temperature: temp,
     top_k: topK,
     repeat_penalty: repeatPenalty,
+    enable_thinking: enableThinking,
   };
 
   try {
@@ -4656,13 +4687,174 @@ async function autoLoadModelOptimalPrompt(filename) {
   }
 }
 
+// 获取离线模型超参数 (未配置则返回默认 0.1 / 50 / 1.1 / enable_thinking: false)
+function getOfflineModelProfile(filename) {
+  if (state.offlineModelProfiles && state.offlineModelProfiles[filename]) {
+    return state.offlineModelProfiles[filename];
+  }
+  return { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, enable_thinking: false };
+}
+
+// 异步持久化离线模型超参数
+async function saveOfflineModelProfile(filename, profile, statusEl) {
+  try {
+    if (!state.offlineModelProfiles) state.offlineModelProfiles = {};
+    state.offlineModelProfiles[filename] = profile;
+
+    const res = await fetch("/api/models/offline-profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        filename: filename,
+        temperature: profile.temperature,
+        top_k: profile.top_k,
+        repeat_penalty: profile.repeat_penalty,
+        enable_thinking: !!profile.enable_thinking,
+      }),
+    });
+
+    if (res.ok && statusEl) {
+      statusEl.innerHTML = '<span style="color: var(--success); font-weight: 500;">✓ 已保存并绑定模型</span>';
+      setTimeout(() => {
+        if (statusEl) statusEl.textContent = "参数已绑定该模型并在调用时自动生效";
+      }, 2000);
+    }
+  } catch (e) {
+    console.error("保存离线模型推理参数失败:", e);
+    if (statusEl) {
+      statusEl.innerHTML = '<span style="color: var(--danger);">保存失败</span>';
+    }
+  }
+}
+
+// 生成离线模型抽屉 HTML (紧凑4列并排与恢复默认)
+function renderOfflineParamDrawerHtml(filename) {
+  const profile = getOfflineModelProfile(filename);
+  const isOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(filename);
+  const isThinking = !!profile.enable_thinking;
+
+  return `
+    <div class="model-param-drawer ${isOpen ? "open" : ""}" id="param-drawer-${escapeHtml(filename)}">
+      <div class="model-param-grid">
+        <div class="model-param-cell">
+          <label>采样温度 (Temp)：</label>
+          <input type="number" class="input-text sm offline-param-temp" data-file="${escapeHtml(filename)}" min="0" max="2" step="0.05" value="${profile.temperature !== undefined ? profile.temperature : 0.1}" style="width: 100%; box-sizing: border-box;">
+        </div>
+        <div class="model-param-cell">
+          <label>候选范围 (Top-K)：</label>
+          <input type="number" class="input-text sm offline-param-topk" data-file="${escapeHtml(filename)}" min="1" max="200" step="1" value="${profile.top_k !== undefined ? profile.top_k : 50}" style="width: 100%; box-sizing: border-box;">
+        </div>
+        <div class="model-param-cell">
+          <label>重复惩罚 (Repeat)：</label>
+          <input type="number" class="input-text sm offline-param-repeat" data-file="${escapeHtml(filename)}" min="1.0" max="2.0" step="0.05" value="${profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1}" style="width: 100%; box-sizing: border-box;">
+        </div>
+        <div class="model-param-cell">
+          <label>思考模式 (Think)：</label>
+          <button type="button" class="param-toggle-btn offline-param-thinking ${isThinking ? "active" : ""}" data-file="${escapeHtml(filename)}" title="点击切换是否开启 CoT 思维链深度思考推理">
+            <span class="toggle-indicator">${isThinking ? "[──●]" : "[●──]"}</span>
+            <span class="toggle-text">${isThinking ? "已开启" : "未开启"}</span>
+          </button>
+        </div>
+      </div>
+      <div class="model-param-footer">
+        <div class="model-param-status-text" id="param-status-${escapeHtml(filename)}">参数已绑定该模型并在调用时自动生效</div>
+        <button type="button" class="model-param-reset-btn" data-file="${escapeHtml(filename)}" title="恢复系统默认参数 (0.1 / 50 / 1.1 / 关闭思考)">恢复默认</button>
+      </div>
+    </div>
+  `;
+}
+
+// 绑定抽屉展开/折叠与参数编辑/失焦自动保存事件
+function bindOfflineParamDrawerEvents(container) {
+  // 1. 展开/折叠
+  container.querySelectorAll(".toggle-params-btn").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const file = btn.getAttribute("data-file");
+      const drawer = container.querySelector(`.model-param-drawer[id="param-drawer-${CSS.escape(file)}"]`);
+      if (!drawer) return;
+
+      const isOpen = drawer.classList.toggle("open");
+      btn.classList.toggle("active", isOpen);
+      if (isOpen) {
+        state.expandedModelDrawers.add(file);
+      } else {
+        state.expandedModelDrawers.delete(file);
+      }
+    });
+  });
+
+  // 2. 参数修改与自动失焦/回车保存
+  container.querySelectorAll(".model-param-drawer").forEach((drawer) => {
+    const tempInput = drawer.querySelector(".offline-param-temp");
+    const file = tempInput?.getAttribute("data-file");
+    if (!file) return;
+
+    const topkInput = drawer.querySelector(".offline-param-topk");
+    const repeatInput = drawer.querySelector(".offline-param-repeat");
+    const thinkingBtn = drawer.querySelector(".offline-param-thinking");
+    const statusEl = drawer.querySelector(".model-param-status-text");
+    const resetBtn = drawer.querySelector(".model-param-reset-btn");
+
+    const doSave = () => {
+      const temp = parseFloat(tempInput.value) || 0.1;
+      const topk = parseInt(topkInput.value, 10) || 50;
+      const repeat = parseFloat(repeatInput.value) || 1.1;
+      const enableThinking = thinkingBtn ? thinkingBtn.classList.contains("active") : false;
+      saveOfflineModelProfile(file, { temperature: temp, top_k: topk, repeat_penalty: repeat, enable_thinking: enableThinking }, statusEl);
+    };
+
+    [tempInput, topkInput, repeatInput].forEach((inp) => {
+      if (!inp) return;
+      inp.addEventListener("blur", doSave);
+      inp.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          inp.blur();
+        }
+      });
+    });
+
+    if (thinkingBtn) {
+      thinkingBtn.addEventListener("click", () => {
+        const active = thinkingBtn.classList.toggle("active");
+        const ind = thinkingBtn.querySelector(".toggle-indicator");
+        const txt = thinkingBtn.querySelector(".toggle-text");
+        if (ind) ind.textContent = active ? "[──●]" : "[●──]";
+        if (txt) txt.textContent = active ? "已开启" : "未开启";
+        doSave();
+      });
+    }
+
+    if (resetBtn) {
+      resetBtn.addEventListener("click", () => {
+        if (tempInput) tempInput.value = 0.1;
+        if (topkInput) topkInput.value = 50;
+        if (repeatInput) repeatInput.value = 1.1;
+        if (thinkingBtn) {
+          thinkingBtn.classList.remove("active");
+          const ind = thinkingBtn.querySelector(".toggle-indicator");
+          const txt = thinkingBtn.querySelector(".toggle-text");
+          if (ind) ind.textContent = "[●──]";
+          if (txt) txt.textContent = "未开启";
+        }
+        saveOfflineModelProfile(file, { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, enable_thinking: false }, statusEl);
+      });
+    }
+  });
+}
+
 // 加载模型管理
 async function loadModelPresets() {
   try {
-    const [presetsRes, localRes] = await Promise.all([
+    const [presetsRes, localRes, profilesRes] = await Promise.all([
       fetch("/api/models/presets"),
       fetch("/api/models/local"),
+      fetch("/api/models/offline-profiles"),
     ]);
+
+    if (profilesRes && profilesRes.ok) {
+      state.offlineModelProfiles = await profilesRes.json();
+    }
 
     if (presetsRes.ok) {
       state.modelPresets = await presetsRes.json();
@@ -4679,25 +4871,36 @@ async function loadModelPresets() {
             .map((m) => {
               const isActive = state.activeModelName === m;
               const isStarting = state.startingModel === m;
+              const isDrawerOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(m);
 
               return `
-                <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 5px; background: var(--surface-2);">
-                  <div style="flex: 1; min-width: 0; margin-right: 8px;">
-                    <div style="font-family: var(--font-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500;" title="${escapeHtml(m)}">${escapeHtml(m)}</div>
+                <div class="local-model-card">
+                  <div class="local-model-main-row">
+                    <div style="flex: 1; min-width: 0; margin-right: 8px;">
+                      <div style="font-family: var(--font-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500;" title="${escapeHtml(m)}">${escapeHtml(m)}</div>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                      <button type="button" class="btn sm toggle-params-btn ${isDrawerOpen ? "active" : ""}" data-file="${escapeHtml(m)}" title="展开/收起推理参数配置" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px;">
+                        <svg class="lucide-icon xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                        <span>参数</span>
+                        <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                      </button>
+                      ${
+                        isActive
+                          ? `<button class="btn sm stop-local-btn" data-file="${escapeHtml(m)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+                          : isStarting
+                          ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
+                          : `<button class="btn primary sm start-local-btn" data-file="${escapeHtml(m)}">启动</button>`
+                      }
+                    </div>
                   </div>
-                  <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                    ${
-                      isActive
-                        ? `<button class="btn sm stop-local-btn" data-file="${escapeHtml(m)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
-                        : isStarting
-                        ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-                        : `<button class="btn primary sm start-local-btn" data-file="${escapeHtml(m)}">启动</button>`
-                    }
-                  </div>
+                  ${renderOfflineParamDrawerHtml(m)}
                 </div>
               `;
             })
             .join("");
+
+          bindOfflineParamDrawerEvents(el.localModelsList);
 
           el.localModelsList.querySelectorAll(".start-local-btn").forEach((btn) => {
             btn.addEventListener("click", () => {
@@ -4732,29 +4935,42 @@ function renderModelPresets() {
     const isActive = state.activeModelName === m.filename || m.is_active;
     const isStarting = state.startingModel === m.filename;
     const isDownloading = m.is_downloading || (state.downloadingModels && state.downloadingModels.has(m.id));
+    const isDrawerOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(m.filename);
 
     item.innerHTML = `
-      <div style="flex: 1; min-width: 0;">
-        <div class="model-info-title">${escapeHtml(m.name)} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${escapeHtml(m.size_desc)})</span></div>
-        <div class="model-info-desc">${escapeHtml(m.description)}</div>
-        <div class="progress-bar-wrap" id="prog-wrap-${m.id}" style="${isDownloading ? "display: block;" : ""}">
-          <div class="progress-bar-fill" id="prog-fill-${m.id}"></div>
+      <div class="model-preset-main-row">
+        <div style="flex: 1; min-width: 0;">
+          <div class="model-info-title">${escapeHtml(m.name)} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${escapeHtml(m.size_desc)})</span></div>
+          <div class="model-info-desc">${escapeHtml(m.description)}</div>
+          <div class="progress-bar-wrap" id="prog-wrap-${m.id}" style="${isDownloading ? "display: block;" : ""}">
+            <div class="progress-bar-fill" id="prog-fill-${m.id}"></div>
+          </div>
+          <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: ${isDownloading ? "block;" : "none;"}"></div>
         </div>
-        <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: ${isDownloading ? "block;" : "none;"}"></div>
+        <div class="model-action-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+          ${
+            m.is_downloaded
+              ? `
+                <button type="button" class="btn sm toggle-params-btn ${isDrawerOpen ? "active" : ""}" data-file="${escapeHtml(m.filename)}" title="展开/收起推理参数配置" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px;">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+                  <span>参数</span>
+                  <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </button>
+                ${
+                  isActive
+                    ? `<button class="btn sm stop-model-btn" data-file="${escapeHtml(m.filename)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
+                    : isStarting
+                    ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
+                    : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">启动</button>`
+                }
+              `
+              : isDownloading
+              ? `<button class="btn sm cancel-download-btn" data-id="${m.id}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);" title="点击取消下载并清除本地缓存">取消</button>`
+              : `<button class="btn sm download-model-btn" data-id="${m.id}">下载</button>`
+          }
+        </div>
       </div>
-      <div class="model-action-wrap" style="flex-shrink: 0;">
-        ${
-          m.is_downloaded
-            ? isActive
-              ? `<button class="btn sm stop-model-btn" data-file="${escapeHtml(m.filename)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
-              : isStarting
-              ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-              : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">启动</button>`
-            : isDownloading
-            ? `<button class="btn sm cancel-download-btn" data-id="${m.id}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);" title="点击取消下载并清除本地缓存">取消</button>`
-            : `<button class="btn sm download-model-btn" data-id="${m.id}">下载</button>`
-        }
-      </div>
+      ${m.is_downloaded ? renderOfflineParamDrawerHtml(m.filename) : ""}
     `;
 
     // 绑定下载
@@ -4783,6 +4999,8 @@ function renderModelPresets() {
 
     el.modelPresetsList.appendChild(item);
   });
+
+  bindOfflineParamDrawerEvents(el.modelPresetsList);
 }
 
 // 停止模型运行

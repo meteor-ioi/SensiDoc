@@ -2706,9 +2706,163 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   border-radius: var(--radius-sm);
   margin-bottom: 8px;
   display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.model-preset-main-row {
+  display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.local-model-card {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  margin-bottom: 6px;
+  background: var(--surface-2);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.local-model-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 离线模型专属超参数抽屉 */
+.model-param-drawer {
+  display: none;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  animation: drawerSlideDown 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.model-param-drawer.open {
+  display: block;
+}
+
+@keyframes drawerSlideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.model-param-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.model-param-cell label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 参数开关按钮 (与输入框高度 28px 严格对齐) */
+.param-toggle-btn {
+  height: 28px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0 6px;
+  font-size: 11px;
+  font-family: var(--font-sans);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+  transition: border-color 0.15s, background 0.15s, color 0.15s, box-shadow 0.15s;
+  user-select: none;
+}
+
+.param-toggle-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.param-toggle-btn.active {
+  background: var(--surface);
+  border-color: var(--accent);
+  color: var(--text);
+  font-weight: 500;
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.param-toggle-btn .toggle-indicator {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  opacity: 0.65;
+  letter-spacing: -0.5px;
+}
+
+.param-toggle-btn.active .toggle-indicator {
+  opacity: 1;
+  color: var(--success);
+}
+
+.model-param-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 6px;
+}
+
+.model-param-status-text {
+  font-size: 10.5px;
+  color: var(--text-mute);
+  transition: color 0.15s ease;
+}
+
+.model-param-reset-btn {
+  background: transparent;
+  border: none;
+  font-size: 10.5px;
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  transition: color 0.15s, background 0.15s;
+}
+
+.model-param-reset-btn:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.toggle-params-btn.active {
+  background: var(--surface-hover);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.toggle-params-btn .chevron-icon {
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.toggle-params-btn.active .chevron-icon {
+  transform: rotate(180deg);
 }
 
 .model-info-title {

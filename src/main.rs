@@ -26,7 +26,7 @@ use extractor::{Extractor, RuleField, RulePreset};
 use futures_util::stream::Stream;
 use model_manager::ModelManager;
 use serde::{Deserialize, Serialize};
-use session::{DocumentItem, ExtractionSnapshot, ModelPromptProfile, OnlineModelProfile, SessionManager};
+use session::{DocumentItem, ExtractionSnapshot, ModelPromptProfile, OfflineModelProfile, OnlineModelProfile, SessionManager};
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -177,6 +177,7 @@ async fn run_server_mode(
         .route("/api/models/prompts/all", get(get_all_model_prompts))
         .route("/api/models/{filename}/prompt", get(get_model_prompt).post(save_model_prompt))
         .route("/api/models/{filename}/benchmark", post(run_model_auto_benchmark))
+        .route("/api/models/offline-profiles", get(get_all_offline_profiles).post(save_offline_profile))
         .route("/api/settings/online-models", get(get_online_models).post(save_online_model))
         .route("/api/settings/online-models/active", get(get_active_online_model).post(set_active_online_model))
         .route("/api/settings/online-models/{id}", delete(delete_online_model))
@@ -785,6 +786,7 @@ async fn extract_sensitive_info(
                         cfg.temperature,
                         cfg.top_k,
                         cfg.repeat_penalty,
+                        cfg.enable_thinking,
                         &system_prompt_used,
                         &chunk_text,
                     ).await {
@@ -795,8 +797,18 @@ async fn extract_sensitive_info(
         } else {
             // 本地离线模型处理
             let port = state.model_mgr.server_port();
+            let current_model_name = state.model_mgr.get_active_model().await.unwrap_or_default();
+            let offline_profile = state.session_mgr.get_offline_model_profile(&current_model_name).await;
             for (_offset, chunk_text) in chunks {
-                if let Ok(items) = Extractor::query_llm(port, &system_prompt_used, &chunk_text).await {
+                if let Ok(items) = Extractor::query_llm(
+                    port,
+                    offline_profile.temperature,
+                    offline_profile.top_k,
+                    offline_profile.repeat_penalty,
+                    offline_profile.enable_thinking,
+                    &system_prompt_used,
+                    &chunk_text,
+                ).await {
                     ai_items.extend(items);
                 }
             }
@@ -1108,15 +1120,45 @@ async fn test_online_model(
     Json(payload): Json<OnlineModelProfile>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     match Extractor::test_online_model_connection(&payload.base_url, &payload.api_key, &payload.model_id).await {
-        Ok(msg) => Ok(Json(serde_json::json!({
+        Ok(_) => Ok(Json(serde_json::json!({
             "status": "success",
-            "message": msg
+            "message": "在线模型服务连接测试成功！"
         }))),
-        Err(err) => Err((
+        Err(e) => Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: err }),
+            Json(ErrorResponse { error: e }),
         )),
     }
+}
+
+#[derive(Deserialize)]
+struct SaveOfflineProfileRequest {
+    filename: String,
+    temperature: f32,
+    top_k: u32,
+    repeat_penalty: f32,
+    #[serde(default)]
+    enable_thinking: bool,
+}
+
+async fn get_all_offline_profiles(
+    State(state): State<AppState>,
+) -> Json<HashMap<String, OfflineModelProfile>> {
+    Json(state.session_mgr.get_all_offline_model_profiles().await)
+}
+
+async fn save_offline_profile(
+    State(state): State<AppState>,
+    Json(payload): Json<SaveOfflineProfileRequest>,
+) -> Json<serde_json::Value> {
+    let profile = OfflineModelProfile {
+        temperature: payload.temperature,
+        top_k: payload.top_k,
+        repeat_penalty: payload.repeat_penalty,
+        enable_thinking: payload.enable_thinking,
+    };
+    state.session_mgr.save_offline_model_profile(payload.filename, profile).await;
+    Json(serde_json::json!({ "status": "success" }))
 }
 
 #[derive(Deserialize)]

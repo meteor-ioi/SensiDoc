@@ -477,7 +477,7 @@ impl BenchmarkEngine {
                 let chunks = Extractor::chunk_text(doc.markdown, 2500);
                 let mut ai_items = Vec::new();
                 for (_offset, chunk_text) in chunks {
-                    if let Ok(items) = Extractor::query_llm(server_port, &system_prompt, &chunk_text).await {
+                    if let Ok(items) = Extractor::query_llm(server_port, 0.1, 50, 1.1, false, &system_prompt, &chunk_text).await {
                         ai_items.extend(items);
                     }
                 }

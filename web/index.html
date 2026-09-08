@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.14">
+  <link rel="stylesheet" href="style.css?v=1.2.16">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -616,19 +616,26 @@
             <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o" style="width: 100%; box-sizing: border-box;">
           </div>
 
-          <!-- 模型自定义超参数 (紧凑3列) -->
-          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+          <!-- 模型自定义超参数 (紧凑4列并排) -->
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
             <div>
-              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">采样温度 (Temp)：</label>
+              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">采样温度 (Temp)：</label>
               <input type="number" id="onlineModelTempInput" class="input-text" min="0" max="2" step="0.05" value="0.1" style="width: 100%; box-sizing: border-box;">
             </div>
             <div>
-              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">候选范围 (Top-K)：</label>
+              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">候选范围 (Top-K)：</label>
               <input type="number" id="onlineModelTopKInput" class="input-text" min="1" max="200" step="1" value="50" style="width: 100%; box-sizing: border-box;">
             </div>
             <div>
-              <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">重复惩罚 (Repeat)：</label>
+              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">重复惩罚 (Repeat)：</label>
               <input type="number" id="onlineModelRepeatPenaltyInput" class="input-text" min="1.0" max="2.0" step="0.05" value="1.1" style="width: 100%; box-sizing: border-box;">
+            </div>
+            <div>
+              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">思考模式 (Think)：</label>
+              <button type="button" id="onlineModelThinkingBtn" class="param-toggle-btn" title="点击切换是否开启深度思考推理">
+                <span class="toggle-indicator">[●──]</span>
+                <span class="toggle-text">未开启</span>
+              </button>
             </div>
           </div>
         </div>
@@ -975,7 +982,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.14"></script>
+  <script src="app.js?v=1.2.16"></script>
 </body>
 </html>
 

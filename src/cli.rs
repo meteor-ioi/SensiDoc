@@ -449,6 +449,7 @@ async fn perform_extraction(
                     cfg.temperature,
                     cfg.top_k,
                     cfg.repeat_penalty,
+                    cfg.enable_thinking,
                     &system_prompt,
                     &chunk,
                 )
@@ -459,10 +460,9 @@ async fn perform_extraction(
             }
         } else {
             // 本地离线模型推理：双轨探针，优先复用已有 18188 端口服务
-            let mut started_temporary_server = false;
             let is_ready = model_mgr.is_server_ready().await;
 
-            if !is_ready {
+            let (target_model, started_temporary_server) = if !is_ready {
                 // 探针发现本地未运行服务，单次临时拉起
                 let target_model = if let Some(m) = model_opt {
                     m.to_string()
@@ -485,18 +485,29 @@ async fn perform_extraction(
                     .start_model(&target_model)
                     .await
                     .map_err(|e| format!("启动 llama-server 失败: {e}"))?;
-                started_temporary_server = true;
                 model_used = format!("[本地] {target_model}");
+                (target_model, true)
             } else {
+                let active = model_mgr.get_active_model().await.unwrap_or_else(|| "default.gguf".to_string());
                 model_used = "[本地] 常驻 llama-server (复用已有连接)".to_string();
                 if !quiet {
                     eprintln!("⚡ 探测到本地推理服务正在运行，直接复用连接...");
                 }
-            }
+                (active, false)
+            };
 
             let port = model_mgr.server_port();
+            let offline_profile = session_mgr.get_offline_model_profile(&target_model).await;
             for (_offset, chunk) in chunks {
-                if let Ok(items) = Extractor::query_llm(port, &system_prompt, &chunk).await {
+                if let Ok(items) = Extractor::query_llm(
+                    port,
+                    offline_profile.temperature,
+                    offline_profile.top_k,
+                    offline_profile.repeat_penalty,
+                    offline_profile.enable_thinking,
+                    &system_prompt,
+                    &chunk,
+                ).await {
                     ai_items.extend(items);
                 }
             }

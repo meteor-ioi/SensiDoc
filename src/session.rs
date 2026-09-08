@@ -56,6 +56,8 @@ pub struct OnlineModelProfile {
     pub top_k: u32,
     #[serde(default = "default_repeat_penalty")]
     pub repeat_penalty: f32,
+    #[serde(default)]
+    pub enable_thinking: bool,
 }
 
 fn default_base_url() -> String {
@@ -88,7 +90,32 @@ fn default_online_models() -> Vec<OnlineModelProfile> {
         temperature: 0.1,
         top_k: 50,
         repeat_penalty: 1.1,
+        enable_thinking: false,
     }]
+}
+
+/// 离线本地 GGUF 模型推理超参数配置档案（跟着模型走）
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OfflineModelProfile {
+    #[serde(default = "default_temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_top_k")]
+    pub top_k: u32,
+    #[serde(default = "default_repeat_penalty")]
+    pub repeat_penalty: f32,
+    #[serde(default)]
+    pub enable_thinking: bool,
+}
+
+impl Default for OfflineModelProfile {
+    fn default() -> Self {
+        Self {
+            temperature: default_temperature(),
+            top_k: default_top_k(),
+            repeat_penalty: default_repeat_penalty(),
+            enable_thinking: false,
+        }
+    }
 }
 
 /// 模型专属最佳提示词档案
@@ -100,7 +127,7 @@ pub struct ModelPromptProfile {
     pub custom_prompt: String,
 }
 
-/// 工作区持久化数据结构（包括文档、自定义模板与标签库、模型专属提示词、在线 AI 模型列表）
+/// 工作区持久化数据结构（包括文档、自定义模板与标签库、模型专属提示词、在线 AI 模型列表、离线模型超参数）
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct WorkspaceStore {
     #[serde(default)]
@@ -115,6 +142,8 @@ struct WorkspaceStore {
     online_models: Vec<OnlineModelProfile>,
     #[serde(default)]
     active_online_model_id: Option<String>,
+    #[serde(default)]
+    offline_model_profiles: HashMap<String, OfflineModelProfile>,
 }
 
 use std::time::SystemTime;
@@ -129,6 +158,7 @@ pub struct SessionManager {
     model_prompt_profiles: Arc<RwLock<HashMap<String, ModelPromptProfile>>>,
     online_models: Arc<RwLock<Vec<OnlineModelProfile>>>,
     active_online_model_id: Arc<RwLock<Option<String>>>,
+    offline_model_profiles: Arc<RwLock<HashMap<String, OfflineModelProfile>>>,
 }
 
 impl SessionManager {
@@ -153,7 +183,7 @@ impl SessionManager {
 
     pub fn with_store_path(store_path: PathBuf) -> Self {
         let initial_mtime = std::fs::metadata(&store_path).ok().and_then(|m| m.modified().ok());
-        let (docs, templates, tags, profiles, online_models, active_id) = Self::load_from_disk(&store_path);
+        let (docs, templates, tags, profiles, online_models, active_id, offline_profiles) = Self::load_from_disk(&store_path);
 
         Self {
             store_path,
@@ -164,11 +194,20 @@ impl SessionManager {
             model_prompt_profiles: Arc::new(RwLock::new(profiles)),
             online_models: Arc::new(RwLock::new(online_models)),
             active_online_model_id: Arc::new(RwLock::new(active_id)),
+            offline_model_profiles: Arc::new(RwLock::new(offline_profiles)),
         }
     }
 
     /// 从本地 JSON 读取落盘数据
-    fn load_from_disk(path: &Path) -> (HashMap<String, DocumentItem>, Vec<RulePreset>, Vec<RuleField>, HashMap<String, ModelPromptProfile>, Vec<OnlineModelProfile>, Option<String>) {
+    fn load_from_disk(path: &Path) -> (
+        HashMap<String, DocumentItem>,
+        Vec<RulePreset>,
+        Vec<RuleField>,
+        HashMap<String, ModelPromptProfile>,
+        Vec<OnlineModelProfile>,
+        Option<String>,
+        HashMap<String, OfflineModelProfile>,
+    ) {
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(path) {
                 if let Ok(store) = serde_json::from_str::<WorkspaceStore>(&content) {
@@ -180,20 +219,21 @@ impl SessionManager {
                     let active_id = store.active_online_model_id.or_else(|| online_models.first().map(|m| m.id.clone()));
 
                     info!(
-                        "已从 {} 恢复 {} 个持久化文档记录, {} 个自定义模板, {} 个字段标签, {} 个模型提示词档案, {} 个在线模型配置",
+                        "已从 {} 恢复 {} 个持久化文档记录, {} 个自定义模板, {} 个字段标签, {} 个模型提示词档案, {} 个在线模型配置, {} 个离线模型配置",
                         path.display(),
                         store.documents.len(),
                         store.custom_templates.len(),
                         store.field_tags.len(),
                         store.model_prompt_profiles.len(),
-                        online_models.len()
+                        online_models.len(),
+                        store.offline_model_profiles.len()
                     );
                     let docs_map = store.documents.into_iter().map(|d| (d.id.clone(), d)).collect();
-                    return (docs_map, store.custom_templates, store.field_tags, store.model_prompt_profiles, online_models, active_id);
+                    return (docs_map, store.custom_templates, store.field_tags, store.model_prompt_profiles, online_models, active_id, store.offline_model_profiles);
                 }
             }
         }
-        (HashMap::new(), Vec::new(), Vec::new(), HashMap::new(), default_online_models(), Some("deepseek-v3".to_string()))
+        (HashMap::new(), Vec::new(), Vec::new(), HashMap::new(), default_online_models(), Some("deepseek-v3".to_string()), HashMap::new())
     }
 
     /// 检查磁盘上的 .sensidoc_workspace.json 是否被外部进程（如 CLI）修改，若是则增量/热重载至内存
@@ -213,7 +253,7 @@ impl SessionManager {
         };
 
         if should_reload {
-            let (docs, templates, tags, profiles, online_models, active_id) = Self::load_from_disk(&self.store_path);
+            let (docs, templates, tags, profiles, online_models, active_id, offline_profiles) = Self::load_from_disk(&self.store_path);
             {
                 let mut docs_lock = self.documents.write().await;
                 *docs_lock = docs;
@@ -239,6 +279,10 @@ impl SessionManager {
                 *a_lock = active_id;
             }
             {
+                let mut off_lock = self.offline_model_profiles.write().await;
+                *off_lock = offline_profiles;
+            }
+            {
                 let mut last = self.last_disk_mtime.write().await;
                 *last = current_mtime;
             }
@@ -254,6 +298,7 @@ impl SessionManager {
         let profiles = self.model_prompt_profiles.read().await;
         let online_models = self.online_models.read().await;
         let active_id = self.active_online_model_id.read().await;
+        let offline_profiles = self.offline_model_profiles.read().await;
 
         let store = WorkspaceStore {
             documents: map.values().cloned().collect(),
@@ -262,6 +307,7 @@ impl SessionManager {
             model_prompt_profiles: profiles.clone(),
             online_models: online_models.clone(),
             active_online_model_id: active_id.clone(),
+            offline_model_profiles: offline_profiles.clone(),
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&store) {
@@ -617,6 +663,27 @@ impl SessionManager {
 
         self.save_to_disk().await;
         Ok(current_active)
+    }
+
+    /// 获取所有离线模型的超参数配置字典
+    pub async fn get_all_offline_model_profiles(&self) -> HashMap<String, OfflineModelProfile> {
+        self.sync_from_disk_if_modified().await;
+        self.offline_model_profiles.read().await.clone()
+    }
+
+    /// 获取单个离线模型的超参数配置（未配置则返回默认 0.1 / 50 / 1.1）
+    pub async fn get_offline_model_profile(&self, filename: &str) -> OfflineModelProfile {
+        self.sync_from_disk_if_modified().await;
+        let profiles = self.offline_model_profiles.read().await;
+        profiles.get(filename).cloned().unwrap_or_default()
+    }
+
+    /// 保存指定离线模型的超参数配置并落盘
+    pub async fn save_offline_model_profile(&self, filename: String, profile: OfflineModelProfile) {
+        let mut profiles = self.offline_model_profiles.write().await;
+        profiles.insert(filename, profile);
+        drop(profiles);
+        self.save_to_disk().await;
     }
 }
 
