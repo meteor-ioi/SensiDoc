@@ -1190,7 +1190,7 @@
 
 ---
 
-## 阶段八十四：v1.3.0 正式版本发布与 GitHub 自动化构建 (进行中) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+## 阶段八十四：v1.3.0 正式版本发布与 GitHub 自动化构建 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
 - [x] 84.1 **工程版本号升级与安装脚本同步**：
   - `Cargo.toml` 与 `Cargo.lock` 正式升级至 `v1.3.0`；
   - 同步更新 Windows 安装包配置 `scripts/installer.iss` 与 `scripts/build_win_installer.ps1` 默认版本号至 `1.3.0`；
