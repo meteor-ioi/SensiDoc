@@ -132,6 +132,18 @@ const el = {
   tagPool: document.getElementById("tagPool"),
   ruleCardList: document.getElementById("ruleCardList"),
   addFieldBtn: document.getElementById("addFieldBtn"),
+  aiGenRulesToggleBtn: document.getElementById("aiGenRulesToggleBtn"),
+  aiGenRulesDrawer: document.getElementById("aiGenRulesDrawer"),
+  aiGenRulesCloseBtn: document.getElementById("aiGenRulesCloseBtn"),
+  aiGenRulesPromptInput: document.getElementById("aiGenRulesPromptInput"),
+  aiGenRulesModelSelect: document.getElementById("aiGenRulesModelSelect"),
+  aiGenRulesSubmitBtn: document.getElementById("aiGenRulesSubmitBtn"),
+  aiGenRulesResultBox: document.getElementById("aiGenRulesResultBox"),
+  aiGenRulesCountBadge: document.getElementById("aiGenRulesCountBadge"),
+  aiGenRulesResultList: document.getElementById("aiGenRulesResultList"),
+  aiGenRulesCancelBtn: document.getElementById("aiGenRulesCancelBtn"),
+  aiGenRulesApplyOnlyBtn: document.getElementById("aiGenRulesApplyOnlyBtn"),
+  aiGenRulesSaveTemplateBtn: document.getElementById("aiGenRulesSaveTemplateBtn"),
   quickExtractBtn: document.getElementById("quickExtractBtn"),
 
   // 预览、源码与审计
@@ -1230,6 +1242,14 @@ function initEventListeners() {
   if (el.addFieldBtn) {
     el.addFieldBtn.addEventListener("click", openAddRuleModal);
   }
+
+  // AI 智能生成规则抽屉交互事件
+  if (el.aiGenRulesToggleBtn) el.aiGenRulesToggleBtn.addEventListener("click", toggleAiGenRulesDrawer);
+  if (el.aiGenRulesCloseBtn) el.aiGenRulesCloseBtn.addEventListener("click", closeAiGenRulesDrawer);
+  if (el.aiGenRulesCancelBtn) el.aiGenRulesCancelBtn.addEventListener("click", closeAiGenRulesDrawer);
+  if (el.aiGenRulesSubmitBtn) el.aiGenRulesSubmitBtn.addEventListener("click", handleAiGenerateRules);
+  if (el.aiGenRulesApplyOnlyBtn) el.aiGenRulesApplyOnlyBtn.addEventListener("click", () => handleAiGenApply(false));
+  if (el.aiGenRulesSaveTemplateBtn) el.aiGenRulesSaveTemplateBtn.addEventListener("click", () => handleAiGenApply(true));
 
   // 立即提取
   if (el.quickExtractBtn) el.quickExtractBtn.addEventListener("click", triggerExtraction);
@@ -2441,6 +2461,201 @@ async function handleSaveCustomTemplate(e) {
       message: e.message,
       type: "danger",
     });
+  }
+}
+
+// ==============================================================================
+// AI 智能提取策略生成 (端云协同) 业务逻辑
+// ==============================================================================
+let aiGeneratedCandidateFields = [];
+
+function toggleAiGenRulesDrawer() {
+  if (!el.aiGenRulesDrawer) return;
+  const isHidden = el.aiGenRulesDrawer.style.display === "none";
+  if (isHidden) {
+    el.aiGenRulesDrawer.style.display = "block";
+    populateAiGenRulesModelSelect();
+    if (el.aiGenRulesPromptInput) {
+      setTimeout(() => el.aiGenRulesPromptInput.focus(), 60);
+    }
+  } else {
+    closeAiGenRulesDrawer();
+  }
+}
+
+function closeAiGenRulesDrawer() {
+  if (el.aiGenRulesDrawer) {
+    el.aiGenRulesDrawer.style.display = "none";
+  }
+  if (el.aiGenRulesResultBox) {
+    el.aiGenRulesResultBox.style.display = "none";
+  }
+  aiGeneratedCandidateFields = [];
+}
+
+function populateAiGenRulesModelSelect() {
+  if (!el.aiGenRulesModelSelect) return;
+  if (!state.onlineModels || state.onlineModels.length === 0) {
+    el.aiGenRulesModelSelect.innerHTML = `<option value="">(未配在线模型，请去设置)</option>`;
+    el.aiGenRulesModelSelect.disabled = true;
+    return;
+  }
+  el.aiGenRulesModelSelect.disabled = false;
+  el.aiGenRulesModelSelect.innerHTML = state.onlineModels
+    .map(
+      (m) =>
+        `<option value="${escapeHtml(m.id)}" ${
+          m.id === state.activeOnlineModelId ? "selected" : ""
+        }>${escapeHtml(m.name)}</option>`
+    )
+    .join("");
+}
+
+async function handleAiGenerateRules() {
+  const prompt = el.aiGenRulesPromptInput ? el.aiGenRulesPromptInput.value.trim() : "";
+  if (!prompt) {
+    showAlertDialog({
+      title: "需求描述为空",
+      message: "请先输入业务场景或需要重点提取的敏感字段描述。",
+      type: "info",
+    });
+    if (el.aiGenRulesPromptInput) el.aiGenRulesPromptInput.focus();
+    return;
+  }
+
+  const modelId = el.aiGenRulesModelSelect ? el.aiGenRulesModelSelect.value : null;
+
+  if (el.aiGenRulesSubmitBtn) {
+    el.aiGenRulesSubmitBtn.disabled = true;
+    el.aiGenRulesSubmitBtn.innerHTML = `
+      <svg class="lucide-icon xs spin" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg>
+      <span>正在分析生成...</span>
+    `;
+  }
+
+  try {
+    const res = await fetch("/api/rules/ai-generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model_id: modelId,
+        prompt: prompt,
+      }),
+    });
+
+    if (!res.ok) {
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      throw new Error(err.error || "AI 生成请求失败");
+    }
+
+    const data = await res.json();
+    const fields = Array.isArray(data.fields) ? data.fields : [];
+    if (fields.length === 0) {
+      throw new Error("模型未能生成有效的敏感字段，请尝试更详细的场景描述。");
+    }
+
+    aiGeneratedCandidateFields = fields.map((f) => ({
+      name: f.name || "未命名字段",
+      level: f.level || "high",
+      description: f.description || "",
+      checked: true,
+    }));
+
+    renderAiGenRulesResults();
+    if (el.aiGenRulesResultBox) {
+      el.aiGenRulesResultBox.style.display = "flex";
+    }
+  } catch (err) {
+    showAlertDialog({
+      title: "AI 策略生成失败",
+      message: err.message,
+      type: "danger",
+    });
+  } finally {
+    if (el.aiGenRulesSubmitBtn) {
+      el.aiGenRulesSubmitBtn.disabled = false;
+      el.aiGenRulesSubmitBtn.innerHTML = `
+        <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+        <span>智能生成</span>
+      `;
+    }
+  }
+}
+
+function renderAiGenRulesResults() {
+  if (!el.aiGenRulesResultList) return;
+  const checkedCount = aiGeneratedCandidateFields.filter((f) => f.checked).length;
+  if (el.aiGenRulesCountBadge) {
+    el.aiGenRulesCountBadge.innerText = `已选 ${checkedCount}/${aiGeneratedCandidateFields.length} 项`;
+  }
+
+  el.aiGenRulesResultList.innerHTML = aiGeneratedCandidateFields
+    .map((item, idx) => {
+      const levelText = item.level === "low" ? "低" : item.level === "medium" ? "中" : "高";
+      const levelClass = item.level === "low" ? "success" : item.level === "medium" ? "warning" : "danger";
+      return `
+        <div class="ai-gen-result-item" data-idx="${idx}">
+          <input type="checkbox" class="ai-gen-item-checkbox" data-idx="${idx}" ${item.checked ? "checked" : ""} />
+          <div class="ai-gen-result-info">
+            <div class="ai-gen-result-header">
+              <span class="ai-gen-result-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+              <span class="badge ${levelClass}" style="font-size: 10px; padding: 1px 4px;">${levelText}</span>
+            </div>
+            <div class="ai-gen-result-desc">${escapeHtml(item.description || "无详细描述")}</div>
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  el.aiGenRulesResultList.querySelectorAll(".ai-gen-item-checkbox").forEach((cb) => {
+    cb.addEventListener("change", (e) => {
+      const idx = parseInt(e.target.getAttribute("data-idx"), 10);
+      if (aiGeneratedCandidateFields[idx]) {
+        aiGeneratedCandidateFields[idx].checked = e.target.checked;
+        const count = aiGeneratedCandidateFields.filter((f) => f.checked).length;
+        if (el.aiGenRulesCountBadge) {
+          el.aiGenRulesCountBadge.innerText = `已选 ${count}/${aiGeneratedCandidateFields.length} 项`;
+        }
+      }
+    });
+  });
+}
+
+function handleAiGenApply(saveAsTemplate) {
+  const selected = aiGeneratedCandidateFields.filter((f) => f.checked);
+  if (selected.length === 0) {
+    showAlertDialog({
+      title: "未选择规则",
+      message: "请至少勾选一个 AI 生成的规则字段以应用。",
+      type: "info",
+    });
+    return;
+  }
+
+  const newRules = selected.map((f) => ({
+    id: `field_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+    name: f.name,
+    field: f.name,
+    rule_type: "ai_extract",
+    description: f.description || "",
+    priority: f.level || "high",
+    is_enabled: true,
+  }));
+
+  state.currentRules = newRules;
+  renderRulesTable();
+
+  if (el.presetSelect) {
+    el.presetSelect.value = "";
+    updateDeleteTemplateBtnVisibility();
+  }
+
+  closeAiGenRulesDrawer();
+
+  if (saveAsTemplate) {
+    openSaveTemplateModal();
   }
 }
 

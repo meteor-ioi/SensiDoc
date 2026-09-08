@@ -2016,6 +2016,162 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   background: rgba(239, 68, 68, 0.12);
 }
 
+/* AI 智能生成提取策略折叠抽屉卡片 */
+.ai-gen-drawer {
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.ai-gen-drawer-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-gen-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-gen-title {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-gen-textarea {
+  width: 100%;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.45;
+  padding: 6px 8px;
+  resize: vertical;
+  min-height: 54px;
+  box-sizing: border-box;
+  outline: none;
+}
+
+.ai-gen-textarea:focus {
+  border-color: var(--accent);
+}
+
+.ai-gen-control-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-gen-model-picker {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-gen-label {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+/* AI 生成结果审查区 */
+.ai-gen-result-box {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-gen-result-title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-gen-result-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.ai-gen-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 190px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.ai-gen-result-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 6px 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+}
+
+.ai-gen-result-item:hover {
+  border-color: var(--border-strong);
+}
+
+.ai-gen-result-item input[type="checkbox"] {
+  margin-top: 2px;
+  cursor: pointer;
+}
+
+.ai-gen-result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-gen-result-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.ai-gen-result-name {
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-gen-result-desc {
+  font-size: 11px;
+  color: var(--text-dim);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.ai-gen-action-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 2px;
+}
+
 /* 生效规则卡片列表 (自适应充满容器，无冗余空白占位) */
 .rule-card-list {
   display: flex;

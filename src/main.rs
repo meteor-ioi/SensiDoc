@@ -169,6 +169,7 @@ async fn run_server_mode(
         .route("/api/rules/tags", get(get_field_tags).post(save_field_tag))
         .route("/api/rules/tags/{name}", delete(delete_field_tag))
         .route("/api/rules/prompt/preview", post(preview_system_prompt))
+        .route("/api/rules/ai-generate", post(ai_generate_rules))
         .route("/api/extract", post(extract_sensitive_info))
         .route("/api/models/presets", get(get_model_presets))
         .route("/api/models/local", get(list_local_models))
@@ -1118,6 +1119,148 @@ async fn test_online_model(
     }
 }
 
+#[derive(Deserialize)]
+struct AiGenerateRulesRequest {
+    model_id: Option<String>,
+    prompt: String,
+}
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+struct AiGeneratedField {
+    name: String,
+    level: String, // "high", "medium", "low"
+    description: String,
+}
 
+#[derive(Serialize)]
+struct AiGenerateRulesResponse {
+    fields: Vec<AiGeneratedField>,
+}
 
+async fn ai_generate_rules(
+    State(state): State<AppState>,
+    Json(payload): Json<AiGenerateRulesRequest>,
+) -> Result<Json<AiGenerateRulesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let prompt = payload.prompt.trim();
+    if prompt.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "场景需求描述不能为空".into(),
+            }),
+        ));
+    }
+
+    let online_models = state.session_mgr.get_online_models().await;
+    let active_id = state.session_mgr.get_active_online_model_id().await;
+
+    let target_model = if let Some(ref mid) = payload.model_id {
+        online_models.iter().find(|m| &m.id == mid || &m.model_id == mid)
+    } else {
+        None
+    };
+
+    let target_model = target_model.or_else(|| {
+        if let Some(ref aid) = active_id {
+            online_models.iter().find(|m| &m.id == aid)
+        } else {
+            online_models.first()
+        }
+    });
+
+    let profile = match target_model {
+        Some(m) => m,
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "未检测到可用的在线 AI 模型。请先在右上角「设置 - 在线 AI 模型」中添加并配置 API Key (如 DeepSeek/OpenAI 等)".into(),
+                }),
+            ));
+        }
+    };
+
+    let system_instruction = r#"你是一个专业的数据合规、信息脱敏与隐私保护专家。
+请根据用户提供的业务文档场景与脱敏需求，提炼出最关键的 3 到 8 个敏感信息字段及其规则定义。
+必须直接返回纯 JSON 格式的数组，严禁包含任何 Markdown 格式符号 (如 ```json 或 ```) 或多余解释文字。
+
+JSON 数组中的每个对象结构必须为：
+{
+  "name": "字段名称 (简明扼要，如：患者姓名、集装箱号、银行卡号)",
+  "level": "敏感度等级，只能为 high (高)、medium (中) 或 low (低)",
+  "description": "字段脱敏判定说明或匹配特征"
+}"#;
+
+    let request_payload = serde_json::json!({
+        "model": profile.model_id,
+        "messages": [
+            { "role": "system", "content": system_instruction },
+            { "role": "user", "content": format!("业务场景需求描述：\n{}", prompt) }
+        ],
+        "temperature": 0.2
+    });
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(45))
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("构建网络请求失败: {e}") })))?;
+
+    let trimmed_url = profile.base_url.trim_end_matches('/');
+    let url = if trimmed_url.ends_with("/chat/completions") {
+        trimmed_url.to_string()
+    } else {
+        format!("{}/chat/completions", trimmed_url)
+    };
+
+    let mut req = client.post(&url).json(&request_payload);
+    if !profile.api_key.trim().is_empty() {
+        req = req.header("Authorization", format!("Bearer {}", profile.api_key.trim()));
+    }
+
+    let resp = req.send().await.map_err(|e| {
+        (StatusCode::BAD_GATEWAY, Json(ErrorResponse { error: format!("连接在线模型服务失败: {e}") }))
+    })?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse { error: format!("在线模型接口返回错误 [{status}]: {body}") }),
+        ));
+    }
+
+    let json_resp: serde_json::Value = resp.json().await.map_err(|e| {
+        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("解析在线模型响应失败: {e}") }))
+    })?;
+
+    let content = json_resp["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .trim();
+
+    // 智能提取 JSON 数组片段
+    let cleaned_json = if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
+        if end > start {
+            &content[start..=end]
+        } else {
+            content
+        }
+    } else {
+        content
+    };
+
+    let fields: Vec<AiGeneratedField> = match serde_json::from_str(cleaned_json) {
+        Ok(f) => f,
+        Err(e) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("在线模型返回的格式不符合预期 JSON: {e}\n原文: {content}"),
+                }),
+            ));
+        }
+    };
+
+    Ok(Json(AiGenerateRulesResponse { fields }))
+}

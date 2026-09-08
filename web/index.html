@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.0">
+  <link rel="stylesheet" href="style.css?v=1.2.1">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -336,7 +336,59 @@
                 <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span>生效规则定义 (<span id="ruleTotalCount">0</span> 项)</span>
               </span>
-              <button id="addFieldBtn" class="btn-text-link">＋ 新增规则</button>
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <button type="button" id="aiGenRulesToggleBtn" class="btn-text-link" style="display: inline-flex; align-items: center; gap: 3px; font-weight: 500;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+                  <span>AI智能生成</span>
+                </button>
+                <button type="button" id="addFieldBtn" class="btn-text-link">＋ 新增规则</button>
+              </div>
+            </div>
+
+            <!-- AI 智能生成提取策略两段式展开抽屉卡片 -->
+            <div id="aiGenRulesDrawer" class="ai-gen-drawer" style="display: none;">
+              <div class="ai-gen-drawer-inner">
+                <div class="ai-gen-section-header">
+                  <span class="ai-gen-title">业务需求描述 (Prompt)</span>
+                  <button type="button" id="aiGenRulesCloseBtn" class="btn-icon xs" title="收起抽屉" style="padding: 2px;">
+                    <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
+                </div>
+
+                <textarea id="aiGenRulesPromptInput" class="ai-gen-textarea" rows="3" placeholder="例如：跨境海运物流提单，重点识别发货人、收货人、集装箱号与报关单流水号..."></textarea>
+
+                <div class="ai-gen-control-bar">
+                  <div class="ai-gen-model-picker">
+                    <label class="ai-gen-label">模型:</label>
+                    <select id="aiGenRulesModelSelect" class="select-field" style="font-size: 11px; padding: 2px 6px; height: 24px; max-width: 140px;">
+                      <!-- 动态填充已存在线模型 -->
+                    </select>
+                  </div>
+                  <button type="button" id="aiGenRulesSubmitBtn" class="btn primary sm" style="font-size: 11.5px; padding: 4px 10px; display: inline-flex; align-items: center; gap: 4px;">
+                    <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path></svg>
+                    <span>智能生成</span>
+                  </button>
+                </div>
+
+                <!-- 生成结果审查区 (默认隐藏，成功后呈现) -->
+                <div id="aiGenRulesResultBox" class="ai-gen-result-box" style="display: none;">
+                  <div class="ai-gen-result-title-bar">
+                    <span class="ai-gen-result-title">提炼字段清单 (勾选确认)</span>
+                    <span id="aiGenRulesCountBadge" class="badge" style="font-size: 10.5px; padding: 1px 6px;">已选 0 项</span>
+                  </div>
+                  <div id="aiGenRulesResultList" class="ai-gen-result-list">
+                    <!-- 动态渲染候选字段 -->
+                  </div>
+                  <div class="ai-gen-action-bar">
+                    <button type="button" id="aiGenRulesCancelBtn" class="btn sm" style="font-size: 11px; padding: 3px 8px;">放弃</button>
+                    <button type="button" id="aiGenRulesApplyOnlyBtn" class="btn sm" style="font-size: 11px; padding: 3px 8px;" title="仅替换或注入当前规则，不持久化为模板">仅应用到当前规则</button>
+                    <button type="button" id="aiGenRulesSaveTemplateBtn" class="btn primary sm" style="font-size: 11px; padding: 3px 8px; display: inline-flex; align-items: center; gap: 3px;" title="保存为可复用的独立场景模板并生效">
+                      <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+                      <span>保存为模板并生效</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
             </div>
             <div class="rule-card-list" id="ruleCardList">
               <!-- 动态填充规则卡片 -->
@@ -912,7 +964,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.0"></script>
+  <script src="app.js?v=1.2.1"></script>
 </body>
 </html>
 
