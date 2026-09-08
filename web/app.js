@@ -137,6 +137,11 @@ const el = {
   aiGenRulesCloseBtn: document.getElementById("aiGenRulesCloseBtn"),
   aiGenRulesPromptInput: document.getElementById("aiGenRulesPromptInput"),
   aiGenRulesModelSelect: document.getElementById("aiGenRulesModelSelect"),
+  aiGenRulesModelSelectWrapper: document.getElementById("aiGenRulesModelSelectWrapper"),
+  aiGenRulesModelSelectBtn: document.getElementById("aiGenRulesModelSelectBtn"),
+  aiGenRulesModelSelectLabel: document.getElementById("aiGenRulesModelSelectLabel"),
+  aiGenRulesModelSelectDropdown: document.getElementById("aiGenRulesModelSelectDropdown"),
+  aiGenRulesModelSelectList: document.getElementById("aiGenRulesModelSelectList"),
   aiGenRulesSubmitBtn: document.getElementById("aiGenRulesSubmitBtn"),
   aiGenRulesResultBox: document.getElementById("aiGenRulesResultBox"),
   aiGenRulesCountBadge: document.getElementById("aiGenRulesCountBadge"),
@@ -1045,6 +1050,7 @@ function initEventListeners() {
     if (typeof closeFooterModelDropdown === "function") closeFooterModelDropdown();
     if (typeof closeOnlineModelDropdown === "function") closeOnlineModelDropdown();
     if (typeof closePromptTargetModelDropdown === "function") closePromptTargetModelDropdown();
+    if (typeof closeAiGenRulesModelDropdown === "function") closeAiGenRulesModelDropdown();
   }
 
   // 场景预设模板自定义下拉交互
@@ -1170,6 +1176,37 @@ function initEventListeners() {
     }
   }
 
+  // AI 智能生成抽屉：在线模型自定义下拉交互
+  if (el.aiGenRulesModelSelectBtn && el.aiGenRulesModelSelectDropdown) {
+    el.aiGenRulesModelSelectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.aiGenRulesModelSelectBtn.disabled) return;
+      const isOpen = el.aiGenRulesModelSelectDropdown.classList.contains("open");
+      closeAllDropdowns();
+      if (!isOpen) {
+        syncAiGenRulesModelSelectUi();
+        el.aiGenRulesModelSelectDropdown.classList.add("open");
+        el.aiGenRulesModelSelectBtn.classList.add("active");
+        el.aiGenRulesModelSelectBtn.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    if (el.aiGenRulesModelSelectList) {
+      el.aiGenRulesModelSelectList.addEventListener("click", (e) => {
+        const item = e.target.closest(".custom-select-item");
+        if (!item) return;
+        const val = item.getAttribute("data-val") || "";
+        if (el.aiGenRulesModelSelect.value !== val) {
+          el.aiGenRulesModelSelect.value = val;
+          el.aiGenRulesModelSelect.dispatchEvent(new Event("change"));
+        } else {
+          syncAiGenRulesModelSelectUi();
+        }
+        closeAiGenRulesModelDropdown();
+      });
+    }
+  }
+
   // 统一的全局外部点击与 ESC 键关闭浮层处理
   document.addEventListener("click", (e) => {
     if (el.docSortWrapper && !el.docSortWrapper.contains(e.target)) {
@@ -1189,6 +1226,9 @@ function initEventListeners() {
     }
     if (el.promptTargetModelSelectWrapper && !el.promptTargetModelSelectWrapper.contains(e.target)) {
       closePromptTargetModelDropdown();
+    }
+    if (el.aiGenRulesModelSelectWrapper && !el.aiGenRulesModelSelectWrapper.contains(e.target)) {
+      closeAiGenRulesModelDropdown();
     }
   });
 
@@ -2484,6 +2524,7 @@ function toggleAiGenRulesDrawer() {
 }
 
 function closeAiGenRulesDrawer() {
+  closeAiGenRulesModelDropdown();
   if (el.aiGenRulesDrawer) {
     el.aiGenRulesDrawer.style.display = "none";
   }
@@ -2493,11 +2534,51 @@ function closeAiGenRulesDrawer() {
   aiGeneratedCandidateFields = [];
 }
 
+function closeAiGenRulesModelDropdown() {
+  if (el.aiGenRulesModelSelectDropdown) {
+    el.aiGenRulesModelSelectDropdown.classList.remove("open");
+  }
+  if (el.aiGenRulesModelSelectBtn) {
+    el.aiGenRulesModelSelectBtn.classList.remove("active");
+    el.aiGenRulesModelSelectBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function syncAiGenRulesModelSelectUi() {
+  if (!el.aiGenRulesModelSelect) return;
+  const currentVal = el.aiGenRulesModelSelect.value;
+  const selectedOpt = el.aiGenRulesModelSelect.selectedOptions ? el.aiGenRulesModelSelect.selectedOptions[0] : null;
+  const currentText = selectedOpt ? selectedOpt.text : (el.aiGenRulesModelSelect.options[0]?.text || "选择在线模型");
+
+  if (el.aiGenRulesModelSelectLabel) {
+    el.aiGenRulesModelSelectLabel.textContent = currentText;
+  }
+  if (el.aiGenRulesModelSelectBtn) {
+    el.aiGenRulesModelSelectBtn.title = currentText;
+    el.aiGenRulesModelSelectBtn.disabled = el.aiGenRulesModelSelect.disabled;
+  }
+
+  if (el.aiGenRulesModelSelectList) {
+    let itemsHtml = "";
+    Array.from(el.aiGenRulesModelSelect.options).forEach((opt) => {
+      const isSelected = opt.value === currentVal;
+      itemsHtml += `
+        <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(opt.value)}">
+          <span class="custom-select-item-text">${escapeHtml(opt.text)}</span>
+          ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+        </button>
+      `;
+    });
+    el.aiGenRulesModelSelectList.innerHTML = itemsHtml;
+  }
+}
+
 function populateAiGenRulesModelSelect() {
   if (!el.aiGenRulesModelSelect) return;
   if (!state.onlineModels || state.onlineModels.length === 0) {
     el.aiGenRulesModelSelect.innerHTML = `<option value="">(未配在线模型，请去设置)</option>`;
     el.aiGenRulesModelSelect.disabled = true;
+    syncAiGenRulesModelSelectUi();
     return;
   }
   el.aiGenRulesModelSelect.disabled = false;
@@ -2509,6 +2590,7 @@ function populateAiGenRulesModelSelect() {
         }>${escapeHtml(m.name)}</option>`
     )
     .join("");
+  syncAiGenRulesModelSelectUi();
 }
 
 async function handleAiGenerateRules() {

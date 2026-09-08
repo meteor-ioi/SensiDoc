@@ -2018,6 +2018,8 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 
 /* AI 智能生成提取策略折叠抽屉卡片 */
 .ai-gen-drawer {
+  position: relative;
+  z-index: 10;
   background: var(--surface-2);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
