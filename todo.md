@@ -1217,6 +1217,8 @@
   - 推送 master 分支与更新后的 `v1.3.0` Tag，触发全新 GitHub Actions 流水线。
 - [x] 85.4 **持续监控构建全过程直至发布成功**：
   - 实时监控 macOS（2m14s）、Windows（22m39s）跨平台任务与 Release 发布任务（17s），所有阶段 100% 成功闭环。
+- [x] 85.5 **CI 构建产物 Artifact 名称统合与补充软件名前缀 (`.github/workflows/release.yml`)**：
+  - 将 Actions 页面展示的 `macos-app-v*` 与 `windows-app-v*` 统一调整为 `sensidoc-v*-macos` 与 `sensidoc-v*-windows`，确保构件包名带有明确的 `sensidoc` 软件标识。
 
 
 
