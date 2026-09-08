@@ -346,6 +346,12 @@ body.desktop-app.platform-win .win-window-controls {
   font-size: 11.5px;
 }
 
+.btn.active {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+
 .btn.danger {
   background: var(--danger);
   color: #ffffff;
@@ -1973,19 +1979,19 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 .tag-pool-drawer {
   position: relative;
   z-index: 9;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
   margin-bottom: 8px;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   transition: all 0.2s ease;
 }
 
 .tag-pool-drawer-inner {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 .tag-pool-header {
@@ -2014,7 +2020,7 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   font-size: 11px;
   padding: 3px 8px;
   border-radius: 12px;
-  border: 1px dashed var(--border-strong);
+  border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text-dim);
   cursor: pointer;
@@ -2027,7 +2033,7 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 
 .tag-chip:hover {
   background: var(--surface-hover);
-  border-color: var(--text);
+  border-color: var(--border-strong);
   color: var(--text);
 }
 
@@ -2054,12 +2060,12 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 .ai-gen-drawer {
   position: relative;
   z-index: 10;
-  background: var(--surface-2);
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 10px 12px;
-  margin-bottom: 10px;
-  box-shadow: var(--shadow-sm);
+  margin-bottom: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
   transition: all 0.2s ease;
 }
 
@@ -2078,14 +2084,14 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 .ai-gen-title {
   font-size: 11.5px;
   font-weight: 600;
-  color: var(--text);
+  color: var(--text-dim);
 }
 
 .ai-gen-textarea {
   width: 100%;
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
-  background: var(--surface);
+  background: var(--surface-2);
   color: var(--text);
   font-size: 12px;
   line-height: 1.45;
@@ -2097,6 +2103,7 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 }
 
 .ai-gen-textarea:focus {
+  background: var(--surface);
   border-color: var(--accent);
 }
 
