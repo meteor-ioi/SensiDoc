@@ -1,3 +1,26 @@
+// 支持的文档格式筛选配置项
+const FILTER_CATEGORIES = [
+  { key: "DOCX", label: "Word 文档", shortLabel: "Word", exts: ["DOCX", "DOC"] },
+  { key: "PDF", label: "PDF 文档", shortLabel: "PDF", exts: ["PDF"] },
+  { key: "XLSX", label: "Excel 表格", shortLabel: "Excel", exts: ["XLSX", "XLS"] },
+  { key: "PPTX", label: "PPT 演示", shortLabel: "PPT", exts: ["PPTX", "PPT"] },
+  { key: "TXT", label: "纯文本 / MD", shortLabel: "文本", exts: ["TXT", "MD", "MARKDOWN"] },
+  { key: "CSV", label: "CSV 数据", shortLabel: "CSV", exts: ["CSV"] },
+];
+
+// 获取文档真实业务扩展名（兼顾 AnyDoc 转换产生的 .docx.md / .xlsx.md 等后缀）
+function getEffectiveDocExt(filename) {
+  if (!filename) return "";
+  const parts = filename.toUpperCase().split(".");
+  if (parts.length > 2 && parts[parts.length - 1] === "MD") {
+    const secondLast = parts[parts.length - 2];
+    if (["DOCX", "DOC", "PDF", "XLSX", "XLS", "PPTX", "PPT", "TXT", "CSV"].includes(secondLast)) {
+      return secondLast;
+    }
+  }
+  return parts[parts.length - 1] || "";
+}
+
 // 全局应用状态
 const state = {
   documents: [],
@@ -17,14 +40,16 @@ const state = {
   
   // 方案一：文档搜索、排序与格式过滤状态
   docSearchQuery: "",         // 搜索关键词
-  docSortRule: "time_asc",    // 排序规则: time_asc (添加时间先后默认), time_desc, name_asc, name_desc, chars_desc, chars_asc
-  docExtFilter: "ALL",        // 扩展名筛选: ALL, DOCX, PDF, XLSX, PPTX, TXT, CSV 等
+  docSortRule: "time_desc",   // 排序规则: time_desc (默认：按时间从新到旧), time_asc, name_asc, name_desc, chars_desc, chars_asc
+  docExtFilters: new Set(FILTER_CATEGORIES.map((c) => c.key)), // 扩展名多选集合 (默认全选)
 
   // 在线大模型管理状态
   onlineModels: [],           // 已保存的在线模型配置列表
   activeOnlineModelId: null,  // 当前激活/选中的在线模型 ID
   editingOnlineModelId: null, // 表单当前编辑的模型 ID
+  downloadingModels: new Set(), // 正在下载中的模型 ID 集合
 };
+window.state = state;
 
 // 系统内置提示词常量
 const PROMPT_V4_ULTRA_COMPACT = `【指令】：从文本中提取所有符合定义的敏感信息，输出纯 JSON 数组。
@@ -69,8 +94,16 @@ const el = {
   // 方案一：搜索、排序与格式过滤
   docSearchInput: document.getElementById("docSearchInput"),
   docSearchClearBtn: document.getElementById("docSearchClearBtn"),
+  docSortWrapper: document.getElementById("docSortWrapper"),
+  docSortBtn: document.getElementById("docSortBtn"),
+  docSortDropdown: document.getElementById("docSortDropdown"),
   docSortSelect: document.getElementById("docSortSelect"),
-  extFilterPills: document.getElementById("extFilterPills"),
+  docFilterWrapper: document.getElementById("docFilterWrapper"),
+  docFilterBtn: document.getElementById("docFilterBtn"),
+  docFilterLabel: document.getElementById("docFilterLabel"),
+  docFilterDropdown: document.getElementById("docFilterDropdown"),
+  filterSelectAllBtn: document.getElementById("filterSelectAllBtn"),
+  filterClearAllBtn: document.getElementById("filterClearAllBtn"),
 
   // 面板宽度拖拽手柄
   resizerLeft: document.getElementById("resizerLeft"),
@@ -89,6 +122,11 @@ const el = {
 
   // 规则管理
   presetSelect: document.getElementById("presetSelect"),
+  presetSelectWrapper: document.getElementById("presetSelectWrapper"),
+  presetSelectBtn: document.getElementById("presetSelectBtn"),
+  presetSelectLabel: document.getElementById("presetSelectLabel"),
+  presetSelectDropdown: document.getElementById("presetSelectDropdown"),
+  presetSelectList: document.getElementById("presetSelectList"),
   saveTemplateBtn: document.getElementById("saveTemplateBtn"),
   deleteTemplateBtn: document.getElementById("deleteTemplateBtn"),
   tagPool: document.getElementById("tagPool"),
@@ -107,6 +145,11 @@ const el = {
   auditList: document.getElementById("auditList"),
   exportCsvBtn: document.getElementById("exportCsvBtn"),
   exportDesensBtn: document.getElementById("exportDesensBtn"),
+  exportDropdownWrapper: document.getElementById("exportDropdownWrapper"),
+  exportDropdownMenu: document.getElementById("exportDropdownMenu"),
+  exportNativeDocBtn: document.getElementById("exportNativeDocBtn"),
+  exportMarkdownDocBtn: document.getElementById("exportMarkdownDocBtn"),
+  exportJsonMenuBtn: document.getElementById("exportJsonMenuBtn"),
   viewRawJsonBtn: document.getElementById("viewRawJsonBtn"),
   rawJsonModal: document.getElementById("rawJsonModal"),
   closeRawJsonModalBtn: document.getElementById("closeRawJsonModalBtn"),
@@ -149,6 +192,11 @@ const el = {
   // 底部离线模型状态与快捷控制条 (方案一)
   footerModelDot: document.getElementById("footerModelDot"),
   footerModelSelect: document.getElementById("footerModelSelect"),
+  footerModelWrapper: document.getElementById("footerModelWrapper"),
+  footerModelBtn: document.getElementById("footerModelBtn"),
+  footerModelLabel: document.getElementById("footerModelLabel"),
+  footerModelDropdown: document.getElementById("footerModelDropdown"),
+  footerModelList: document.getElementById("footerModelList"),
   footerModelToggle: document.getElementById("footerModelToggle"),
 
   // 系统设置中心与板块 Tab (离线模型 / 在线 AI 模型 / 提取规则与提示词 / 外观与显示)
@@ -227,12 +275,25 @@ const el = {
   saveTemplateNameInput: document.getElementById("saveTemplateNameInput"),
   saveTemplateDescInput: document.getElementById("saveTemplateDescInput"),
   saveTemplateRulesCount: document.getElementById("saveTemplateRulesCount"),
+
+  // 居中新增规则字段模态框
+  addRuleModal: document.getElementById("addRuleModal"),
+  closeAddRuleModalBtn: document.getElementById("closeAddRuleModalBtn"),
+  cancelAddRuleBtn: document.getElementById("cancelAddRuleBtn"),
+  addRuleForm: document.getElementById("addRuleForm"),
+  addRuleNameInput: document.getElementById("addRuleNameInput"),
+  addRulePrioritySelect: document.getElementById("addRulePrioritySelect"),
+  addRuleDescInput: document.getElementById("addRuleDescInput"),
+  addRuleSaveToTagCheckbox: document.getElementById("addRuleSaveToTagCheckbox"),
+  confirmAddRuleBtn: document.getElementById("confirmAddRuleBtn"),
 };
 
 // 初始化启动
 document.addEventListener("DOMContentLoaded", async () => {
+  initDesktopEnvironment();
   initAppearanceSettings();
   initEventListeners();
+  updateFilterUiState();
   await syncActiveModelStatus();
   await loadRulePresets();
   await loadFieldTags();
@@ -311,6 +372,47 @@ function formatSnapshotDateTime(isoString) {
   const hr = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${y}-${m}-${day} ${hr}:${min}`;
+}
+
+// 智能格式化文档添加时间 (例: "今天 14:20" / "昨天 09:15" / "09-08 14:20" / "2025-12-30")
+function formatDocCreatedAt(isoString) {
+  if (!isoString) return { display: "-", full: "未知时间" };
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return { display: "-", full: "未知时间" };
+
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hr = String(d.getHours()).padStart(2, "0");
+  const min = String(d.getMinutes()).padStart(2, "0");
+  const sec = String(d.getSeconds()).padStart(2, "0");
+  const full = `${y}-${m}-${day} ${hr}:${min}:${sec}`;
+
+  const now = new Date();
+  const isToday =
+    d.getFullYear() === now.getFullYear() &&
+    d.getMonth() === now.getMonth() &&
+    d.getDate() === now.getDate();
+
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const isYesterday =
+    d.getFullYear() === yesterday.getFullYear() &&
+    d.getMonth() === yesterday.getMonth() &&
+    d.getDate() === yesterday.getDate();
+
+  let display = "";
+  if (isToday) {
+    display = `今天 ${hr}:${min}`;
+  } else if (isYesterday) {
+    display = `昨天 ${hr}:${min}`;
+  } else if (d.getFullYear() === now.getFullYear()) {
+    display = `${m}-${day} ${hr}:${min}`;
+  } else {
+    display = `${y}-${m}-${day}`;
+  }
+
+  return { display, full };
 }
 
 // 通用优雅中央二次确认模态框
@@ -565,8 +667,9 @@ function openSnapshotRulesModal() {
       el.snapModalFieldsList.innerHTML = '<div style="padding: 10px; text-align: center; color: var(--text-mute); font-size: 11.5px;">本次快照未记录特定规则字段（使用默认内置规则）</div>';
     } else {
       fields.forEach((f) => {
-        const riskBadgeText = f.risk_level === "high" ? "高" : f.risk_level === "low" ? "低" : "中";
-        const riskBadgeClass = f.risk_level === "high" ? "danger" : f.risk_level === "low" ? "neutral" : "warning";
+        const pri = f.priority || "medium";
+        const riskBadgeText = pri === "high" ? "高" : pri === "low" ? "低" : "中";
+        const riskBadgeClass = pri === "high" ? "danger" : pri === "low" ? "neutral" : "warning";
         const itemEl = document.createElement("div");
         itemEl.className = "snap-field-item";
         itemEl.innerHTML = `
@@ -675,6 +778,10 @@ function initEventListeners() {
       return;
     }
     if (e.key === "Escape") {
+      if (el.addRuleModal && el.addRuleModal.classList.contains("open")) {
+        closeAddRuleModal();
+        return;
+      }
       if (el.saveTemplateModal && el.saveTemplateModal.classList.contains("open")) {
         closeSaveTemplateModal();
         return;
@@ -697,6 +804,22 @@ function initEventListeners() {
     el.confirmModal.addEventListener("click", (e) => {
       if (e.target === el.confirmModal) closeConfirmDialog(false);
     });
+  }
+
+  // 居中新增规则字段模态框事件绑定
+  if (el.closeAddRuleModalBtn) {
+    el.closeAddRuleModalBtn.addEventListener("click", closeAddRuleModal);
+  }
+  if (el.cancelAddRuleBtn) {
+    el.cancelAddRuleBtn.addEventListener("click", closeAddRuleModal);
+  }
+  if (el.addRuleModal) {
+    el.addRuleModal.addEventListener("click", (e) => {
+      if (e.target === el.addRuleModal) closeAddRuleModal();
+    });
+  }
+  if (el.addRuleForm) {
+    el.addRuleForm.addEventListener("submit", handleAddRuleSubmit);
   }
 
   // 另存为场景模板模态框事件绑定
@@ -807,25 +930,186 @@ function initEventListeners() {
     });
   }
 
-  if (el.docSortSelect) {
-    el.docSortSelect.addEventListener("change", (e) => {
-      state.docSortRule = e.target.value;
+  // 文档格式筛选下拉浮层交互
+  if (el.docFilterBtn && el.docFilterDropdown) {
+    el.docFilterBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = el.docFilterDropdown.classList.contains("open");
+      if (typeof closeSortDropdown === "function") closeSortDropdown();
+      if (typeof closeExportDropdown === "function") closeExportDropdown();
+      if (!isOpen) {
+        el.docFilterDropdown.classList.add("open");
+        el.docFilterBtn.classList.add("open");
+        el.docFilterBtn.setAttribute("aria-expanded", "true");
+      } else {
+        closeFilterDropdown();
+      }
+    });
+
+    el.docFilterDropdown.addEventListener("click", (e) => {
+      const item = e.target.closest(".filter-menu-item");
+      if (!item) return;
+      const ext = item.getAttribute("data-ext");
+      if (!ext) return;
+
+      if (state.docExtFilters.has(ext)) {
+        state.docExtFilters.delete(ext);
+      } else {
+        state.docExtFilters.add(ext);
+      }
+
+      updateFilterUiState();
       renderFileList();
+    });
+
+    if (el.filterSelectAllBtn) {
+      el.filterSelectAllBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (state.docExtFilters.size === FILTER_CATEGORIES.length) {
+          state.docExtFilters.clear();
+        } else {
+          state.docExtFilters = new Set(FILTER_CATEGORIES.map((c) => c.key));
+        }
+        updateFilterUiState();
+        renderFileList();
+      });
+    }
+
+    if (el.filterClearAllBtn) {
+      el.filterClearAllBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        state.docExtFilters.clear();
+        updateFilterUiState();
+        renderFileList();
+      });
+    }
+  }
+
+  // 文档排序下拉浮层交互
+  if (el.docSortBtn && el.docSortDropdown) {
+    el.docSortBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = el.docSortDropdown.classList.contains("open");
+      if (typeof closeExportDropdown === "function") closeExportDropdown();
+      if (typeof closeFilterDropdown === "function") closeFilterDropdown();
+      if (!isOpen) {
+        el.docSortDropdown.classList.add("open");
+        el.docSortBtn.classList.add("active");
+        el.docSortBtn.setAttribute("aria-expanded", "true");
+      } else {
+        closeSortDropdown();
+      }
+    });
+
+    el.docSortDropdown.addEventListener("click", (e) => {
+      const item = e.target.closest(".sort-menu-item");
+      if (!item) return;
+      const sortVal = item.getAttribute("data-sort");
+      if (!sortVal) return;
+
+      state.docSortRule = sortVal;
+      updateSortUiState(sortVal);
+      renderFileList();
+      closeSortDropdown();
     });
   }
 
-  if (el.extFilterPills) {
-    el.extFilterPills.addEventListener("click", (e) => {
-      const pill = e.target.closest(".filter-pill");
-      if (!pill) return;
-      const ext = pill.getAttribute("data-ext");
-      if (!ext) return;
+  // 关闭所有打开的下拉浮层
+  function closeAllDropdowns() {
+    if (typeof closeSortDropdown === "function") closeSortDropdown();
+    if (typeof closeFilterDropdown === "function") closeFilterDropdown();
+    if (typeof closeExportDropdown === "function") closeExportDropdown();
+    if (typeof closePresetDropdown === "function") closePresetDropdown();
+    if (typeof closeFooterModelDropdown === "function") closeFooterModelDropdown();
+  }
 
-      // 更新高亮激活态
-      el.extFilterPills.querySelectorAll(".filter-pill").forEach((btn) => btn.classList.remove("active"));
-      pill.classList.add("active");
+  // 场景预设模板自定义下拉交互
+  if (el.presetSelectBtn && el.presetSelectDropdown) {
+    el.presetSelectBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = el.presetSelectDropdown.classList.contains("open");
+      closeAllDropdowns();
+      if (!isOpen) {
+        syncPresetSelectUi();
+        el.presetSelectDropdown.classList.add("open");
+        el.presetSelectBtn.classList.add("active");
+        el.presetSelectBtn.setAttribute("aria-expanded", "true");
+      }
+    });
 
-      state.docExtFilter = ext;
+    if (el.presetSelectList) {
+      el.presetSelectList.addEventListener("click", (e) => {
+        const item = e.target.closest(".custom-select-item");
+        if (!item) return;
+        const val = item.getAttribute("data-val") || "";
+        if (el.presetSelect.value !== val) {
+          el.presetSelect.value = val;
+          el.presetSelect.dispatchEvent(new Event("change"));
+        } else {
+          syncPresetSelectUi();
+        }
+        closePresetDropdown();
+      });
+    }
+  }
+
+  // 底部模型选择器自定义下拉交互
+  if (el.footerModelBtn && el.footerModelDropdown) {
+    el.footerModelBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.footerModelBtn.disabled) return;
+      const isOpen = el.footerModelDropdown.classList.contains("open");
+      closeAllDropdowns();
+      if (!isOpen) {
+        syncFooterModelSelectUi();
+        el.footerModelDropdown.classList.add("open");
+        el.footerModelBtn.classList.add("active");
+        el.footerModelBtn.setAttribute("aria-expanded", "true");
+      }
+    });
+
+    if (el.footerModelList) {
+      el.footerModelList.addEventListener("click", (e) => {
+        const item = e.target.closest(".custom-select-item");
+        if (!item) return;
+        const val = item.getAttribute("data-val") || "";
+        if (el.footerModelSelect.value !== val) {
+          el.footerModelSelect.value = val;
+          el.footerModelSelect.dispatchEvent(new Event("change"));
+        } else {
+          syncFooterModelSelectUi();
+        }
+        closeFooterModelDropdown();
+      });
+    }
+  }
+
+  // 统一的全局外部点击与 ESC 键关闭浮层处理
+  document.addEventListener("click", (e) => {
+    if (el.docSortWrapper && !el.docSortWrapper.contains(e.target)) {
+      closeSortDropdown();
+    }
+    if (el.docFilterWrapper && !el.docFilterWrapper.contains(e.target)) {
+      closeFilterDropdown();
+    }
+    if (el.presetSelectWrapper && !el.presetSelectWrapper.contains(e.target)) {
+      closePresetDropdown();
+    }
+    if (el.footerModelWrapper && !el.footerModelWrapper.contains(e.target)) {
+      closeFooterModelDropdown();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      closeAllDropdowns();
+    }
+  });
+
+  if (el.docSortSelect) {
+    el.docSortSelect.addEventListener("change", (e) => {
+      state.docSortRule = e.target.value;
+      updateSortUiState(e.target.value);
       renderFileList();
     });
   }
@@ -862,25 +1146,9 @@ function initEventListeners() {
     });
   }
 
-  // 新增字段 (按添加时间倒序排列在最顶部，避免被底部遮挡)
+  // 新增字段 (打开居中模态弹窗)
   if (el.addFieldBtn) {
-    el.addFieldBtn.addEventListener("click", () => {
-      state.currentRules.unshift({
-        name: "新字段",
-        description: "",
-        risk_level: "medium",
-        is_enabled: true,
-      });
-      renderRulesTable();
-      if (el.ruleCardList) {
-        el.ruleCardList.scrollTop = 0;
-        const firstInput = el.ruleCardList.querySelector(".rule-card:first-child .rule-name-input");
-        if (firstInput) {
-          firstInput.focus();
-          firstInput.select();
-        }
-      }
-    });
+    el.addFieldBtn.addEventListener("click", openAddRuleModal);
   }
 
   // 立即提取
@@ -989,7 +1257,28 @@ function initEventListeners() {
 
   // 导出操作
   if (el.exportCsvBtn) el.exportCsvBtn.addEventListener("click", exportCsv);
-  if (el.exportDesensBtn) el.exportDesensBtn.addEventListener("click", exportDesensitizedDoc);
+  if (el.exportDesensBtn) {
+    el.exportDesensBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleExportDropdown();
+    });
+  }
+  if (el.exportNativeDocBtn) {
+    el.exportNativeDocBtn.addEventListener("click", () => exportNativeDesensitizedDoc("native"));
+  }
+  if (el.exportMarkdownDocBtn) {
+    el.exportMarkdownDocBtn.addEventListener("click", () => exportNativeDesensitizedDoc("markdown"));
+  }
+  if (el.exportJsonMenuBtn) {
+    el.exportJsonMenuBtn.addEventListener("click", exportAuditJson);
+  }
+
+  // 点击外部关闭脱敏导出菜单
+  document.addEventListener("click", (e) => {
+    if (el.exportDropdownWrapper && !el.exportDropdownWrapper.contains(e.target)) {
+      closeExportDropdown();
+    }
+  });
 
   // 初始化左右侧面板宽度拖拽拉伸调整器
   setupPanelResizers();
@@ -1189,10 +1478,14 @@ function renderFileList() {
         return false;
       }
     }
-    // 扩展名筛选
-    if (state.docExtFilter && state.docExtFilter !== "ALL") {
-      const ext = (doc.filename.split(".").pop() || "").toUpperCase();
-      if (ext !== state.docExtFilter) {
+    // 扩展名多选筛选
+    if (state.docExtFilters && state.docExtFilters.size < FILTER_CATEGORIES.length) {
+      if (state.docExtFilters.size === 0) {
+        return false;
+      }
+      const ext = getEffectiveDocExt(doc.filename);
+      const matched = FILTER_CATEGORIES.find((c) => c.exts.includes(ext));
+      if (!matched || !state.docExtFilters.has(matched.key)) {
         return false;
       }
     }
@@ -1258,22 +1551,22 @@ function renderFileList() {
       ? doc.snapshots.findIndex((s) => s.id === activeSnap.id) + 1
       : 0;
 
-    // 两层卡片结构：第一行文件名与删除按钮，第二行字符数与快照状态胶囊 (纯粹轻量，无折叠负担)
+    const timeInfo = formatDocCreatedAt(doc.created_at);
+
+    // 两层卡片结构：第一行文件名与状态标签+删除按钮，第二行添加时间
     itemEl.innerHTML = `
       <div class="file-card-inner" data-id="${doc.id}">
         <div class="file-card-top">
           <span class="file-name" title="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</span>
-          <span class="delete-btn doc-delete-btn" title="删除此文档" style="display: inline-flex; align-items: center; flex-shrink: 0;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
+          <div class="file-card-actions">
+            <span class="file-status-tag ${hasSnapshots ? "audited" : "pending"}" title="${
+              hasSnapshots ? `已审计 (共 ${snapCount} 个快照版本)` : "尚未执行提取审计"
+            }">${hasSnapshots ? "已审计" : "待提取"}</span>
+            <span class="delete-btn doc-delete-btn" title="删除此文档" style="display: inline-flex; align-items: center; flex-shrink: 0;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
+          </div>
         </div>
         <div class="file-card-bottom">
-          <div class="file-card-meta">
-            <span>${doc.char_count} 字符</span>
-            ${
-              hasSnapshots
-                ? `<span class="file-version-tag has-snapshots" title="已审计并保存 ${snapCount} 个提取版本">${snapCount} 个快照</span>`
-                : `<span class="file-version-tag" style="color: var(--text-mute);">未提取</span>`
-            }
-          </div>
+          <span class="file-card-time" title="添加时间: ${timeInfo.full}">${timeInfo.display}</span>
         </div>
       </div>
     `;
@@ -1404,16 +1697,44 @@ async function deleteSnapshotRecord(docId, snapId) {
 
 // 打开原始 JSON 数据模态框
 function openRawJsonModal() {
-  if (!state.currentSnapshot || !state.currentSnapshot.items || state.currentSnapshot.items.length === 0) {
+  if (!state.currentSnapshot) {
     showAlertDialog({
       title: "提示",
-      message: "当前快照暂无提取出的敏感词数据",
+      message: "当前暂无提取记录，请先执行提取后再查看原始数据",
       type: "info",
     });
     return;
   }
 
-  const rawJson = JSON.stringify(state.currentSnapshot.items, null, 2);
+  const items = state.currentSnapshot.items || [];
+  const fieldsUsed = (state.currentSnapshot.fields_used && state.currentSnapshot.fields_used.length > 0)
+    ? state.currentSnapshot.fields_used
+    : (state.currentRules || []);
+  const activeRules = fieldsUsed.filter((r) => r.is_enabled !== false);
+  const hitCategories = new Set(items.map((i) => i.category));
+  const missedRules = activeRules.filter((r) => !hitCategories.has(r.name));
+
+  const defaultSource = resolveDetectionSourceLabel("ai");
+
+  const fullData = {
+    detected_items: items.map((item) => ({
+      category: item.category,
+      text: item.text,
+      count: item.count,
+      priority: item.priority || "medium",
+      source: resolveDetectionSourceLabel(item.source),
+    })),
+    missed_fields: missedRules.map((rule) => ({
+      category: rule.name,
+      text: null,
+      count: 0,
+      priority: rule.priority || "medium",
+      source: defaultSource,
+      status: "not_detected",
+    })),
+  };
+
+  const rawJson = JSON.stringify(fullData, null, 2);
   el.rawJsonCodeBlock.textContent = rawJson;
   el.rawJsonModal.classList.add("open");
 }
@@ -1554,12 +1875,48 @@ function renderPresetSelect() {
   updateDeleteTemplateBtnVisibility();
 }
 
-// 控制“删除此模板”按钮的可见性（只要选中了模板即可删除）
+// 控制“删除此模板”按钮的可见性（只要选中了模板即可删除）并同步伪下拉 UI
 function updateDeleteTemplateBtnVisibility() {
   const selectedId = el.presetSelect.value;
   const hasSelected = !!selectedId;
   if (el.deleteTemplateBtn) {
     el.deleteTemplateBtn.style.display = hasSelected ? "inline-block" : "none";
+  }
+  syncPresetSelectUi();
+}
+
+// 同步场景模板自定义伪下拉菜单 UI (标签文案、选中指示与选项列表)
+function syncPresetSelectUi() {
+  if (!el.presetSelect) return;
+  const selectedVal = el.presetSelect.value;
+  const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
+  const labelText = selectedOpt ? selectedOpt.innerText : "无模板";
+  if (el.presetSelectLabel) el.presetSelectLabel.innerText = labelText;
+  if (el.presetSelectBtn) el.presetSelectBtn.title = `当前模板：${labelText}`;
+
+  if (el.presetSelectList) {
+    let html = `<button type="button" class="custom-select-item ${!selectedVal ? "active" : ""}" data-val="">
+      <span class="custom-select-item-label">无模板</span>
+      ${!selectedVal ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
+    </button>`;
+    state.rulePresets.forEach((p) => {
+      const isSel = p.id === selectedVal;
+      const count = p.fields ? p.fields.length : 0;
+      const name = `${p.name} (${count}项)`;
+      html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(p.id)}">
+        <span class="custom-select-item-label">${escapeHtml(name)}</span>
+        ${isSel ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
+      </button>`;
+    });
+    el.presetSelectList.innerHTML = html;
+  }
+}
+
+function closePresetDropdown() {
+  if (el.presetSelectDropdown) el.presetSelectDropdown.classList.remove("open");
+  if (el.presetSelectBtn) {
+    el.presetSelectBtn.classList.remove("active");
+    el.presetSelectBtn.setAttribute("aria-expanded", "false");
   }
 }
 
@@ -1631,7 +1988,8 @@ function renderFieldTags() {
   state.fieldTags.forEach((tag) => {
     const chip = document.createElement("span");
     chip.className = "tag-chip";
-    const riskCn = tag.risk_level === "high" ? "高" : tag.risk_level === "low" ? "低" : "中";
+    const pri = tag.priority || "medium";
+    const riskCn = pri === "high" ? "高" : pri === "low" ? "低" : "中";
     chip.innerHTML = `
       <span class="tag-chip-name">＋ ${escapeHtml(tag.name)}</span>
       <span class="tag-chip-del" title="从标签库中删除此标签"><svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></span>
@@ -1697,6 +2055,16 @@ function renderFieldTags() {
   });
 }
 
+// 获取干净的标准规则字段列表（确保前后端序列化绝对一致）
+function getCleanRulesPayload() {
+  return (state.currentRules || []).map((r) => ({
+    name: (r.name || "").trim(),
+    description: (r.description || "").trim(),
+    priority: r.priority || "medium",
+    is_enabled: r.is_enabled !== false,
+  }));
+}
+
 // 渲染右侧规则定义卡片流 (支持开关、字段名修改、优先级轮换、描述调整、保存标签与删除)
 function renderRulesTable() {
   el.ruleCardList.innerHTML = "";
@@ -1718,8 +2086,9 @@ function renderRulesTable() {
     const card = document.createElement("div");
     card.className = "rule-card";
 
-    const riskClass = rule.risk_level === "high" ? "high" : rule.risk_level === "low" ? "low" : "medium";
-    const riskCn = rule.risk_level === "high" ? "高" : rule.risk_level === "low" ? "低" : "中";
+    const pri = rule.priority || "medium";
+    const riskClass = pri === "high" ? "high" : pri === "low" ? "low" : "medium";
+    const riskCn = pri === "high" ? "高" : pri === "low" ? "低" : "中";
 
     card.innerHTML = `
       <div class="rule-card-header">
@@ -1734,7 +2103,7 @@ function renderRulesTable() {
         </div>
       </div>
       <div class="rule-desc-row">
-        <input type="text" value="${escapeHtml(rule.description || "")}" class="rule-desc-input" placeholder="请输入提取目标的特征描述">
+        <input type="text" value="${escapeHtml(rule.description)}" class="rule-desc-input" placeholder="输入上下文提取特征描述 (组合进入 System Prompt)">
       </div>
     `;
 
@@ -1756,13 +2125,13 @@ function renderRulesTable() {
     // 事件绑定：点击优先级徽标轮换 (中 -> 高 -> 低 -> 中)
     const riskBadge = card.querySelector(".risk-badge");
     riskBadge.addEventListener("click", () => {
-      const current = state.currentRules[idx].risk_level;
+      const current = state.currentRules[idx].priority || "medium";
       let next = "medium";
       if (current === "medium") next = "high";
       else if (current === "high") next = "low";
       else next = "medium";
 
-      state.currentRules[idx].risk_level = next;
+      state.currentRules[idx].priority = next;
       renderRulesTable();
     });
 
@@ -1809,7 +2178,7 @@ async function saveRuleAsTag(rule) {
       body: JSON.stringify({
         name: rule.name.trim(),
         description: rule.description || "",
-        risk_level: rule.risk_level || "medium",
+        priority: rule.priority || "medium",
         is_enabled: true,
       }),
     });
@@ -1836,6 +2205,77 @@ async function saveRuleAsTag(rule) {
       message: e.message,
       type: "danger",
     });
+  }
+}
+
+// 打开新增规则字段弹窗
+function openAddRuleModal() {
+  if (el.addRuleNameInput) el.addRuleNameInput.value = "";
+  if (el.addRuleDescInput) el.addRuleDescInput.value = "";
+  if (el.addRulePrioritySelect) el.addRulePrioritySelect.value = "medium";
+  if (el.addRuleSaveToTagCheckbox) el.addRuleSaveToTagCheckbox.checked = false;
+
+  if (el.addRuleModal) {
+    el.addRuleModal.classList.add("open");
+    setTimeout(() => {
+      if (el.addRuleNameInput) el.addRuleNameInput.focus();
+    }, 60);
+  }
+}
+
+function closeAddRuleModal() {
+  if (el.addRuleModal) {
+    el.addRuleModal.classList.remove("open");
+  }
+}
+
+// 提交新增规则字段
+async function handleAddRuleSubmit(e) {
+  if (e) e.preventDefault();
+  const name = el.addRuleNameInput ? el.addRuleNameInput.value.trim() : "";
+  const priority = el.addRulePrioritySelect ? el.addRulePrioritySelect.value : "medium";
+  const desc = el.addRuleDescInput ? el.addRuleDescInput.value.trim() : "";
+  const saveToTag = el.addRuleSaveToTagCheckbox ? el.addRuleSaveToTagCheckbox.checked : false;
+
+  if (!name) {
+    if (el.addRuleNameInput) el.addRuleNameInput.focus();
+    return;
+  }
+
+  // 校验查重
+  const isDuplicate = state.currentRules.some(
+    (r) => r.name.trim().toLowerCase() === name.toLowerCase()
+  );
+  if (isDuplicate) {
+    showAlertDialog({
+      title: "规则已存在",
+      message: `提取规则列表中已存在名称为「${name}」的字段，请勿重复添加。`,
+      type: "info",
+    });
+    if (el.addRuleNameInput) el.addRuleNameInput.focus();
+    return;
+  }
+
+  const newRule = {
+    name: name,
+    description: desc || "提取特征与上下文模式描述",
+    priority: priority,
+    is_enabled: true,
+  };
+
+  // 按添加时间倒序插入在最顶部
+  state.currentRules.unshift(newRule);
+  renderRulesTable();
+
+  // 若勾选了同时保存至常用标签库
+  if (saveToTag) {
+    await saveRuleAsTag(newRule);
+  }
+
+  closeAddRuleModal();
+
+  if (el.ruleCardList) {
+    el.ruleCardList.scrollTop = 0;
   }
 }
 
@@ -1887,7 +2327,7 @@ async function handleSaveCustomTemplate(e) {
         id: `custom_${Date.now()}`,
         name: name,
         description: desc || "用户自定义业务场景规则组合",
-        fields: state.currentRules,
+        fields: getCleanRulesPayload(),
       }),
     });
 
@@ -1926,7 +2366,7 @@ async function updatePromptPreview() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        fields: state.currentRules,
+        fields: getCleanRulesPayload(),
         custom_template: state.customPromptTemplate,
       }),
     });
@@ -1946,7 +2386,7 @@ async function resetPromptTemplate() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        fields: state.currentRules,
+        fields: getCleanRulesPayload(),
         custom_template: null,
       }),
     });
@@ -2008,7 +2448,7 @@ async function triggerExtraction() {
         body: JSON.stringify({
           doc_id: state.currentDocId,
           template_name: templateName,
-          fields: state.currentRules,
+          fields: getCleanRulesPayload(),
           use_ai: true,
           model_type: "online",
           online_model_id: modelIdentifier,
@@ -2017,11 +2457,18 @@ async function triggerExtraction() {
       });
 
       if (!res.ok) {
-        let err = {};
-        try { err = await res.json(); } catch (_) {}
+        let errorMsg = "";
+        try {
+          const errJson = await res.json();
+          errorMsg = errJson.error || errJson.message;
+        } catch (_) {
+          try {
+            errorMsg = await res.text();
+          } catch (_) {}
+        }
         showAlertDialog({
           title: "在线提取失败",
-          message: err.error || "云端模型未能成功响应",
+          message: errorMsg || "云端模型未能成功响应",
           type: "danger",
         });
         return;
@@ -2111,7 +2558,7 @@ async function triggerExtraction() {
       body: JSON.stringify({
         doc_id: state.currentDocId,
         template_name: templateName,
-        fields: state.currentRules,
+        fields: getCleanRulesPayload(),
         use_ai: true,
         model_type: "offline",
         custom_prompt: state.customPromptTemplate,
@@ -2119,11 +2566,18 @@ async function triggerExtraction() {
     });
 
     if (!res.ok) {
-      let err = {};
-      try { err = await res.json(); } catch (_) {}
+      let errorMsg = "";
+      try {
+        const errJson = await res.json();
+        errorMsg = errJson.error || errJson.message;
+      } catch (_) {
+        try {
+          errorMsg = await res.text();
+        } catch (_) {}
+      }
       showAlertDialog({
         title: "提取失败",
-        message: err.error || "本地模型提取未能成功完成",
+        message: errorMsg || "本地模型提取未能成功完成",
         type: "danger",
       });
       return;
@@ -2216,10 +2670,12 @@ function renderMarkdownWithHighlights(markdown, items) {
 
         // 敏感词节点
         const itemInfo = items.find((i) => i.text === matchedTarget);
+        const markPri = itemInfo ? (itemInfo.priority || "medium") : "medium";
         const mark = document.createElement("mark");
         mark.className = "sensi-mark";
         mark.setAttribute("data-sensi-text", matchedTarget);
-        mark.setAttribute("data-risk", itemInfo ? itemInfo.risk_level : "medium");
+        mark.setAttribute("data-priority", markPri);
+        mark.setAttribute("data-risk", markPri);
         mark.innerText = matchedTarget;
 
         // 点击高亮标记联动右侧卡片，并自动切到审计 Tab
@@ -2240,14 +2696,51 @@ function renderMarkdownWithHighlights(markdown, items) {
   });
 }
 
-// 渲染右侧审计列表
+// 解析并格式化当前快照或提取的检测来源标签 (离线模型 / 在线模型 / 规则正则)
+function resolveDetectionSourceLabel(itemSource) {
+  if (itemSource === "regex") {
+    return "规则正则";
+  }
+
+  // 检查当前快照记录的 model_name
+  const snapModel = state.currentSnapshot?.model_name || "";
+  if (snapModel) {
+    if (snapModel.startsWith("online:") || (state.onlineModels && state.onlineModels.some((m) => m.name === snapModel || m.id === snapModel))) {
+      return "在线模型";
+    }
+    if (snapModel.toLowerCase().includes("regex") || snapModel === "纯正则匹配") {
+      return "规则正则";
+    }
+    return "离线模型";
+  }
+
+  // 若无快照信息，根据当前底部选择器推断
+  const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+  if (chosenVal.startsWith("online:")) {
+    return "在线模型";
+  }
+  return "离线模型";
+}
+
+// 渲染右侧审计列表 (方案一：已检出实体在上，未检出字段在下，布局绝对统一)
 function renderAuditList(items) {
   el.auditList.innerHTML = "";
-  const count = items.length;
-  el.auditCount.innerText = `${count} 项命中`;
-  el.auditCountBadge.innerText = count;
+  const hitCount = Array.isArray(items) ? items.length : 0;
 
-  if (count === 0) {
+  // 获取当前生效或快照使用的启用规则字段
+  const activeRules = (state.currentRules || []).filter((r) => r.is_enabled !== false);
+  const totalRuleCount = activeRules.length;
+
+  // 统计命中的字段类别名
+  const hitCategories = new Set(Array.isArray(items) ? items.map((item) => item.category) : []);
+  const missedRules = activeRules.filter((r) => !hitCategories.has(r.name));
+
+  // 顶部总数徽标 (仅更新 Tab 标签徽标，标题栏保持纯净的「命中清单」)
+  if (el.auditCount) el.auditCount.innerText = "";
+  if (el.auditCountBadge) el.auditCountBadge.innerText = hitCount;
+
+  // 若既没有命中项，也没有任何生效规则
+  if (hitCount === 0 && missedRules.length === 0) {
     el.auditList.innerHTML = `
       <p style="color: var(--text-mute); font-size: 12px; text-align: center; margin-top: 30px;">
         未检测到符合定义的敏感信息
@@ -2256,33 +2749,78 @@ function renderAuditList(items) {
     return;
   }
 
-  items.forEach((item) => {
-    const card = document.createElement("div");
-    card.className = "audit-card";
-    card.setAttribute("data-sensi-text", item.text);
+  // 1. 渲染已检出命中卡片清单 (Hit Items)
+  if (hitCount > 0) {
+    items.forEach((item) => {
+      const card = document.createElement("div");
+      card.className = "audit-card";
+      card.setAttribute("data-sensi-text", item.text);
 
-    const riskClass = item.risk_level === "high" ? "high" : item.risk_level === "low" ? "low" : "medium";
-    const riskCn = item.risk_level === "high" ? "高" : item.risk_level === "low" ? "低" : "中";
-    const sourceLabel = item.source === "regex" ? "规则正则" : "端侧小模型";
+      const pri = item.priority || "medium";
+      const riskClass = pri === "high" ? "high" : pri === "low" ? "low" : "medium";
+      const riskCn = pri === "high" ? "高" : pri === "low" ? "低" : "中";
+      const sourceLabel = resolveDetectionSourceLabel(item.source);
 
-    card.innerHTML = `
-      <div class="card-top">
-        <span class="card-text">${escapeHtml(item.text)}</span>
-        <span class="card-tag ${riskClass}" title="优先级: ${riskCn}">${item.category}</span>
-      </div>
-      <div class="card-bottom">
-        <span class="card-meta-pill">出现 ${item.count} 次</span>
-        <span style="font-size: 10.5px; color: var(--text-mute);">来源: ${sourceLabel}</span>
-      </div>
-    `;
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="card-title-group">
+            <span class="card-tag ${riskClass}" title="优先级: ${riskCn}">${escapeHtml(item.category)}</span>
+          </div>
+          <span class="card-meta-pill">出现 ${item.count} 次</span>
+        </div>
+        <div class="card-bottom">
+          <span class="card-text">${escapeHtml(item.text)}</span>
+          <span class="card-source-label">来源: ${sourceLabel}</span>
+        </div>
+      `;
 
-    // 点击卡片：在全文多个出现点循环轮转跳转，并触发 Geist 两次脉冲闪烁 Flash 动效
-    card.addEventListener("click", () => {
-      focusAndFlashTarget(item.text);
+      // 点击卡片：在全文多个出现点循环轮转跳转，并触发 Geist 两次脉冲闪烁 Flash 动效
+      card.addEventListener("click", () => {
+        focusAndFlashTarget(item.text);
+      });
+
+      el.auditList.appendChild(card);
     });
+  } else {
+    const emptyNotice = document.createElement("div");
+    emptyNotice.style.cssText = "color: var(--text-mute); font-size: 12px; text-align: center; padding: 18px 0;";
+    emptyNotice.innerText = "本文档中未检出上述规则定义的敏感实体";
+    el.auditList.appendChild(emptyNotice);
+  }
 
-    el.auditList.appendChild(card);
-  });
+  // 2. 渲染未检出字段清单 (Missed Fields)
+  if (missedRules.length > 0) {
+    const divider = document.createElement("div");
+    divider.className = "audit-section-divider";
+    divider.innerHTML = `<span>未检出字段 (${missedRules.length} 项)</span>`;
+    el.auditList.appendChild(divider);
+
+    const defaultSourceLabel = resolveDetectionSourceLabel("ai");
+
+    missedRules.forEach((rule) => {
+      const card = document.createElement("div");
+      card.className = "audit-card missed";
+
+      const pri = rule.priority || "medium";
+      const riskClass = pri === "high" ? "high" : pri === "low" ? "low" : "medium";
+      const riskCn = pri === "high" ? "高" : pri === "low" ? "低" : "中";
+
+      card.innerHTML = `
+        <div class="card-top">
+          <div class="card-title-group">
+            <span class="card-tag ${riskClass}" title="优先级: ${riskCn}">${escapeHtml(rule.name)}</span>
+          </div>
+          <span class="card-meta-pill muted">0 处</span>
+        </div>
+        <div class="card-bottom">
+          <span class="card-missed-text">未在文档中检索到</span>
+          <span class="card-source-label">来源: ${defaultSourceLabel}</span>
+        </div>
+      `;
+
+      el.auditList.appendChild(card);
+    });
+  }
 }
 
 // 全文多坐标循环轮转定位、持续高亮与 Flash 脉冲动画
@@ -3047,6 +3585,7 @@ async function populateFooterModelSelect() {
       el.footerModelSelect.innerHTML = `<option value="">无就绪模型 (前往设置添加)</option>`;
       el.footerModelSelect.disabled = true;
       if (el.footerModelToggle) el.footerModelToggle.disabled = true;
+      updateFooterModelStripState();
       return;
     }
 
@@ -3112,6 +3651,73 @@ function updateFooterModelStripState() {
       footerToggle.disabled = false;
     }
   }
+
+  syncFooterModelSelectUi();
+}
+
+// 同步底部模型自定义伪下拉菜单 UI (标签文案、分组、选项列表及选中对勾)
+function syncFooterModelSelectUi() {
+  if (!el.footerModelSelect) return;
+
+  const isDisabled = el.footerModelSelect.disabled;
+  if (el.footerModelBtn) {
+    el.footerModelBtn.disabled = isDisabled;
+  }
+
+  const selectedVal = el.footerModelSelect.value;
+  const selectedOpt = el.footerModelSelect.options[el.footerModelSelect.selectedIndex];
+  const labelText = selectedOpt ? selectedOpt.innerText : (isDisabled ? "无就绪模型" : "选择模型");
+
+  if (el.footerModelLabel) {
+    el.footerModelLabel.innerText = labelText;
+  }
+  if (el.footerModelBtn) {
+    el.footerModelBtn.title = `当前模型：${labelText}`;
+  }
+
+  if (el.footerModelList) {
+    let html = "";
+    const children = Array.from(el.footerModelSelect.children);
+
+    if (children.length === 0) {
+      html = `<div class="custom-select-item" style="color: var(--text-tertiary); cursor: default;">暂无可用模型</div>`;
+    } else {
+      children.forEach((child, index) => {
+        if (child.tagName.toLowerCase() === "optgroup") {
+          if (index > 0) {
+            html += `<div class="custom-select-divider"></div>`;
+          }
+          html += `<div class="custom-select-group-header">${escapeHtml(child.label || "")}</div>`;
+          const opts = Array.from(child.children);
+          opts.forEach((opt) => {
+            const isSel = opt.value === selectedVal;
+            html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(opt.value)}" title="${escapeHtml(opt.innerText)}">
+              <span class="custom-select-item-label">${escapeHtml(opt.innerText)}</span>
+              ${isSel ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
+            </button>`;
+          });
+        } else if (child.tagName.toLowerCase() === "option") {
+          const isSel = child.value === selectedVal;
+          html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(child.value)}" title="${escapeHtml(child.innerText)}">
+            <span class="custom-select-item-label">${escapeHtml(child.innerText)}</span>
+            ${isSel ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
+          </button>`;
+        }
+      });
+    }
+
+    el.footerModelList.innerHTML = html;
+  }
+}
+
+function closeFooterModelDropdown() {
+  if (el.footerModelDropdown) {
+    el.footerModelDropdown.classList.remove("open");
+  }
+  if (el.footerModelBtn) {
+    el.footerModelBtn.classList.remove("active");
+    el.footerModelBtn.setAttribute("aria-expanded", "false");
+  }
 }
 
 // 用户在底部下拉框中切换选择的模型
@@ -3134,7 +3740,7 @@ async function handleFooterModelSelectChange(e) {
     const chosenFile = chosenVal.slice("offline:".length);
     // 如果当前拨杆处于开启状态，且选中的不是当前正在运行的模型，则自动无缝热切换启动
     if (el.footerModelToggle && el.footerModelToggle.checked && state.activeModelName !== chosenFile) {
-      el.footerModelDot.className = "status-indicator-dot offline";
+      if (el.footerModelDot) el.footerModelDot.className = "status-indicator-dot offline";
       await startLlamaModel(chosenFile);
     } else {
       updateFooterModelStripState();
@@ -3168,7 +3774,7 @@ async function handleFooterModelToggle(e) {
       return;
     }
 
-    el.footerModelDot.className = "status-indicator-dot offline";
+    if (el.footerModelDot) el.footerModelDot.className = "status-indicator-dot offline";
     try {
       await startLlamaModel(chosenFile);
     } catch (err) {
@@ -3205,7 +3811,7 @@ async function syncActiveModelStatus(isError = false) {
       if (data.active_model) {
         state.activeModelName = data.active_model;
         if (el.activeModelStatus) {
-          el.activeModelStatus.innerText = `离线运行模型: ${data.active_model} (8081)`;
+          el.activeModelStatus.innerText = `离线运行模型: ${data.active_model}`;
           el.activeModelStatus.style.color = "var(--text)";
           el.activeModelStatus.style.fontWeight = "500";
         }
@@ -3242,8 +3848,114 @@ async function syncActiveModelStatus(isError = false) {
   }
 }
 
+function toggleExportDropdown() {
+  if (!el.exportDropdownWrapper) return;
+  closeSortDropdown();
+  closeFilterDropdown();
+  el.exportDropdownWrapper.classList.toggle("open");
+}
+
+function closeExportDropdown() {
+  if (el.exportDropdownWrapper) {
+    el.exportDropdownWrapper.classList.remove("open");
+  }
+}
+
+function closeFilterDropdown() {
+  if (el.docFilterDropdown) {
+    el.docFilterDropdown.classList.remove("open");
+  }
+  if (el.docFilterBtn) {
+    el.docFilterBtn.classList.remove("open");
+    el.docFilterBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function updateFilterUiState() {
+  const isAll = state.docExtFilters.size === FILTER_CATEGORIES.length;
+
+  if (el.docFilterDropdown) {
+    // 单项按钮勾选状态
+    el.docFilterDropdown.querySelectorAll(".filter-menu-item").forEach((btn) => {
+      const ext = btn.getAttribute("data-ext");
+      if (state.docExtFilters.has(ext)) {
+        btn.classList.add("active");
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+  }
+
+  // 底部全选按钮文案自适应切换（全选 / 取消全选）
+  if (el.filterSelectAllBtn) {
+    el.filterSelectAllBtn.textContent = isAll ? "取消全选" : "全选";
+  }
+
+  // 折叠态按钮文案与高亮态更新
+  if (el.docFilterLabel) {
+    if (isAll) {
+      el.docFilterLabel.textContent = "全部";
+    } else if (state.docExtFilters.size === 1) {
+      const singleKey = Array.from(state.docExtFilters)[0];
+      const found = FILTER_CATEGORIES.find((c) => c.key === singleKey);
+      el.docFilterLabel.textContent = found ? found.shortLabel : singleKey;
+    } else if (state.docExtFilters.size > 1) {
+      el.docFilterLabel.textContent = `${state.docExtFilters.size} 项`;
+    } else {
+      el.docFilterLabel.textContent = "0 项";
+    }
+  }
+
+  if (el.docFilterBtn) {
+    if (isAll) {
+      el.docFilterBtn.classList.remove("has-filter");
+      el.docFilterBtn.title = "格式筛选：全部格式";
+    } else {
+      el.docFilterBtn.classList.add("has-filter");
+      if (state.docExtFilters.size === 1) {
+        const singleKey = Array.from(state.docExtFilters)[0];
+        const found = FILTER_CATEGORIES.find((c) => c.key === singleKey);
+        el.docFilterBtn.title = `格式筛选：已选 ${found ? found.label : singleKey}`;
+      } else if (state.docExtFilters.size > 1) {
+        el.docFilterBtn.title = `格式筛选：已选 ${state.docExtFilters.size} 种格式`;
+      } else {
+        el.docFilterBtn.title = "格式筛选：未选择任何格式";
+      }
+    }
+  }
+}
+
+function closeSortDropdown() {
+  if (el.docSortDropdown) {
+    el.docSortDropdown.classList.remove("open");
+  }
+  if (el.docSortBtn) {
+    el.docSortBtn.classList.remove("active");
+    el.docSortBtn.setAttribute("aria-expanded", "false");
+  }
+}
+
+function updateSortUiState(sortVal) {
+  if (el.docSortDropdown) {
+    el.docSortDropdown.querySelectorAll(".sort-menu-item").forEach((btn) => {
+      if (btn.getAttribute("data-sort") === sortVal) {
+        btn.classList.add("active");
+        const label = btn.querySelector(".sort-item-label")?.innerText || "";
+        if (el.docSortBtn) el.docSortBtn.title = `当前排序：${label}`;
+      } else {
+        btn.classList.remove("active");
+      }
+    });
+  }
+  if (el.docSortSelect) {
+    el.docSortSelect.value = sortVal;
+  }
+}
+
 // 导出 CSV 清单
 function exportCsv() {
+  closeExportDropdown();
+
   if (!state.currentSnapshot || state.currentSnapshot.items.length === 0) {
     showAlertDialog({
       title: "提示",
@@ -3258,7 +3970,8 @@ function exportCsv() {
 
   items.forEach((item) => {
     const cleanText = item.text.replace(/"/g, '""');
-    const priCn = item.risk_level === "high" ? "高" : item.risk_level === "low" ? "低" : "中";
+    const pri = item.priority || "medium";
+    const priCn = pri === "high" ? "高" : pri === "low" ? "低" : "中";
     csvContent += `"${cleanText}","${item.category}","${priCn}",${item.count},"${item.source}"\n`;
   });
 
@@ -3266,8 +3979,10 @@ function exportCsv() {
   downloadBlob(blob, `敏感词审计清单_${Date.now()}.csv`);
 }
 
-// 脱敏导出原文档 (Markdown)
-function exportDesensitizedDoc() {
+// 原生脱敏与 Markdown 脱敏导出引擎 (v2)
+async function exportNativeDesensitizedDoc(mode = "native") {
+  closeExportDropdown();
+
   if (!state.currentDocId || !state.currentSnapshot) {
     showAlertDialog({
       title: "提示",
@@ -3280,25 +3995,120 @@ function exportDesensitizedDoc() {
   const doc = state.documents.find((d) => d.id === state.currentDocId);
   if (!doc) return;
 
-  let desensitizedText = doc.markdown;
-  const items = state.currentSnapshot.items;
+  const btn = el.exportDesensBtn;
+  const origBtnText = btn ? btn.innerHTML : "";
 
-  // 将所有检出的敏感项执行打码脱敏替换（保留首尾字符，中间打 *）
-  items.forEach((item) => {
-    const raw = item.text;
-    let masked = raw;
-    if (raw.length <= 2) {
-      masked = "*".repeat(raw.length);
-    } else {
-      const first = raw[0];
-      const last = raw[raw.length - 1];
-      masked = `${first}${"*".repeat(raw.length - 2)}${last}`;
+  try {
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span style="display:inline-flex;align-items:center;gap:4px;">处理中...</span>`;
     }
-    desensitizedText = desensitizedText.split(raw).join(masked);
-  });
 
-  const blob = new Blob([desensitizedText], { type: "text/markdown;charset=utf-8;" });
-  downloadBlob(blob, `脱敏文档_${doc.filename}`);
+    const res = await fetch(`/api/documents/${state.currentDocId}/desensitize`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        mode: mode,
+        snapshot_id: state.currentSnapshot.id,
+      }),
+    });
+
+    if (!res.ok) {
+      let errMsg = "脱敏导出请求失败";
+      try {
+        const errJson = await res.json();
+        if (errJson && errJson.error) errMsg = errJson.error;
+      } catch (_) {}
+      throw new Error(errMsg);
+    }
+
+    // 从 Content-Disposition 解析文件名
+    let filename = "";
+    const disposition = res.headers.get("Content-Disposition");
+    if (disposition) {
+      const matchUtf8 = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+      if (matchUtf8 && matchUtf8[1]) {
+        filename = decodeURIComponent(matchUtf8[1]);
+      } else {
+        const match = disposition.match(/filename="?([^";]+)"?/i);
+        if (match && match[1]) {
+          filename = decodeURIComponent(match[1]);
+        }
+      }
+    }
+
+    if (!filename) {
+      const stem = doc.filename.substring(0, doc.filename.lastIndexOf(".")) || doc.filename;
+      const ext = mode === "markdown" ? ".md" : (doc.filename.substring(doc.filename.lastIndexOf(".")) || ".docx");
+      filename = `${stem}_脱敏${ext}`;
+    }
+
+    const blob = await res.blob();
+    downloadBlob(blob, filename);
+  } catch (err) {
+    console.error("脱敏导出异常:", err);
+    showAlertDialog({
+      title: "脱敏导出失败",
+      message: err.message || "脱敏文档生成失败，请重试",
+      type: "danger",
+    });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = origBtnText;
+    }
+  }
+}
+
+// 导出全量审计原始 JSON 数据 (含已检出与未检出闭环)
+function exportAuditJson() {
+  closeExportDropdown();
+
+  if (!state.currentDocId || !state.currentSnapshot) {
+    showAlertDialog({
+      title: "提示",
+      message: "请先选择文档并完成敏感信息提取",
+      type: "info",
+    });
+    return;
+  }
+
+  const doc = state.documents.find((d) => d.id === state.currentDocId);
+  const snap = state.currentSnapshot;
+
+  const fullAuditPayload = {
+    document_id: doc ? doc.id : "",
+    filename: doc ? doc.filename : "",
+    snapshot_id: snap.id,
+    timestamp: snap.timestamp,
+    template_name: snap.template_name,
+    model_name: snap.model_name || "离线模型",
+    detected_items: snap.items.map((it) => ({
+      category: it.category,
+      text: it.text,
+      count: it.count,
+      priority: it.priority || "medium",
+      source: it.source === "regex" ? "正则匹配" : (it.source === "ai" ? "离线模型" : it.source),
+      positions: it.positions || [],
+    })),
+    missed_fields: (snap.fields_used || [])
+      .filter((f) => !snap.items.some((it) => it.category === f.name))
+      .map((f) => ({
+        category: f.name,
+        text: null,
+        count: 0,
+        priority: f.priority || "medium",
+        source: snap.model_name ? "离线模型" : "规则模型",
+        status: "not_detected",
+      })),
+  };
+
+  const jsonStr = JSON.stringify(fullAuditPayload, null, 2);
+  const blob = new Blob([jsonStr], { type: "application/json;charset=utf-8;" });
+  const stem = doc ? (doc.filename.substring(0, doc.filename.lastIndexOf(".")) || doc.filename) : "document";
+  downloadBlob(blob, `全量审计数据_${stem}_${Date.now()}.json`);
 }
 
 function downloadBlob(blob, filename) {
@@ -3338,22 +4148,14 @@ async function autoLoadModelOptimalPrompt(filename) {
 // 加载模型管理
 async function loadModelPresets() {
   try {
-    const [presetsRes, localRes, profilesRes] = await Promise.all([
+    const [presetsRes, localRes] = await Promise.all([
       fetch("/api/models/presets"),
       fetch("/api/models/local"),
-      fetch("/api/models/prompts/all").catch(() => ({ ok: false })),
     ]);
-
-    let promptProfiles = {};
-    if (profilesRes && profilesRes.ok) {
-      try {
-        promptProfiles = await profilesRes.json();
-      } catch (_) {}
-    }
 
     if (presetsRes.ok) {
       state.modelPresets = await presetsRes.json();
-      renderModelPresets(promptProfiles);
+      renderModelPresets();
     }
 
     if (localRes.ok) {
@@ -3366,21 +4168,11 @@ async function loadModelPresets() {
             .map((m) => {
               const isActive = state.activeModelName === m;
               const isStarting = state.startingModel === m;
-              const prof = promptProfiles[m];
-              const profileBadgeHtml = prof
-                ? `<div style="display: flex; align-items: center; gap: 4px; margin-top: 4px;">
-                     <span class="badge success" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
-                       <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
-                       <span>评测记录: ${escapeHtml(prof.profile_name)}${prof.f1_score !== undefined && prof.f1_score !== null ? ` (F1: ${(prof.f1_score * 100).toFixed(1)}%)` : ''}</span>
-                     </span>
-                   </div>`
-                : "";
 
               return `
                 <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border); margin-bottom: 5px; background: var(--surface-2);">
                   <div style="flex: 1; min-width: 0; margin-right: 8px;">
                     <div style="font-family: var(--font-mono); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-weight: 500;" title="${escapeHtml(m)}">${escapeHtml(m)}</div>
-                    ${profileBadgeHtml}
                   </div>
                   <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                     ${
@@ -3417,7 +4209,7 @@ async function loadModelPresets() {
 }
 
 // 渲染模型列表
-function renderModelPresets(promptProfiles = {}) {
+function renderModelPresets() {
   if (!el.modelPresetsList) return;
   el.modelPresetsList.innerHTML = "";
 
@@ -3428,27 +4220,18 @@ function renderModelPresets(promptProfiles = {}) {
 
     const isActive = state.activeModelName === m.filename || m.is_active;
     const isStarting = state.startingModel === m.filename;
-    const prof = promptProfiles[m.filename];
-    const profileBadgeHtml = prof
-      ? `<div style="margin-top: 4px; display: flex; align-items: center; gap: 6px;">
-           <span class="badge success" style="font-size: 10px; padding: 2px 6px; display: inline-flex; align-items: center; gap: 3px;">
-             <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
-             <span>评测记录: ${escapeHtml(prof.profile_name)}${prof.f1_score !== undefined && prof.f1_score !== null ? ` (F1: ${(prof.f1_score * 100).toFixed(1)}%)` : ''}</span>
-           </span>
-         </div>`
-      : "";
+    const isDownloading = m.is_downloading || (state.downloadingModels && state.downloadingModels.has(m.id));
 
     item.innerHTML = `
       <div style="flex: 1; min-width: 0;">
         <div class="model-info-title">${escapeHtml(m.name)} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${escapeHtml(m.size_desc)})</span></div>
         <div class="model-info-desc">${escapeHtml(m.description)}</div>
-        ${profileBadgeHtml}
-        <div class="progress-bar-wrap" id="prog-wrap-${m.id}">
+        <div class="progress-bar-wrap" id="prog-wrap-${m.id}" style="${isDownloading ? "display: block;" : ""}">
           <div class="progress-bar-fill" id="prog-fill-${m.id}"></div>
         </div>
-        <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: none;"></div>
+        <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: ${isDownloading ? "block;" : "none;"}"></div>
       </div>
-      <div style="flex-shrink: 0;">
+      <div class="model-action-wrap" style="flex-shrink: 0;">
         ${
           m.is_downloaded
             ? isActive
@@ -3456,6 +4239,8 @@ function renderModelPresets(promptProfiles = {}) {
               : isStarting
               ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
               : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">启动</button>`
+            : isDownloading
+            ? `<button class="btn sm cancel-download-btn" data-id="${m.id}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);" title="点击取消下载并清除本地缓存">取消</button>`
             : `<button class="btn sm download-model-btn" data-id="${m.id}">下载</button>`
         }
       </div>
@@ -3465,6 +4250,12 @@ function renderModelPresets(promptProfiles = {}) {
     const dlBtn = item.querySelector(".download-model-btn");
     if (dlBtn) {
       dlBtn.addEventListener("click", () => startDownload(m.id));
+    }
+
+    // 绑定取消下载
+    const cancelBtn = item.querySelector(".cancel-download-btn");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => cancelDownload(m.id));
     }
 
     // 绑定启动
@@ -3568,28 +4359,122 @@ async function startLlamaModel(filename) {
   }
 }
 
+// 切换指定模型的“下载”与红色“取消”按钮状态
+function updatePresetCardDownloadState(modelId, isDownloading) {
+  if (!state.downloadingModels) state.downloadingModels = new Set();
+  if (isDownloading) {
+    state.downloadingModels.add(modelId);
+  } else {
+    state.downloadingModels.delete(modelId);
+  }
+
+  const presetBox = document.getElementById(`preset-box-${modelId}`);
+  if (!presetBox) return;
+
+  const actionWrap = presetBox.querySelector(".model-action-wrap");
+  if (!actionWrap) return;
+
+  if (isDownloading) {
+    actionWrap.innerHTML = `<button class="btn sm cancel-download-btn" data-id="${modelId}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);" title="点击取消下载并清除本地缓存">取消</button>`;
+    const cancelBtn = actionWrap.querySelector(".cancel-download-btn");
+    if (cancelBtn) {
+      cancelBtn.addEventListener("click", () => cancelDownload(modelId));
+    }
+  } else {
+    actionWrap.innerHTML = `<button class="btn sm download-model-btn" data-id="${modelId}">下载</button>`;
+    const dlBtn = actionWrap.querySelector(".download-model-btn");
+    if (dlBtn) {
+      dlBtn.addEventListener("click", () => startDownload(modelId));
+    }
+  }
+}
+
 // 开始从魔搭下载
 async function startDownload(modelId) {
+  updatePresetCardDownloadState(modelId, true);
+
   const wrap = document.getElementById(`prog-wrap-${modelId}`);
+  const fill = document.getElementById(`prog-fill-${modelId}`);
   const text = document.getElementById(`prog-text-${modelId}`);
   if (wrap) wrap.style.display = "block";
+  if (fill) fill.style.width = "0%";
   if (text) {
     text.style.display = "block";
     text.innerText = "正在连接 ModelScope 直链...";
   }
 
   try {
-    await fetch("/api/models/download", {
+    const res = await fetch("/api/models/download", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model_id: modelId }),
     });
+    if (!res.ok) {
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
   } catch (e) {
+    updatePresetCardDownloadState(modelId, false);
     showAlertDialog({
-      title: "下载失败",
+      title: "下载启动失败",
       message: `触发下载失败: ${e.message}`,
       type: "danger",
     });
+    await loadModelPresets();
+  }
+}
+
+// 取消下载并清除缓存
+async function cancelDownload(modelId) {
+  const text = document.getElementById(`prog-text-${modelId}`);
+  if (text) {
+    text.style.display = "block";
+    text.innerText = "正在取消下载并清理缓存...";
+  }
+
+  try {
+    const res = await fetch("/api/models/download/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_id: modelId }),
+    });
+
+    updatePresetCardDownloadState(modelId, false);
+
+    if (res.ok) {
+      await loadModelPresets();
+      const afterText = document.getElementById(`prog-text-${modelId}`);
+      if (afterText) {
+        afterText.style.display = "block";
+        afterText.style.color = "var(--primary)";
+        afterText.innerText = "已取消下载，已清除下载缓存";
+        setTimeout(() => {
+          if (afterText) afterText.style.display = "none";
+        }, 3000);
+      }
+      showAlertDialog({
+        title: "已取消下载",
+        message: "已终止模型下载，并自动清除了已下载的临时缓存文件。",
+        type: "info",
+      });
+    } else {
+      let err = {};
+      try { err = await res.json(); } catch (_) {}
+      showAlertDialog({
+        title: "取消下载失败",
+        message: err.error || "请求取消失败",
+        type: "danger",
+      });
+    }
+  } catch (e) {
+    updatePresetCardDownloadState(modelId, false);
+    showAlertDialog({
+      title: "取消下载异常",
+      message: e.message,
+      type: "danger",
+    });
+    await loadModelPresets();
   }
 }
 
@@ -3597,26 +4482,62 @@ async function startDownload(modelId) {
 function initSSEForDownloads() {
   const eventSource = new EventSource("/api/models/download/progress");
 
-  eventSource.addEventListener("progress", (e) => {
+  eventSource.addEventListener("progress", async (e) => {
     const data = JSON.parse(e.data);
     const wrap = document.getElementById(`prog-wrap-${data.model_id}`);
     const fill = document.getElementById(`prog-fill-${data.model_id}`);
     const text = document.getElementById(`prog-text-${data.model_id}`);
 
-    if (wrap) wrap.style.display = "block";
-    if (fill) fill.style.width = `${data.percent.toFixed(1)}%`;
-    if (text) {
-      text.style.display = "block";
-      const mbDl = (data.downloaded_bytes / (1024 * 1024)).toFixed(1);
-      const mbTotal = (data.total_bytes / (1024 * 1024)).toFixed(1);
-      text.innerText = `下载进度: ${data.percent.toFixed(1)}% (${mbDl}MB / ${mbTotal}MB) · ${data.speed_mb.toFixed(1)} MB/s`;
-    }
+    if (data.status === "downloading") {
+      // 只要处于下载阶段，持续确保按钮是红色的“取消”按钮
+      const presetBox = document.getElementById(`preset-box-${data.model_id}`);
+      if (presetBox) {
+        const cancelBtn = presetBox.querySelector(".cancel-download-btn");
+        if (!cancelBtn) {
+          updatePresetCardDownloadState(data.model_id, true);
+        }
+      } else {
+        if (!state.downloadingModels) state.downloadingModels = new Set();
+        state.downloadingModels.add(data.model_id);
+      }
 
-    if (data.status === "completed") {
+      if (wrap) wrap.style.display = "block";
+      if (fill) fill.style.width = `${data.percent.toFixed(1)}%`;
+      if (text) {
+        text.style.display = "block";
+        const mbDl = (data.downloaded_bytes / (1024 * 1024)).toFixed(1);
+        const mbTotal = (data.total_bytes / (1024 * 1024)).toFixed(1);
+        text.innerText = `下载进度: ${data.percent.toFixed(1)}% (${mbDl}MB / ${mbTotal}MB) · ${data.speed_mb.toFixed(1)} MB/s`;
+      }
+    } else if (data.status === "canceled") {
+      updatePresetCardDownloadState(data.model_id, false);
+      await loadModelPresets();
+      const afterText = document.getElementById(`prog-text-${data.model_id}`);
+      if (afterText) {
+        afterText.style.display = "block";
+        afterText.style.color = "var(--primary)";
+        afterText.innerText = "已取消下载，已清除下载缓存";
+        setTimeout(() => {
+          if (afterText) afterText.style.display = "none";
+        }, 3000);
+      }
+    } else if (data.status === "completed") {
+      updatePresetCardDownloadState(data.model_id, false);
+      if (wrap) wrap.style.display = "block";
+      if (fill) fill.style.width = "100%";
       if (text) text.innerText = "下载完成，校验成功！";
       setTimeout(async () => {
         await loadModelPresets();
       }, 1000);
+    } else if (data.status === "failed") {
+      updatePresetCardDownloadState(data.model_id, false);
+      if (text) {
+        text.style.display = "block";
+        text.innerText = `下载失败: ${data.error || "网络中断"}`;
+      }
+      setTimeout(async () => {
+        await loadModelPresets();
+      }, 3000);
     }
   });
 
@@ -3632,4 +4553,75 @@ function escapeHtml(str) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
+}
+
+// 初始化桌面端运行环境与窗口拖拽控制
+function initDesktopEnvironment() {
+  const isDesktop = !!window.__SENSIDOC_DESKTOP__;
+  let platform = window.__SENSIDOC_PLATFORM__;
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const paramDesktop = urlParams.get("desktop");
+
+  if (!platform) {
+    if (paramDesktop) {
+      platform = paramDesktop;
+    } else {
+      const ua = navigator.userAgent.toLowerCase();
+      if (ua.includes("mac")) {
+        platform = "mac";
+      } else if (ua.includes("win")) {
+        platform = "win";
+      } else {
+        platform = "linux";
+      }
+    }
+  }
+
+  // 若处于原生桌面客户端或调试参数指定状态，赋予对应的平台样式标识
+  if (isDesktop || paramDesktop) {
+    const activePlatform = paramDesktop || platform;
+    document.documentElement.classList.add("desktop-app", `platform-${activePlatform}`);
+    if (document.body) {
+      document.body.classList.add("desktop-app", `platform-${activePlatform}`);
+    }
+  }
+
+  // 绑定顶部标题栏拖拽与双击最大化
+  const appHeader = document.querySelector(".app-header");
+  if (appHeader) {
+    appHeader.addEventListener("mousedown", (e) => {
+      if (e.target.closest("button, a, input, select, .header-actions, .win-window-controls")) {
+        return;
+      }
+      if (e.button === 0 && window.ipc) {
+        if (e.detail === 2) {
+          window.ipc.postMessage("maximize");
+        } else {
+          window.ipc.postMessage("drag_window");
+        }
+      }
+    });
+  }
+
+  // 绑定 Windows 专属原生控制按键事件
+  const minBtn = document.getElementById("winMinBtn");
+  const maxBtn = document.getElementById("winMaxBtn");
+  const closeBtn = document.getElementById("winCloseBtn");
+
+  if (minBtn) {
+    minBtn.addEventListener("click", () => {
+      if (window.ipc) window.ipc.postMessage("minimize");
+    });
+  }
+  if (maxBtn) {
+    maxBtn.addEventListener("click", () => {
+      if (window.ipc) window.ipc.postMessage("maximize");
+    });
+  }
+  if (closeBtn) {
+    closeBtn.addEventListener("click", () => {
+      if (window.ipc) window.ipc.postMessage("close");
+    });
+  }
 }

@@ -7,8 +7,18 @@ use std::sync::LazyLock;
 pub struct RuleField {
     pub name: String,
     pub description: String,
-    pub risk_level: String, // "high", "medium", "low"
+    #[serde(default = "default_priority")]
+    pub priority: String, // "high", "medium", "low"
+    #[serde(default = "default_true")]
     pub is_enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn default_priority() -> String {
+    "medium".to_string()
 }
 
 /// 提取出的单条敏感项详情
@@ -17,7 +27,8 @@ pub struct SensitiveItem {
     pub id: String,
     pub text: String,
     pub category: String,
-    pub risk_level: String,
+    #[serde(default = "default_priority")]
+    pub priority: String,
     pub count: usize,
     pub positions: Vec<usize>, // 字符偏移量位置列表
     pub source: String,        // "regex" or "ai"
@@ -82,7 +93,7 @@ impl Extractor {
                         id: uuid::Uuid::new_v4().to_string(),
                         text: matched_text,
                         category: field.name.clone(),
-                        risk_level: field.risk_level.clone(),
+                        priority: field.priority.clone(),
                         count: 1,
                         positions: vec![start_idx],
                         source: "regex".to_string(),
@@ -112,7 +123,7 @@ impl Extractor {
                             id: uuid::Uuid::new_v4().to_string(),
                             text: matched_text,
                             category: field.name.clone(),
-                            risk_level: field.risk_level.clone(),
+                            priority: field.priority.clone(),
                             count: 1,
                             positions: vec![start_idx],
                             source: "regex".to_string(),
@@ -136,7 +147,7 @@ impl Extractor {
                         id: uuid::Uuid::new_v4().to_string(),
                         text: matched_text,
                         category: field.name.clone(),
-                        risk_level: field.risk_level.clone(),
+                        priority: field.priority.clone(),
                         count: 1,
                         positions: vec![start_idx],
                         source: "regex".to_string(),
@@ -146,7 +157,7 @@ impl Extractor {
         }
 
         // 4. 银行卡号正则（仅当用户定义了银行卡/信用卡/卡号相关字段时启用）
-        if let Some(field) = wants_category(&["银行卡", "信用卡", "卡号", "借记卡"]) {
+        if let Some(field) = wants_category(&["银行卡", "信用卡", "卡号", "借记卡", "银行账号", "账号"]) {
             for m in REGEX_BANK_CARD.find_iter(text) {
                 let matched_text = m.as_str().to_string();
                 let start_idx = m.start();
@@ -159,7 +170,7 @@ impl Extractor {
                         id: uuid::Uuid::new_v4().to_string(),
                         text: matched_text,
                         category: field.name.clone(),
-                        risk_level: field.risk_level.clone(),
+                        priority: field.priority.clone(),
                         count: 1,
                         positions: vec![start_idx],
                         source: "regex".to_string(),
@@ -288,7 +299,7 @@ impl Extractor {
     pub fn format_fields_definition(fields: &[RuleField]) -> String {
         let mut defs = Vec::new();
         for f in fields.iter().filter(|f| f.is_enabled) {
-            let pri = match f.risk_level.as_str() {
+            let pri = match f.priority.as_str() {
                 "high" => "高",
                 "low" => "低",
                 _ => "中",
@@ -538,7 +549,7 @@ impl Extractor {
                                                 id: uuid::Uuid::new_v4().to_string(),
                                                 text: trimmed.to_string(),
                                                 category: field.to_string(),
-                                                risk_level: "medium".to_string(),
+                                                priority: "medium".to_string(),
                                                 count: 1,
                                                 positions: Vec::new(),
                                                 source: "ai".to_string(),
@@ -553,7 +564,7 @@ impl Extractor {
                                                         id: uuid::Uuid::new_v4().to_string(),
                                                         text: trimmed.to_string(),
                                                         category: field.to_string(),
-                                                        risk_level: "medium".to_string(),
+                                                        priority: "medium".to_string(),
                                                         count: 1,
                                                         positions: Vec::new(),
                                                         source: "ai".to_string(),
@@ -571,7 +582,7 @@ impl Extractor {
                                         id: uuid::Uuid::new_v4().to_string(),
                                         text: trimmed.to_string(),
                                         category: "自定义敏感项".to_string(),
-                                        risk_level: "medium".to_string(),
+                                        priority: "medium".to_string(),
                                         count: 1,
                                         positions: Vec::new(),
                                         source: "ai".to_string(),
@@ -592,7 +603,7 @@ impl Extractor {
                                     id: uuid::Uuid::new_v4().to_string(),
                                     text: trimmed.to_string(),
                                     category: key.clone(),
-                                    risk_level: "medium".to_string(),
+                                    priority: "medium".to_string(),
                                     count: 1,
                                     positions: Vec::new(),
                                     source: "ai".to_string(),
@@ -607,7 +618,7 @@ impl Extractor {
                                             id: uuid::Uuid::new_v4().to_string(),
                                             text: trimmed.to_string(),
                                             category: key.clone(),
-                                            risk_level: "medium".to_string(),
+                                            priority: "medium".to_string(),
                                             count: 1,
                                             positions: Vec::new(),
                                             source: "ai".to_string(),
@@ -625,7 +636,7 @@ impl Extractor {
         items
     }
 
-    /// 位置重叠冲突消解与结果合并去重，并基于启用的规则自动补充分类与风险等级
+    /// 位置重叠冲突消解与结果合并去重，并基于启用的规则自动补充分类与优先级
     pub fn merge_and_resolve(
         full_text: &str,
         mut regex_items: Vec<SensitiveItem>,
@@ -663,12 +674,12 @@ impl Extractor {
             ai_item.positions = positions.clone();
             ai_item.count = positions.len();
 
-            // 智能分类与风险等级对齐
+            // 智能分类与优先级对齐
             if !enabled_fields.is_empty() {
                 // 1. 精确匹配字段名（如 "甲方法人" == "甲方法人"）
                 if let Some(exact_field) = enabled_fields.iter().find(|f| f.name == ai_item.category) {
                     ai_item.category = exact_field.name.clone();
-                    ai_item.risk_level = exact_field.risk_level.clone();
+                    ai_item.priority = exact_field.priority.clone();
                 } else {
                     // 2. 尝试从字段名或描述中模糊匹配（如 "甲方企业" 匹配 "甲方"，"法定代表人" 匹配 "甲方法人"）
                     let matched_field = enabled_fields.iter().find(|f| {
@@ -679,10 +690,10 @@ impl Extractor {
 
                     if let Some(f) = matched_field {
                         ai_item.category = f.name.clone();
-                        ai_item.risk_level = f.risk_level.clone();
+                        ai_item.priority = f.priority.clone();
                     } else if ai_item.category == "自定义敏感项" && enabled_fields.len() == 1 {
                         ai_item.category = enabled_fields[0].name.clone();
-                        ai_item.risk_level = enabled_fields[0].risk_level.clone();
+                        ai_item.priority = enabled_fields[0].priority.clone();
                     } else {
                         // 3. 上下文回退匹配：查看该实体在原文中前后窗口内的关键词
                         let mut context_matched = None;
@@ -702,12 +713,12 @@ impl Extractor {
 
                         if let Some(f) = context_matched {
                             ai_item.category = f.name.clone();
-                            ai_item.risk_level = f.risk_level.clone();
+                            ai_item.priority = f.priority.clone();
                         } else if let Some(first_field) = enabled_fields.first() {
                             if ai_item.category == "自定义敏感项" {
                                 ai_item.category = first_field.name.clone();
                             }
-                            ai_item.risk_level = first_field.risk_level.clone();
+                            ai_item.priority = first_field.priority.clone();
                         }
                     }
                 }
@@ -729,15 +740,15 @@ impl Extractor {
             }
         }
 
-        // 按风险等级排序：high > medium > low，同级按出现频次降序
+        // 按优先级排序：high > medium > low，同级按出现频次降序
         regex_items.sort_by(|a, b| {
-            let risk_rank = |r: &str| match r {
+            let priority_rank = |r: &str| match r {
                 "high" => 3,
                 "medium" => 2,
                 _ => 1,
             };
-            risk_rank(&b.risk_level)
-                .cmp(&risk_rank(&a.risk_level))
+            priority_rank(&b.priority)
+                .cmp(&priority_rank(&a.priority))
                 .then(b.count.cmp(&a.count))
         });
 
@@ -753,9 +764,9 @@ mod tests {
     fn test_regex_extraction() {
         let text = "联系人张先生，手机号码 13800138000，身份证号 110101199003072345，邮箱 test@example.com";
         let fields = vec![
-            RuleField { name: "身份证件".into(), description: "18位身份证号".into(), risk_level: "high".into(), is_enabled: true },
-            RuleField { name: "移动电话".into(), description: "手机号".into(), risk_level: "high".into(), is_enabled: true },
-            RuleField { name: "电子邮箱".into(), description: "邮箱".into(), risk_level: "medium".into(), is_enabled: true },
+            RuleField { name: "身份证件".into(), description: "18位身份证号".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "移动电话".into(), description: "手机号".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "电子邮箱".into(), description: "邮箱".into(), priority: "medium".into(), is_enabled: true },
         ];
         let items = Extractor::extract_by_regex(text, &fields);
         println!("提取结果: {:#?}", items);
@@ -791,7 +802,7 @@ mod tests {
             id: "1".into(),
             text: "张伟".into(),
             category: "自定义敏感项".into(),
-            risk_level: "medium".into(),
+            priority: "medium".into(),
             count: 1,
             positions: vec![],
             source: "ai".into(),
@@ -800,7 +811,7 @@ mod tests {
             id: "2".into(),
             text: "张伟".into(),
             category: "自定义敏感项".into(),
-            risk_level: "medium".into(),
+            priority: "medium".into(),
             count: 1,
             positions: vec![],
             source: "ai".into(),
@@ -809,7 +820,7 @@ mod tests {
         let fields = vec![RuleField {
             name: "涉密人员".into(),
             description: "项目主管或联系人姓名".into(),
-            risk_level: "high".into(),
+            priority: "high".into(),
             is_enabled: true,
         }];
 
@@ -822,14 +833,14 @@ mod tests {
         assert_eq!(item.count, 3);
         assert_eq!(item.positions.len(), 3);
         assert_eq!(item.category, "涉密人员");
-        assert_eq!(item.risk_level, "high");
+        assert_eq!(item.priority, "high");
     }
 
     #[test]
     fn test_conflict_resolution() {
         let full_text = "用户手机 13812345678 被记录在系统中。";
         let fields = vec![
-            RuleField { name: "移动电话".into(), description: "手机".into(), risk_level: "high".into(), is_enabled: true },
+            RuleField { name: "移动电话".into(), description: "手机".into(), priority: "high".into(), is_enabled: true },
         ];
         let regex_res = Extractor::extract_by_regex(full_text, &fields);
 
@@ -837,7 +848,7 @@ mod tests {
             id: "1".into(),
             text: "手机 13812345678".into(),
             category: "包含手机号片段".into(),
-            risk_level: "medium".into(),
+            priority: "medium".into(),
             count: 1,
             positions: vec![],
             source: "ai".into(),
@@ -847,5 +858,28 @@ mod tests {
         // 应当消解重叠，保留更精准的正则项
         assert_eq!(merged.len(), 1);
         assert_eq!(merged[0].text, "13812345678");
+    }
+
+    #[test]
+    fn test_rule_field_deserialization() {
+        let json_data = r#"{"name":"身份证号","description":"员工身份证号码","priority":"high","is_enabled":true}"#;
+        let field: RuleField = serde_json::from_str(json_data).expect("Should deserialize with priority");
+        assert_eq!(field.name, "身份证号");
+        assert_eq!(field.priority, "high");
+        assert!(field.is_enabled);
+
+        // 验证缺省 priority 与 is_enabled
+        let json_default = r#"{"name":"电话","description":""}"#;
+        let field_default: RuleField = serde_json::from_str(json_default).expect("Should deserialize with default values");
+        assert_eq!(field_default.priority, "medium");
+        assert!(field_default.is_enabled);
+
+        // 验证 SensitiveItem 反序列化
+        let json_item = r#"{"id":"1","text":"5571500013648","category":"身份证号","priority":"high","count":1,"positions":[10],"source":"ai"}"#;
+        let item: SensitiveItem = serde_json::from_str(json_item).expect("Should deserialize SensitiveItem");
+        assert_eq!(item.text, "5571500013648");
+        assert_eq!(item.priority, "high");
+        assert_eq!(item.count, 1);
+        assert_eq!(item.source, "ai");
     }
 }

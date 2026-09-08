@@ -1,5 +1,6 @@
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -18,6 +19,8 @@ pub struct ModelPreset {
     pub description: String,
     pub size_desc: String,
     pub is_downloaded: bool,
+    #[serde(default)]
+    pub is_downloading: bool,
     pub is_active: bool,
 }
 
@@ -25,7 +28,7 @@ pub struct ModelPreset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DownloadProgress {
     pub model_id: String,
-    pub status: String, // "downloading", "completed", "failed"
+    pub status: String, // "downloading", "completed", "failed", "canceled"
     pub downloaded_bytes: u64,
     pub total_bytes: u64,
     pub percent: f64,
@@ -41,7 +44,10 @@ pub struct ModelManager {
     active_model: Arc<Mutex<Option<String>>>,
     server_port: u16,
     progress_tx: broadcast::Sender<DownloadProgress>,
+    download_cancellations: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<()>>>>,
 }
+
+pub const DEFAULT_LLAMA_SERVER_PORT: u16 = 18188;
 
 impl ModelManager {
     pub fn new() -> Self {
@@ -58,29 +64,46 @@ impl ModelManager {
             llama_bin_path,
             active_child: Arc::new(Mutex::new(None)),
             active_model: Arc::new(Mutex::new(None)),
-            server_port: 8081,
+            server_port: DEFAULT_LLAMA_SERVER_PORT,
             progress_tx,
+            download_cancellations: Arc::new(Mutex::new(HashMap::new())),
         }
+    }
+
+    pub fn server_port(&self) -> u16 {
+        self.server_port
+    }
+
+    /// 快速探测底层 llama-server 是否已就绪（超时 600ms）
+    pub async fn is_server_ready(&self) -> bool {
+        let client = match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(600))
+            .build()
+        {
+            Ok(c) => c,
+            Err(_) => return false,
+        };
+        let health_url = format!("http://127.0.0.1:{}/health", self.server_port);
+        if let Ok(resp) = client.get(&health_url).send().await {
+            return resp.status().is_success();
+        }
+        false
     }
 
     pub fn get_progress_receiver(&self) -> broadcast::Receiver<DownloadProgress> {
         self.progress_tx.subscribe()
     }
 
-    /// 获取内置的 3 款魔搭模型预设列表及其当前本地状态
+    /// 获取内置的魔搭模型预设列表及其当前本地状态
     pub async fn get_presets(&self) -> Vec<ModelPreset> {
         let active = self.get_active_model().await;
+        let downloading_ids: std::collections::HashSet<String> = {
+            let map = self.download_cancellations.lock().await;
+            map.keys().cloned().collect()
+        };
+
+        // 按模型参数大小排序：450M -> 1.5B -> 2B -> 4B
         let presets = vec![
-            ModelPreset {
-                id: "lfm2-350m-extract".to_string(),
-                name: "LFM2-350M-Extract (Q8_0)".to_string(),
-                filename: "LFM2-350M-Extract-Q8_0.gguf".to_string(),
-                modelscope_id: "LiquidAI/LFM2-350M-Extract-GGUF".to_string(),
-                description: "专为敏感信息与实体抽取定向优化的超轻量模型，毫秒级推理".to_string(),
-                size_desc: "~370 MB".to_string(),
-                is_downloaded: false,
-                is_active: false,
-            },
             ModelPreset {
                 id: "lfm2.5-vl-450m".to_string(),
                 name: "LFM2.5-VL-450M (Q8_0)".to_string(),
@@ -89,6 +112,7 @@ impl ModelManager {
                 description: "超小身材大视觉/文本理解模型，Q8_0 高精度量化，结构化提取表现优异".to_string(),
                 size_desc: "~360 MB".to_string(),
                 is_downloaded: false,
+                is_downloading: false,
                 is_active: false,
             },
             ModelPreset {
@@ -99,6 +123,29 @@ impl ModelManager {
                 description: "通义千问 2.5 经典 1.5B 指令微调版，语义结构理解综合性能强".to_string(),
                 size_desc: "~980 MB".to_string(),
                 is_downloaded: false,
+                is_downloading: false,
+                is_active: false,
+            },
+            ModelPreset {
+                id: "qwen3.5-2b".to_string(),
+                name: "Qwen3.5-2B (Q5_K_M)".to_string(),
+                filename: "Qwen3.5-2B-Q5_K_M.gguf".to_string(),
+                modelscope_id: "unsloth/Qwen3.5-2B-GGUF".to_string(),
+                description: "Qwen3.5 架构 2B 高性能小模型，Q5_K_M 优质中高精度量化，结构化提取与指令理解更强".to_string(),
+                size_desc: "~1.4 GB".to_string(),
+                is_downloaded: false,
+                is_downloading: false,
+                is_active: false,
+            },
+            ModelPreset {
+                id: "tessera-4b-preview".to_string(),
+                name: "Tessera-4B-Preview (Q4_K_M)".to_string(),
+                filename: "Tessera-4B-Preview-Q4_K_M.gguf".to_string(),
+                modelscope_id: "sahilchachra/Tessera-4B-Preview-GGUF".to_string(),
+                description: "基于 Qwen3.5-4B 深度微调的高性能推理与 Agent 工具调用模型，Q4_K_M 平衡版".to_string(),
+                size_desc: "~2.6 GB".to_string(),
+                is_downloaded: false,
+                is_downloading: false,
                 is_active: false,
             },
         ];
@@ -108,6 +155,7 @@ impl ModelManager {
             .map(|mut p| {
                 let path = self.models_dir.join(&p.filename);
                 p.is_downloaded = path.exists() && std::fs::metadata(&path).map(|m| m.len() > 1024 * 1024).unwrap_or(false);
+                p.is_downloading = downloading_ids.contains(&p.id);
                 p.is_active = active.as_deref() == Some(&p.filename);
                 p
             })
@@ -132,14 +180,15 @@ impl ModelManager {
         list
     }
 
-    /// 获取当前运行中的模型名称（主动探测 8081 端口上的 llama-server 真实运行状态并自动同步）
+    /// 获取当前运行中的模型名称（主动探测专属端口上的 llama-server 真实运行状态并自动同步）
     pub async fn get_active_model(&self) -> Option<String> {
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_millis(500))
             .build()
             .unwrap_or_default();
 
-        if let Ok(resp) = client.get("http://127.0.0.1:8081/v1/models").send().await {
+        let url = format!("http://127.0.0.1:{}/v1/models", self.server_port);
+        if let Ok(resp) = client.get(&url).send().await {
             if resp.status().is_success() {
                 if let Ok(json_body) = resp.json::<serde_json::Value>().await {
                     let detected_name = json_body["data"][0]["id"]
@@ -162,7 +211,7 @@ impl ModelManager {
             }
         }
 
-        // 若探测 8081 端口不可达，清空状态并返回 None
+        // 若探测专属端口不可达，清空状态并返回 None
         let mut guard = self.active_model.lock().await;
         *guard = None;
         None
@@ -307,24 +356,40 @@ end try"#;
         Ok(filename.to_string())
     }
 
-    /// 停止当前正在运行的 llama-server 子进程，彻底释放端口与显存
+    /// 停止当前正在运行的 llama-server 子进程，彻底释放专属端口与显存
     pub async fn stop_server(&self) {
         let mut child_guard = self.active_child.lock().await;
         if let Some(mut child) = child_guard.take() {
             info!("正在终止当前 llama-server 进程 (PID: {:?})...", child.id());
             let _ = child.kill().await;
             let _ = child.wait().await;
-            info!("旧 llama-server 进程已终止释放。");
+            info!("SensiDoc llama-server 进程已终止释放。");
         }
 
-        // Unix 系统下二次强杀残留孤儿进程，确保 8081 端口绝对释放
+        // 仅精准清理占用 SensiDoc 专属端口的孤儿残留，绝不误杀系统其他 llama-server
         #[cfg(unix)]
         {
-            let _ = tokio::process::Command::new("pkill")
-                .arg("-f")
-                .arg("llama-server")
+            let port_str = self.server_port.to_string();
+            if let Ok(output) = tokio::process::Command::new("lsof")
+                .arg("-ti")
+                .arg(format!(":{}", port_str))
                 .output()
-                .await;
+                .await
+            {
+                if output.status.success() {
+                    let pids = String::from_utf8_lossy(&output.stdout);
+                    for pid in pids.lines() {
+                        if let Ok(pid_num) = pid.trim().parse::<u32>() {
+                            info!("精准清理占用专属端口 {} 的孤儿进程 PID: {}", port_str, pid_num);
+                            let _ = tokio::process::Command::new("kill")
+                                .arg("-9")
+                                .arg(pid_num.to_string())
+                                .output()
+                                .await;
+                        }
+                    }
+                }
+            }
         }
 
         let mut model_guard = self.active_model.lock().await;
@@ -455,11 +520,49 @@ end try"#;
             req = req.header("Range", format!("bytes={}-", downloaded));
         }
 
-        let resp = req.send().await.map_err(|e| format!("连接魔搭下载源失败: {e}"))?;
+        let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let mut map = self.download_cancellations.lock().await;
+            map.insert(model_id.to_string(), cancel_tx);
+        }
 
-        let total_size = match resp.content_length() {
-            Some(len) => len + downloaded,
-            None => downloaded + 350 * 1024 * 1024,
+        let resp = tokio::select! {
+            res = req.send() => {
+                match res {
+                    Ok(r) => r,
+                    Err(e) => {
+                        let mut map = self.download_cancellations.lock().await;
+                        map.remove(model_id);
+                        return Err(format!("连接魔搭下载源失败: {e}"));
+                    }
+                }
+            }
+            _ = &mut cancel_rx => {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                let _ = self.progress_tx.send(DownloadProgress {
+                    model_id: model_id.to_string(),
+                    percent: 0.0,
+                    downloaded_bytes: 0,
+                    total_bytes: 0,
+                    speed_mb: 0.0,
+                    status: "canceled".to_string(),
+                    error: None,
+                });
+                return Ok(());
+            }
+        };
+
+        let total_size = if let Some(cr) = resp.headers().get("content-range").and_then(|h| h.to_str().ok()) {
+            if let Some(slash_idx) = cr.rfind('/') {
+                cr[slash_idx + 1..].parse::<u64>().unwrap_or_else(|_| resp.content_length().unwrap_or(0) + downloaded)
+            } else {
+                resp.content_length().unwrap_or(0) + downloaded
+            }
+        } else {
+            match resp.content_length() {
+                Some(len) => len + downloaded,
+                None => downloaded + 500 * 1024 * 1024,
+            }
         };
 
         let mut stream = resp.bytes_stream();
@@ -468,39 +571,95 @@ end try"#;
             .append(true)
             .open(&part_path)
             .await
-            .map_err(|e| format!("打开临时模型文件失败: {e}"))?;
+            .map_err(|e| {
+                let mgr_cancels = self.download_cancellations.clone();
+                let m_id = model_id.to_string();
+                tokio::spawn(async move {
+                    let mut map = mgr_cancels.lock().await;
+                    map.remove(&m_id);
+                });
+                format!("打开临时模型文件失败: {e}")
+            })?;
 
         let mut last_broadcast = std::time::Instant::now();
         let mut speed_calc_time = std::time::Instant::now();
         let mut speed_downloaded = 0u64;
         let mut current_speed = 0.0f64;
+        let mut is_canceled = false;
 
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| format!("下载数据分块失败: {e}"))?;
-            file.write_all(&chunk).await.map_err(|e| format!("写入模型文件失败: {e}"))?;
-            downloaded += chunk.len() as u64;
-            speed_downloaded += chunk.len() as u64;
+        loop {
+            tokio::select! {
+                _ = &mut cancel_rx => {
+                    is_canceled = true;
+                    break;
+                }
+                chunk_opt = stream.next() => {
+                    match chunk_opt {
+                        Some(chunk_result) => {
+                            let chunk = match chunk_result {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    let mut map = self.download_cancellations.lock().await;
+                                    map.remove(model_id);
+                                    return Err(format!("下载数据分块失败: {e}"));
+                                }
+                            };
+                            if let Err(e) = file.write_all(&chunk).await {
+                                let mut map = self.download_cancellations.lock().await;
+                                map.remove(model_id);
+                                return Err(format!("写入模型文件失败: {e}"));
+                            }
+                            downloaded += chunk.len() as u64;
+                            speed_downloaded += chunk.len() as u64;
 
-            if speed_calc_time.elapsed() >= std::time::Duration::from_millis(500) {
-                let elapsed_secs = speed_calc_time.elapsed().as_secs_f64();
-                current_speed = (speed_downloaded as f64 / (1024.0 * 1024.0)) / elapsed_secs;
-                speed_downloaded = 0;
-                speed_calc_time = std::time::Instant::now();
+                            if speed_calc_time.elapsed() >= std::time::Duration::from_millis(500) {
+                                let elapsed_secs = speed_calc_time.elapsed().as_secs_f64();
+                                current_speed = (speed_downloaded as f64 / (1024.0 * 1024.0)) / elapsed_secs;
+                                speed_downloaded = 0;
+                                speed_calc_time = std::time::Instant::now();
+                            }
+
+                            if last_broadcast.elapsed() >= std::time::Duration::from_millis(150) || downloaded >= total_size {
+                                let percent = (downloaded as f64 / total_size as f64 * 100.0).min(100.0);
+                                let _ = self.progress_tx.send(DownloadProgress {
+                                    model_id: model_id.to_string(),
+                                    downloaded_bytes: downloaded,
+                                    total_bytes: total_size,
+                                    percent,
+                                    speed_mb: current_speed,
+                                    status: if downloaded >= total_size { "completed".to_string() } else { "downloading".to_string() },
+                                    error: None,
+                                });
+                                last_broadcast = std::time::Instant::now();
+                            }
+                        }
+                        None => break,
+                    }
+                }
             }
+        }
 
-            if last_broadcast.elapsed() >= std::time::Duration::from_millis(150) || downloaded >= total_size {
-                let percent = (downloaded as f64 / total_size as f64 * 100.0).min(100.0);
-                let _ = self.progress_tx.send(DownloadProgress {
-                    model_id: model_id.to_string(),
-                    downloaded_bytes: downloaded,
-                    total_bytes: total_size,
-                    percent,
-                    speed_mb: current_speed,
-                    status: if downloaded >= total_size { "completed".to_string() } else { "downloading".to_string() },
-                    error: None,
-                });
-                last_broadcast = std::time::Instant::now();
+        {
+            let mut map = self.download_cancellations.lock().await;
+            map.remove(model_id);
+        }
+
+        if is_canceled {
+            info!("用户取消下载模型 {}，正在清理临时缓存文件: {:?}", model_id, part_path);
+            drop(file);
+            if part_path.exists() {
+                let _ = tokio::fs::remove_file(&part_path).await;
             }
+            let _ = self.progress_tx.send(DownloadProgress {
+                model_id: model_id.to_string(),
+                downloaded_bytes: 0,
+                total_bytes: total_size,
+                percent: 0.0,
+                speed_mb: 0.0,
+                status: "canceled".to_string(),
+                error: Some("下载已由用户取消，已清除下载缓存".to_string()),
+            });
+            return Err("下载已由用户取消".to_string());
         }
 
         file.flush().await.map_err(|e| format!("刷新文件缓冲区失败: {e}"))?;
@@ -522,6 +681,40 @@ end try"#;
         });
 
         Ok(())
+    }
+
+    /// 取消正在进行的模型下载，并自动清除已下载的缓存文件 (.part)
+    pub async fn cancel_download(&self, model_id: &str) -> bool {
+        let mut map = self.download_cancellations.lock().await;
+        let was_active = if let Some(tx) = map.remove(model_id) {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        };
+        drop(map);
+
+        // 清除对应的 .part 临时文件缓存
+        let presets = self.get_presets().await;
+        if let Some(target_preset) = presets.iter().find(|p| p.id == model_id) {
+            let part_path = self.models_dir.join(format!("{}.part", target_preset.filename));
+            if part_path.exists() {
+                info!("主动清理已取消的模型缓存文件: {:?}", part_path);
+                let _ = tokio::fs::remove_file(&part_path).await;
+            }
+        }
+
+        let _ = self.progress_tx.send(DownloadProgress {
+            model_id: model_id.to_string(),
+            downloaded_bytes: 0,
+            total_bytes: 0,
+            percent: 0.0,
+            speed_mb: 0.0,
+            status: "canceled".to_string(),
+            error: Some("下载已由用户取消，已清除下载缓存".to_string()),
+        });
+
+        was_active
     }
 }
 
@@ -545,10 +738,11 @@ mod tests {
     async fn test_presets_loading() {
         let mgr = ModelManager::new();
         let presets = mgr.get_presets().await;
-        assert_eq!(presets.len(), 3);
-        assert!(presets.iter().any(|p| p.id == "lfm2-350m-extract"));
-        assert!(presets.iter().any(|p| p.id == "lfm2.5-vl-450m"));
-        assert!(presets.iter().any(|p| p.id == "qwen2.5-1.5b-instruct"));
+        assert_eq!(presets.len(), 4);
+        assert_eq!(presets[0].id, "lfm2.5-vl-450m");
+        assert_eq!(presets[1].id, "qwen2.5-1.5b-instruct");
+        assert_eq!(presets[2].id, "qwen3.5-2b");
+        assert_eq!(presets[3].id, "tessera-4b-preview");
     }
 
     #[tokio::test]
@@ -559,7 +753,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let url = "https://modelscope.cn/models/LiquidAI/LFM2.5-VL-450M-GGUF/resolve/master/LFM2.5-VL-450M-Q8_0.gguf";
+        let url = "https://modelscope.cn/models/sahilchachra/Tessera-4B-Preview-GGUF/resolve/master/Tessera-4B-Preview-Q4_K_M.gguf";
         let resp = client
             .get(url)
             .header("Range", "bytes=0-1023")
@@ -568,6 +762,30 @@ mod tests {
             .unwrap();
 
         assert!(resp.status().is_success() || resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
+
+        let qwen_url = "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q5_K_M.gguf";
+        let qwen_resp = client
+            .get(qwen_url)
+            .header("Range", "bytes=0-1023")
+            .send()
+            .await
+            .unwrap();
+
+        assert!(qwen_resp.status().is_success() || qwen_resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_download_cleans_cache() {
+        let mgr = ModelManager::new();
+        // 创建一个模拟的 .part 文件
+        let test_part = mgr.models_dir.join("Tessera-4B-Preview-Q4_K_M.gguf.part");
+        tokio::fs::write(&test_part, b"temporary download cache").await.unwrap();
+        assert!(test_part.exists());
+
+        // 调用 cancel_download 取消
+        let _ = mgr.cancel_download("tessera-4b-preview").await;
+        // 验证 .part 临时文件已被自动清理
+        assert!(!test_part.exists(), "cancel_download 应当自动清理 .part 临时缓存文件");
     }
 }
 

@@ -33,3 +33,12 @@ sysinfo = "0.33"
 wry = "0.56.1"
 tao = "0.37.0"
 
+# 原生 Office (DOCX/XLSX/PPTX) 与 PDF 重构脱敏引擎
+zip = { version = "8.6", default-features = false, features = ["deflate"] }
+quick-xml = "0.41"
+lopdf = { version = "0.38", default-features = false }
+
+# 命令行解析 (CLI)
+clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+
+

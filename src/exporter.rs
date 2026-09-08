@@ -5,12 +5,17 @@ pub struct Exporter;
 impl Exporter {
     /// 生成符合 RFC 4180 标准的 CSV 字符串 (含 UTF-8 BOM，防止 Excel 打开乱码)
     pub fn export_to_csv(items: &[SensitiveItem]) -> String {
-        let mut csv = String::from("\u{FEFF}敏感词内容,字段分类,风险等级,出现频次,提取来源\n");
+        let mut csv = String::from("\u{FEFF}敏感词内容,字段分类,优先级,出现频次,提取来源\n");
         for item in items {
             let escaped_text = item.text.replace('"', "\"\"");
+            let pri = match item.priority.as_str() {
+                "high" => "高",
+                "low" => "低",
+                _ => "中",
+            };
             csv.push_str(&format!(
                 "\"{}\",\"{}\",\"{}\",{},\"{}\"\n",
-                escaped_text, item.category, item.risk_level, item.count, item.source
+                escaped_text, item.category, pri, item.count, item.source
             ));
         }
         csv
@@ -53,7 +58,7 @@ mod tests {
                 id: "1".into(),
                 text: "张三".into(),
                 category: "姓名".into(),
-                risk_level: "low".into(),
+                priority: "low".into(),
                 count: 1,
                 positions: vec![],
                 source: "regex".into(),
@@ -62,7 +67,7 @@ mod tests {
                 id: "2".into(),
                 text: "13800138000".into(),
                 category: "电话".into(),
-                risk_level: "high".into(),
+                priority: "high".into(),
                 count: 1,
                 positions: vec![],
                 source: "regex".into(),

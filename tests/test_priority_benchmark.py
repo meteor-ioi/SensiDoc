@@ -12,7 +12,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "enterprise_benchmark"))
 from benchmark_data import TEST_DOCUMENTS
 
-LLAMA_URL = "http://127.0.0.1:8081/v1/chat/completions"
+LLAMA_URL = "http://127.0.0.1:18188/v1/chat/completions"
 
 # 提示词模板 V4 极简版 (Qwen2.5 默认最佳模板)
 PROMPT_TEMPLATE_V4 = """【指令】：从文本中提取所有符合定义的敏感信息，输出纯 JSON 数组。
@@ -41,8 +41,8 @@ def format_fields_priority_inline(fields):
     lines = []
     for f in fields:
         if f.get("is_enabled", True):
-            risk = f.get("risk_level", "medium")
-            pri = "高 (必须优先穷尽提取)" if risk == "high" else ("中" if risk == "medium" else "低")
+            pri_val = f.get("priority", "medium")
+            pri = "高 (必须优先穷尽提取)" if pri_val == "high" else ("中" if pri_val == "medium" else "低")
             lines.append(f"- 字段[{f['name']}] (优先级: {pri})：{f['description']}")
     return "\n".join(lines)
 
@@ -51,15 +51,15 @@ def format_fields_priority_bracket(fields):
     lines = []
     for f in fields:
         if f.get("is_enabled", True):
-            risk = f.get("risk_level", "medium")
-            pri = "高优先级" if risk == "high" else ("中优先级" if risk == "medium" else "低优先级")
+            pri_val = f.get("priority", "medium")
+            pri = "高优先级" if pri_val == "high" else ("中优先级" if pri_val == "medium" else "低优先级")
             lines.append(f"- 字段[{f['name']}] [{pri}]：{f['description']}")
     return "\n".join(lines)
 
 def format_fields_priority_grouped(fields):
     """方案 3：按优先级分组排序"""
-    high_fields = [f for f in fields if f.get("is_enabled", True) and f.get("risk_level") == "high"]
-    other_fields = [f for f in fields if f.get("is_enabled", True) and f.get("risk_level") != "high"]
+    high_fields = [f for f in fields if f.get("is_enabled", True) and f.get("priority") == "high"]
+    other_fields = [f for f in fields if f.get("is_enabled", True) and f.get("priority") != "high"]
     lines = []
     if high_fields:
         lines.append("【高优先级核心字段（必须彻底穷尽提取，严禁遗漏）】：")
@@ -108,7 +108,7 @@ def query_llm(system_prompt, markdown_text):
         return [], 0, str(e)
 
 def evaluate(extracted_items, ground_truth, fields):
-    high_fields = {f["name"] for f in fields if f.get("risk_level") == "high"}
+    high_fields = {f["name"] for f in fields if f.get("priority") == "high"}
 
     total_gt = 0
     high_gt = 0

@@ -2,7 +2,6 @@ use crate::extractor::{Extractor, RuleField, SensitiveItem};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Instant;
-use tracing::{info, warn};
 
 /// 单个测试用例
 #[derive(Debug, Clone)]
@@ -144,12 +143,12 @@ impl BenchmarkEngine {
 ### 金额与签署
 合同含税总金额为：￥1,860,000.00（大写：人民币壹佰捌拾陆万元整）。"#,
                 fields: vec![
-                    RuleField { name: "甲方企业".into(), description: "合同采购方或甲方公司全称".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "乙方企业".into(), description: "合同供应方或乙方公司全称".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "甲方法人".into(), description: "甲方法定代表人姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "乙方法人".into(), description: "乙方法定代表人姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "合同总金额".into(), description: "合同总金额数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "银行账号".into(), description: "对公或个人结算银行账号".into(), risk_level: "high".into(), is_enabled: true },
+                    RuleField { name: "甲方企业".into(), description: "合同采购方或甲方公司全称".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "乙方企业".into(), description: "合同供应方或乙方公司全称".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "甲方法人".into(), description: "甲方法定代表人姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "乙方法人".into(), description: "乙方法定代表人姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "合同总金额".into(), description: "合同总金额数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "银行账号".into(), description: "对公或个人结算银行账号".into(), priority: "high".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("甲方企业", vec!["北京华云智远科技有限公司"]),
@@ -172,11 +171,11 @@ impl BenchmarkEngine {
 ### 约定细节
 主导公司核心代号为 Project-Neptune星海工程 的研发，核定税前年薪人民币1,200,000元。"#,
                 fields: vec![
-                    RuleField { name: "员工姓名".into(), description: "受聘员工真实姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "身份证号".into(), description: "18位中国大陆居民身份证号码".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "移动电话".into(), description: "员工个人手机号码".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "岗位薪酬".into(), description: "员工年薪或月薪具体金额".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "涉密项目".into(), description: "核心机密项目代号名称".into(), risk_level: "high".into(), is_enabled: true },
+                    RuleField { name: "员工姓名".into(), description: "受聘员工真实姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "身份证号".into(), description: "18位中国大陆居民身份证号码".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "移动电话".into(), description: "员工个人手机号码".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "岗位薪酬".into(), description: "员工年薪或月薪具体金额".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "涉密项目".into(), description: "核心机密项目代号名称".into(), priority: "high".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("员工姓名", vec!["段天宇"]),
@@ -196,11 +195,11 @@ impl BenchmarkEngine {
 本次报销申请总额：￥48,320.50（人民币肆万捌仟叁佰贰拾元伍角）。
 审批领导：终审财务总监 韩向东。"#,
                 fields: vec![
-                    RuleField { name: "报销申请人".into(), description: "申请报销的员工姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "员工工号".into(), description: "公司员工工号编码".into(), risk_level: "low".into(), is_enabled: true },
-                    RuleField { name: "报销总额".into(), description: "报销单合计总金额数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "收款银行卡".into(), description: "银行借记卡号".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "审批领导".into(), description: "财务总监或主管姓名".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "报销申请人".into(), description: "申请报销的员工姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "员工工号".into(), description: "公司员工工号编码".into(), priority: "low".into(), is_enabled: true },
+                    RuleField { name: "报销总额".into(), description: "报销单合计总金额数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "收款银行卡".into(), description: "银行借记卡号".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "审批领导".into(), description: "财务总监或主管姓名".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("报销申请人", vec!["陆振华"]),
@@ -221,11 +220,11 @@ impl BenchmarkEngine {
 泄露客户刘德福手机：18610293847，姜小萍手机：15821948572。
 安全应急处置负责人：钱志明。"#,
                 fields: vec![
-                    RuleField { name: "受影响系统".into(), description: "安全事件受影响资产名称".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "服务器IP".into(), description: "服务器内网IP地址".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "泄露手机号".into(), description: "泄露的客户手机号码".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "涉密URL".into(), description: "暴露的内部接口完整网址".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "安全负责人".into(), description: "应急处置人员姓名".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "受影响系统".into(), description: "安全事件受影响资产名称".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "服务器IP".into(), description: "服务器内网IP地址".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "泄露手机号".into(), description: "泄露的客户手机号码".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "涉密URL".into(), description: "暴露的内部接口完整网址".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "安全负责人".into(), description: "应急处置人员姓名".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("受影响系统", vec!["用户中心核心订单数据库Cluster-03"]),
@@ -246,11 +245,11 @@ impl BenchmarkEngine {
 - 特权账号：sec_ops_root
 - 数据库地址：rm-bp19283746.mysql.rds.aliyuncs.com:3306"#,
                 fields: vec![
-                    RuleField { name: "运维负责人".into(), description: "运维人员姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "特权账号".into(), description: "超级管理员账号名".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "访问密钥".into(), description: "AccessKey或Token密钥".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "数据库地址".into(), description: "数据库连接串主机域名".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "应急联系电话".into(), description: "应急值班手机号".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "运维负责人".into(), description: "运维人员姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "特权账号".into(), description: "超级管理员账号名".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "访问密钥".into(), description: "AccessKey或Token密钥".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "数据库地址".into(), description: "数据库连接串主机域名".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "应急联系电话".into(), description: "应急值班手机号".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("运维负责人", vec!["顾家骏"]),
@@ -269,11 +268,11 @@ impl BenchmarkEngine {
 园区实体门禁卡（编号：CARD-SZ-90412）已注销。
 工作内容接收人：许文静。直属部门主管：万永胜。"#,
                 fields: vec![
-                    RuleField { name: "离职员工".into(), description: "离职员工姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "身份证号".into(), description: "18位居民身份证号码".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "物理门禁卡".into(), description: "门禁卡编号".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "交接接收人".into(), description: "交接接收人姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "直属部门主管".into(), description: "部门领导姓名".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "离职员工".into(), description: "离职员工姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "身份证号".into(), description: "18位居民身份证号码".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "物理门禁卡".into(), description: "门禁卡编号".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "交接接收人".into(), description: "交接接收人姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "直属部门主管".into(), description: "部门领导姓名".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("离职员工", vec!["彭晓峰"]),
@@ -294,11 +293,11 @@ impl BenchmarkEngine {
 投标专用联系邮箱：bid_contact@zk-digital.cn
 投标保证金付款银行账号：6222021001984726。"#,
                 fields: vec![
-                    RuleField { name: "投标企业".into(), description: "竞标供应商公司全称".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "投标总报价".into(), description: "竞标方案总报价金额数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "项目经理".into(), description: "项目经理姓名".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "联系邮箱".into(), description: "企业联系邮箱".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "投标保证金账号".into(), description: "保证金银行账号".into(), risk_level: "high".into(), is_enabled: true },
+                    RuleField { name: "投标企业".into(), description: "竞标供应商公司全称".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "投标总报价".into(), description: "竞标方案总报价金额数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "项目经理".into(), description: "项目经理姓名".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "联系邮箱".into(), description: "企业联系邮箱".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "投标保证金账号".into(), description: "保证金银行账号".into(), priority: "high".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("投标企业", vec!["广州中科数智软件工程股份有限公司"]),
@@ -317,11 +316,11 @@ impl BenchmarkEngine {
 专属黑金结算卡号：6228480109923847。
 核定在管总资产规模：人民币85,000,000元。"#,
                 fields: vec![
-                    RuleField { name: "客户姓名".into(), description: "客户真实姓名".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "客户身份证".into(), description: "18位客户身份证号".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "预留手机号".into(), description: "银行预留手机号".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "总资产规模".into(), description: "资产总额数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "开户银行卡".into(), description: "银行结算卡号".into(), risk_level: "high".into(), is_enabled: true },
+                    RuleField { name: "客户姓名".into(), description: "客户真实姓名".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "客户身份证".into(), description: "18位客户身份证号".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "预留手机号".into(), description: "银行预留手机号".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "总资产规模".into(), description: "资产总额数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "开户银行卡".into(), description: "银行结算卡号".into(), priority: "high".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("客户姓名", vec!["常玉龙"]),
@@ -341,10 +340,10 @@ impl BenchmarkEngine {
 涉事供应商：南京迅捷通达物流服务有限公司。
 监察调查负责人：童建华。"#,
                 fields: vec![
-                    RuleField { name: "被调查人".into(), description: "涉事员工姓名".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "涉案违规金额".into(), description: "涉案违规款项金额数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "涉事供应商".into(), description: "涉事外部合作公司名称".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "调查负责人".into(), description: "合规监察调查人员姓名".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "被调查人".into(), description: "涉事员工姓名".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "涉案违规金额".into(), description: "涉案违规款项金额数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "涉事供应商".into(), description: "涉事外部合作公司名称".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "调查负责人".into(), description: "合规监察调查人员姓名".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("被调查人", vec!["严志刚", "丁海生"]),
@@ -363,11 +362,11 @@ impl BenchmarkEngine {
 年度技术支持与运维服务总费用为：￥650,000.00（大写：人民币陆拾伍万元整）。
 专属保障首席架构师：莫文博。"#,
                 fields: vec![
-                    RuleField { name: "采购方企业".into(), description: "采购方甲方公司全称".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "服务商企业".into(), description: "服务商乙方公司全称".into(), risk_level: "medium".into(), is_enabled: true },
-                    RuleField { name: "年服务费".into(), description: "年度服务总费用数值".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "发票税号".into(), description: "企业18位税号或社会信用代码".into(), risk_level: "high".into(), is_enabled: true },
-                    RuleField { name: "首席架构师".into(), description: "首席架构师姓名".into(), risk_level: "medium".into(), is_enabled: true },
+                    RuleField { name: "采购方企业".into(), description: "采购方甲方公司全称".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "服务商企业".into(), description: "服务商乙方公司全称".into(), priority: "medium".into(), is_enabled: true },
+                    RuleField { name: "年服务费".into(), description: "年度服务总费用数值".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "发票税号".into(), description: "企业18位税号或社会信用代码".into(), priority: "high".into(), is_enabled: true },
+                    RuleField { name: "首席架构师".into(), description: "首席架构师姓名".into(), priority: "medium".into(), is_enabled: true },
                 ],
                 ground_truth: HashMap::from([
                     ("采购方企业", vec!["杭州天工物联科技有限公司"]),

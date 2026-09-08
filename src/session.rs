@@ -117,9 +117,12 @@ struct WorkspaceStore {
     active_online_model_id: Option<String>,
 }
 
+use std::time::SystemTime;
+
 /// 全局文档会话管理器
 pub struct SessionManager {
     store_path: PathBuf,
+    last_disk_mtime: Arc<RwLock<Option<SystemTime>>>,
     documents: Arc<RwLock<HashMap<String, DocumentItem>>>,
     custom_templates: Arc<RwLock<Vec<RulePreset>>>,
     field_tags: Arc<RwLock<Vec<RuleField>>>,
@@ -145,11 +148,16 @@ impl SessionManager {
     pub const PROMPT_V1_BASELINE: &'static str = crate::extractor::Extractor::DEFAULT_SYSTEM_PROMPT_TEMPLATE;
 
     pub fn new() -> Self {
-        let store_path = crate::paths::get_workspace_store_path();
+        Self::with_store_path(crate::paths::get_workspace_store_path())
+    }
+
+    pub fn with_store_path(store_path: PathBuf) -> Self {
+        let initial_mtime = std::fs::metadata(&store_path).ok().and_then(|m| m.modified().ok());
         let (docs, templates, tags, profiles, online_models, active_id) = Self::load_from_disk(&store_path);
 
         Self {
             store_path,
+            last_disk_mtime: Arc::new(RwLock::new(initial_mtime)),
             documents: Arc::new(RwLock::new(docs)),
             custom_templates: Arc::new(RwLock::new(templates)),
             field_tags: Arc::new(RwLock::new(tags)),
@@ -188,6 +196,56 @@ impl SessionManager {
         (HashMap::new(), Vec::new(), Vec::new(), HashMap::new(), default_online_models(), Some("deepseek-v3".to_string()))
     }
 
+    /// 检查磁盘上的 .sensidoc_workspace.json 是否被外部进程（如 CLI）修改，若是则增量/热重载至内存
+    pub async fn sync_from_disk_if_modified(&self) {
+        let current_mtime = match std::fs::metadata(&self.store_path) {
+            Ok(meta) => meta.modified().ok(),
+            Err(_) => return,
+        };
+
+        let should_reload = {
+            let last = self.last_disk_mtime.read().await;
+            match (*last, current_mtime) {
+                (Some(prev), Some(curr)) => curr > prev,
+                (None, Some(_)) => true,
+                _ => false,
+            }
+        };
+
+        if should_reload {
+            let (docs, templates, tags, profiles, online_models, active_id) = Self::load_from_disk(&self.store_path);
+            {
+                let mut docs_lock = self.documents.write().await;
+                *docs_lock = docs;
+            }
+            {
+                let mut t_lock = self.custom_templates.write().await;
+                *t_lock = templates;
+            }
+            {
+                let mut tags_lock = self.field_tags.write().await;
+                *tags_lock = tags;
+            }
+            {
+                let mut p_lock = self.model_prompt_profiles.write().await;
+                *p_lock = profiles;
+            }
+            {
+                let mut m_lock = self.online_models.write().await;
+                *m_lock = online_models;
+            }
+            {
+                let mut a_lock = self.active_online_model_id.write().await;
+                *a_lock = active_id;
+            }
+            {
+                let mut last = self.last_disk_mtime.write().await;
+                *last = current_mtime;
+            }
+            info!("已从外部磁盘热同步最新工作区数据 (mtime 更新)");
+        }
+    }
+
     /// 异步刷盘持久化
     pub async fn save_to_disk(&self) {
         let map = self.documents.read().await;
@@ -207,7 +265,14 @@ impl SessionManager {
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&store) {
-            let _ = tokio::fs::write(&self.store_path, json).await;
+            if tokio::fs::write(&self.store_path, json).await.is_ok() {
+                if let Ok(meta) = tokio::fs::metadata(&self.store_path).await {
+                    if let Ok(mtime) = meta.modified() {
+                        let mut last = self.last_disk_mtime.write().await;
+                        *last = Some(mtime);
+                    }
+                }
+            }
         }
     }
 
@@ -238,6 +303,7 @@ impl SessionManager {
 
     /// 获取所有自定义模板
     pub async fn get_custom_templates(&self) -> Vec<RulePreset> {
+        self.sync_from_disk_if_modified().await;
         let list = self.custom_templates.read().await;
         list.clone()
     }
@@ -269,6 +335,7 @@ impl SessionManager {
 
     /// 获取全部保存的字段标签
     pub async fn get_field_tags(&self) -> Vec<RuleField> {
+        self.sync_from_disk_if_modified().await;
         let list = self.field_tags.read().await;
         list.clone()
     }
@@ -282,7 +349,7 @@ impl SessionManager {
 
         // 智能内置匹配规则
         let lower = model_filename.to_lowercase();
-        if lower.contains("qwen") {
+        if lower.contains("qwen") || lower.contains("tessera") {
             ModelPromptProfile {
                 profile_name: "V4_超轻量极简直接抽取版".to_string(),
                 f1_score: Some(0.912),
@@ -340,8 +407,44 @@ impl SessionManager {
         doc
     }
 
+    /// 查找同名文档或创建新文档 (若已存在则更新正文与时间并复用，方便 CLI 与界面历史连续追加快照)
+    pub async fn find_or_create_document(&self, filename: String, markdown: String) -> DocumentItem {
+        self.sync_from_disk_if_modified().await;
+        let mut map = self.documents.write().await;
+        let existing_id = map.values().find(|d| d.filename == filename).map(|d| d.id.clone());
+
+        if let Some(id) = existing_id {
+            if let Some(doc) = map.get_mut(&id) {
+                doc.markdown = markdown.clone();
+                doc.char_count = markdown.chars().count();
+                let updated = doc.clone();
+                drop(map);
+                self.save_to_disk().await;
+                return updated;
+            }
+        }
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let char_count = markdown.chars().count();
+        let doc = DocumentItem {
+            id: id.clone(),
+            filename,
+            markdown,
+            char_count,
+            created_at: Utc::now(),
+            snapshots: Vec::new(),
+            active_snapshot_id: None,
+        };
+
+        map.insert(id, doc.clone());
+        drop(map);
+        self.save_to_disk().await;
+        doc
+    }
+
     /// 获取所有文档列表摘要（默认按创建/添加时间先后正序排列）
     pub async fn list_documents(&self) -> Vec<DocumentItem> {
+        self.sync_from_disk_if_modified().await;
         let map = self.documents.read().await;
         let mut list: Vec<DocumentItem> = map.values().cloned().collect();
         list.sort_by(|a, b| a.created_at.cmp(&b.created_at));
@@ -350,6 +453,7 @@ impl SessionManager {
 
     /// 获取单个文档详情
     pub async fn get_document(&self, doc_id: &str) -> Option<DocumentItem> {
+        self.sync_from_disk_if_modified().await;
         let map = self.documents.read().await;
         map.get(doc_id).cloned()
     }
@@ -365,6 +469,7 @@ impl SessionManager {
         items: Vec<SensitiveItem>,
         execution_ms: u64,
     ) -> Result<ExtractionSnapshot, String> {
+        self.sync_from_disk_if_modified().await;
         let snapshot_id = uuid::Uuid::new_v4().to_string();
         let snapshot = ExtractionSnapshot {
             id: snapshot_id.clone(),
@@ -392,6 +497,7 @@ impl SessionManager {
 
     /// 切换文档查看的历史快照
     pub async fn set_active_snapshot(&self, doc_id: &str, snapshot_id: &str) -> Result<(), String> {
+        self.sync_from_disk_if_modified().await;
         let mut map = self.documents.write().await;
         if let Some(doc) = map.get_mut(doc_id) {
             if doc.snapshots.iter().any(|s| s.id == snapshot_id) {
@@ -404,6 +510,7 @@ impl SessionManager {
 
     /// 删除指定文档
     pub async fn delete_document(&self, doc_id: &str) -> bool {
+        self.sync_from_disk_if_modified().await;
         let mut map = self.documents.write().await;
         let removed = map.remove(doc_id).is_some();
         drop(map);
@@ -415,6 +522,7 @@ impl SessionManager {
 
     /// 删除指定文档的某个历史快照
     pub async fn delete_snapshot(&self, doc_id: &str, snapshot_id: &str) -> Result<Option<String>, String> {
+        self.sync_from_disk_if_modified().await;
         let mut map = self.documents.write().await;
         if let Some(doc) = map.get_mut(doc_id) {
             let original_len = doc.snapshots.len();
@@ -437,11 +545,13 @@ impl SessionManager {
 
     /// 获取所有已保存的在线模型配置
     pub async fn get_online_models(&self) -> Vec<OnlineModelProfile> {
+        self.sync_from_disk_if_modified().await;
         self.online_models.read().await.clone()
     }
 
     /// 获取当前激活选中的在线模型配置 ID
     pub async fn get_active_online_model_id(&self) -> Option<String> {
+        self.sync_from_disk_if_modified().await;
         self.active_online_model_id.read().await.clone()
     }
 
@@ -455,6 +565,7 @@ impl SessionManager {
 
     /// 根据 ID 获取单个在线模型配置
     pub async fn get_online_model_by_id(&self, id: &str) -> Option<OnlineModelProfile> {
+        self.sync_from_disk_if_modified().await;
         let list = self.online_models.read().await;
         list.iter().find(|m| m.id == id).cloned()
     }
@@ -515,7 +626,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_document_and_snapshot_lifecycle() {
-        let mgr = SessionManager::new();
+        let test_store = std::env::temp_dir().join(format!("sensidoc_test_lifecycle_{}.json", uuid::Uuid::new_v4()));
+        let mgr = SessionManager::with_store_path(test_store.clone());
 
         // 1. 测试文档创建与删除
         let doc = mgr.upsert_document("test.txt".into(), "测试内容 12345".into()).await;
@@ -556,5 +668,47 @@ mod tests {
         assert!(mgr.delete_document(&doc.id).await);
         assert!(mgr.get_document(&doc.id).await.is_none());
         assert!(!mgr.delete_document(&doc.id).await);
+
+        let _ = std::fs::remove_file(test_store);
+    }
+
+    #[tokio::test]
+    async fn test_cross_instance_disk_sync() {
+        let test_store = std::env::temp_dir().join(format!("sensidoc_test_sync_{}.json", uuid::Uuid::new_v4()));
+        let mgr_server = SessionManager::with_store_path(test_store.clone());
+        let mgr_cli = SessionManager::with_store_path(test_store.clone());
+
+        let unique_filename = format!("cli_test_{}.txt", uuid::Uuid::new_v4());
+        let doc = mgr_cli
+            .find_or_create_document(unique_filename.clone(), "跨进程同步测试内容".into())
+            .await;
+
+        let snap = mgr_cli
+            .add_snapshot(
+                &doc.id,
+                "[CLI] 通用模板".into(),
+                None,
+                None,
+                vec![],
+                vec![],
+                12,
+            )
+            .await
+            .unwrap();
+
+        // 验证常驻的 mgr_server 在调用 list_documents 时自动通过 mtime 检测拉取最新记录
+        let server_docs = mgr_server.list_documents().await;
+        let found = server_docs.iter().find(|d| d.id == doc.id);
+        assert!(found.is_some(), "服务端实例未能感知到 CLI 实例新写入的文档");
+
+        let found_doc = mgr_server.get_document(&doc.id).await.unwrap();
+        assert_eq!(found_doc.filename, unique_filename);
+        assert_eq!(found_doc.snapshots.len(), 1);
+        assert_eq!(found_doc.snapshots[0].id, snap.id);
+
+        // 清理测试数据
+        let _ = mgr_server.delete_document(&doc.id).await;
+        let _ = std::fs::remove_file(test_store);
     }
 }
+

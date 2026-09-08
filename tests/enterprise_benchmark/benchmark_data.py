@@ -40,13 +40,13 @@ TEST_DOCUMENTS = [
 - 乙方授权代表签字：沈丽敏（或由 何晓晴 代签）
 """,
         "fields": [
-            {"name": "甲方企业", "description": "合同采购方或甲方公司全称", "risk_level": "medium", "is_enabled": True},
-            {"name": "乙方企业", "description": "合同供应方或乙方公司全称", "risk_level": "medium", "is_enabled": True},
-            {"name": "甲方法人", "description": "甲方企业的法定代表人姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "乙方法人", "description": "乙方企业的法定代表人姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "合同总金额", "description": "合同总价款或订单结算金额数值", "risk_level": "high", "is_enabled": True},
-            {"name": "银行账号", "description": "对公或个人银行结算账号", "risk_level": "high", "is_enabled": True},
-            {"name": "签约代表", "description": "双方授权代表或商务联系人姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "甲方企业", "description": "合同采购方或甲方公司全称", "priority": "medium", "is_enabled": True},
+            {"name": "乙方企业", "description": "合同供应方或乙方公司全称", "priority": "medium", "is_enabled": True},
+            {"name": "甲方法人", "description": "甲方企业的法定代表人姓名", "priority": "medium", "is_enabled": True},
+            {"name": "乙方法人", "description": "乙方企业的法定代表人姓名", "priority": "medium", "is_enabled": True},
+            {"name": "合同总金额", "description": "合同总价款或订单结算金额数值", "priority": "high", "is_enabled": True},
+            {"name": "银行账号", "description": "对公或个人银行结算账号", "priority": "high", "is_enabled": True},
+            {"name": "签约代表", "description": "双方授权代表或商务联系人姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "甲方企业": ["北京华云智远科技有限公司"],
@@ -84,11 +84,11 @@ TEST_DOCUMENTS = [
 **签字日期**：2026年07月01日
 """,
         "fields": [
-            {"name": "员工姓名", "description": "入职员工或高管真实姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "身份证号", "description": "18位中国大陆居民身份证号码", "risk_level": "high", "is_enabled": True},
-            {"name": "移动电话", "description": "员工个人手机号码或联系电话", "risk_level": "high", "is_enabled": True},
-            {"name": "岗位薪酬", "description": "员工年薪、月薪或津贴具体金额", "risk_level": "high", "is_enabled": True},
-            {"name": "涉密项目", "description": "公司核心机密项目研发代号或名称", "risk_level": "high", "is_enabled": True}
+            {"name": "员工姓名", "description": "入职员工或高管真实姓名", "priority": "medium", "is_enabled": True},
+            {"name": "身份证号", "description": "18位中国大陆居民身份证号码", "priority": "high", "is_enabled": True},
+            {"name": "移动电话", "description": "员工个人手机号码或联系电话", "priority": "high", "is_enabled": True},
+            {"name": "岗位薪酬", "description": "员工年薪、月薪或津贴具体金额", "priority": "high", "is_enabled": True},
+            {"name": "涉密项目", "description": "公司核心机密项目研发代号或名称", "priority": "high", "is_enabled": True}
         ],
         "ground_truth": {
             "员工姓名": ["段天宇"],
@@ -121,11 +121,11 @@ TEST_DOCUMENTS = [
 - **集团财务总监终审**：韩向东（同意报销并安排打款）
 """,
         "fields": [
-            {"name": "报销申请人", "description": "申请报销费用的员工姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "员工工号", "description": "公司内部员工工号编码", "risk_level": "low", "is_enabled": True},
-            {"name": "报销总额", "description": "报销单合计总金额数值", "risk_level": "high", "is_enabled": True},
-            {"name": "收款银行卡", "description": "个人银行借记卡号或结算卡号", "risk_level": "high", "is_enabled": True},
-            {"name": "审批领导", "description": "审批报销的部门主管或财务总监姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "报销申请人", "description": "申请报销费用的员工姓名", "priority": "medium", "is_enabled": True},
+            {"name": "员工工号", "description": "公司内部员工工号编码", "priority": "low", "is_enabled": True},
+            {"name": "报销总额", "description": "报销单合计总金额数值", "priority": "high", "is_enabled": True},
+            {"name": "收款银行卡", "description": "个人银行借记卡号或结算卡号", "priority": "high", "is_enabled": True},
+            {"name": "审批领导", "description": "审批报销的部门主管或财务总监姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "报销申请人": ["陆振华"],
@@ -160,11 +160,11 @@ TEST_DOCUMENTS = [
 应急处置负责人 钱志明 已于 04:30 封禁外部扫描IP并下线相关暴露接口，完成全部凭证轮转。
 """,
         "fields": [
-            {"name": "受影响系统", "description": "遭受安全事件或数据泄露的系统资产名称", "risk_level": "high", "is_enabled": True},
-            {"name": "服务器IP", "description": "内网或核心服务器IP地址", "risk_level": "high", "is_enabled": True},
-            {"name": "泄露手机号", "description": "日志中泄露的客户或员工手机号码", "risk_level": "high", "is_enabled": True},
-            {"name": "涉密URL", "description": "暴露的内部管理后台或API接口完整网址", "risk_level": "high", "is_enabled": True},
-            {"name": "安全负责人", "description": "负责安全应急处置与报告编写的人员姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "受影响系统", "description": "遭受安全事件或数据泄露的系统资产名称", "priority": "high", "is_enabled": True},
+            {"name": "服务器IP", "description": "内网或核心服务器IP地址", "priority": "high", "is_enabled": True},
+            {"name": "泄露手机号", "description": "日志中泄露的客户或员工手机号码", "priority": "high", "is_enabled": True},
+            {"name": "涉密URL", "description": "暴露的内部管理后台或API接口完整网址", "priority": "high", "is_enabled": True},
+            {"name": "安全负责人", "description": "负责安全应急处置与报告编写的人员姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "受影响系统": ["用户中心核心订单数据库Cluster-03"],
@@ -198,11 +198,11 @@ TEST_DOCUMENTS = [
 注：请接收方在 24 小时内完成生产密钥二次轮转，严禁将上述信息留存于聊天软件中！
 """,
         "fields": [
-            {"name": "运维负责人", "description": "系统管理员或运维交接人员姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "特权账号", "description": "系统超级管理员或root特权账户名", "risk_level": "high", "is_enabled": True},
-            {"name": "访问密钥", "description": "云服务或API的AccessKey或Token密钥字符", "risk_level": "high", "is_enabled": True},
-            {"name": "数据库地址", "description": "数据库连接串主机名或域名端口", "risk_level": "high", "is_enabled": True},
-            {"name": "应急联系电话", "description": "运维人员应急值班手机号码", "risk_level": "medium", "is_enabled": True}
+            {"name": "运维负责人", "description": "系统管理员或运维交接人员姓名", "priority": "medium", "is_enabled": True},
+            {"name": "特权账号", "description": "系统超级管理员或root特权账户名", "priority": "high", "is_enabled": True},
+            {"name": "访问密钥", "description": "云服务或API的AccessKey或Token密钥字符", "priority": "high", "is_enabled": True},
+            {"name": "数据库地址", "description": "数据库连接串主机名或域名端口", "priority": "high", "is_enabled": True},
+            {"name": "应急联系电话", "description": "运维人员应急值班手机号码", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "运维负责人": ["顾家骏"],
@@ -234,11 +234,11 @@ TEST_DOCUMENTS = [
 - **直属部门主管**：万永胜（确认交接完毕，同意办理离职手续）
 """,
         "fields": [
-            {"name": "离职员工", "description": "办理离职交接的员工本人姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "身份证号", "description": "18位中国大陆居民身份证号码", "risk_level": "high", "is_enabled": True},
-            {"name": "物理门禁卡", "description": "园区或机房门禁卡编号", "risk_level": "medium", "is_enabled": True},
-            {"name": "交接接收人", "description": "承接离职工作事项的同事姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "直属部门主管", "description": "确认签字批准离职的部门领导姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "离职员工", "description": "办理离职交接的员工本人姓名", "priority": "medium", "is_enabled": True},
+            {"name": "身份证号", "description": "18位中国大陆居民身份证号码", "priority": "high", "is_enabled": True},
+            {"name": "物理门禁卡", "description": "园区或机房门禁卡编号", "priority": "medium", "is_enabled": True},
+            {"name": "交接接收人", "description": "承接离职工作事项的同事姓名", "priority": "medium", "is_enabled": True},
+            {"name": "直属部门主管", "description": "确认签字批准离职的部门领导姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "离职员工": ["彭晓峰"],
@@ -270,11 +270,11 @@ TEST_DOCUMENTS = [
 - **商务投标联系电话**：020-88992211 / 13822198374
 """,
         "fields": [
-            {"name": "投标企业", "description": "参与竞标的主体供应商公司全称", "risk_level": "medium", "is_enabled": True},
-            {"name": "投标总报价", "description": "竞标方案含税总报价金额数值", "risk_level": "high", "is_enabled": True},
-            {"name": "项目经理", "description": "拟派驻负责项目的项目经理姓名", "risk_level": "medium", "is_enabled": True},
-            {"name": "联系邮箱", "description": "投标业务联系企业电子邮箱", "risk_level": "medium", "is_enabled": True},
-            {"name": "投标保证金账号", "description": "缴纳投标保证金的对公银行账号", "risk_level": "high", "is_enabled": True}
+            {"name": "投标企业", "description": "参与竞标的主体供应商公司全称", "priority": "medium", "is_enabled": True},
+            {"name": "投标总报价", "description": "竞标方案含税总报价金额数值", "priority": "high", "is_enabled": True},
+            {"name": "项目经理", "description": "拟派驻负责项目的项目经理姓名", "priority": "medium", "is_enabled": True},
+            {"name": "联系邮箱", "description": "投标业务联系企业电子邮箱", "priority": "medium", "is_enabled": True},
+            {"name": "投标保证金账号", "description": "缴纳投标保证金的对公银行账号", "priority": "high", "is_enabled": True}
         ],
         "ground_truth": {
             "投标企业": ["广州中科数智软件工程股份有限公司"],
@@ -302,11 +302,11 @@ TEST_DOCUMENTS = [
 - **私人财富顾问经理**：林雪晴（工号：PB-041）
 """,
         "fields": [
-            {"name": "客户姓名", "description": "私人银行客户真实姓名", "risk_level": "high", "is_enabled": True},
-            {"name": "客户身份证", "description": "18位客户居民身份证号码", "risk_level": "high", "is_enabled": True},
-            {"name": "预留手机号", "description": "客户银行开户预留手机号码", "risk_level": "high", "is_enabled": True},
-            {"name": "总资产规模", "description": "客户在管或已核验资产总额数值", "risk_level": "high", "is_enabled": True},
-            {"name": "开户银行卡", "description": "客户专属银行卡号或理财结算账号", "risk_level": "high", "is_enabled": True}
+            {"name": "客户姓名", "description": "私人银行客户真实姓名", "priority": "high", "is_enabled": True},
+            {"name": "客户身份证", "description": "18位客户居民身份证号码", "priority": "high", "is_enabled": True},
+            {"name": "预留手机号", "description": "客户银行开户预留手机号码", "priority": "high", "is_enabled": True},
+            {"name": "总资产规模", "description": "客户在管或已核验资产总额数值", "priority": "high", "is_enabled": True},
+            {"name": "开户银行卡", "description": "客户专属银行卡号或理财结算账号", "priority": "high", "is_enabled": True}
         ],
         "ground_truth": {
             "客户姓名": ["常玉龙"],
@@ -339,10 +339,10 @@ TEST_DOCUMENTS = [
 **监察调查负责人**：童建华（集团首席合规官）
 """,
         "fields": [
-            {"name": "被调查人", "description": "涉嫌违纪违规的涉事员工姓名", "risk_level": "high", "is_enabled": True},
-            {"name": "涉案违规金额", "description": "通报中查实的违纪违规或涉案款项数值", "risk_level": "high", "is_enabled": True},
-            {"name": "涉事供应商", "description": "涉及不正当商业往来的外部合作公司名称", "risk_level": "high", "is_enabled": True},
-            {"name": "调查负责人", "description": "负责合规监察调查的官员或专员姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "被调查人", "description": "涉嫌违纪违规的涉事员工姓名", "priority": "high", "is_enabled": True},
+            {"name": "涉案违规金额", "description": "通报中查实的违纪违规或涉案款项数值", "priority": "high", "is_enabled": True},
+            {"name": "涉事供应商", "description": "涉及不正当商业往来的外部合作公司名称", "priority": "high", "is_enabled": True},
+            {"name": "调查负责人", "description": "负责合规监察调查的官员或专员姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "被调查人": ["严志刚", "丁海生"],
@@ -374,11 +374,11 @@ TEST_DOCUMENTS = [
 乙方指派首席架构师 **莫文博** 兼任本项目的驻场技术总指挥，确保故障在 15 分钟内响应、30 分钟内完成止血。
 """,
         "fields": [
-            {"name": "采购方企业", "description": "接受云服务支持的甲方公司全称", "risk_level": "medium", "is_enabled": True},
-            {"name": "服务商企业", "description": "提供云技术支持的乙方公司全称", "risk_level": "medium", "is_enabled": True},
-            {"name": "年服务费", "description": "年度运维技术保障服务总费用数值", "risk_level": "high", "is_enabled": True},
-            {"name": "发票税号", "description": "企业18位统一社会信用代码或纳税人识别号", "risk_level": "high", "is_enabled": True},
-            {"name": "首席架构师", "description": "服务商委派的首席架构师或技术负责人姓名", "risk_level": "medium", "is_enabled": True}
+            {"name": "采购方企业", "description": "接受云服务支持的甲方公司全称", "priority": "medium", "is_enabled": True},
+            {"name": "服务商企业", "description": "提供云技术支持的乙方公司全称", "priority": "medium", "is_enabled": True},
+            {"name": "年服务费", "description": "年度运维技术保障服务总费用数值", "priority": "high", "is_enabled": True},
+            {"name": "发票税号", "description": "企业18位统一社会信用代码或纳税人识别号", "priority": "high", "is_enabled": True},
+            {"name": "首席架构师", "description": "服务商委派的首席架构师或技术负责人姓名", "priority": "medium", "is_enabled": True}
         ],
         "ground_truth": {
             "采购方企业": ["杭州天工物联科技有限公司"],

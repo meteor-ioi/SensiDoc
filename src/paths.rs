@@ -180,6 +180,21 @@ pub fn get_workspace_store_path() -> PathBuf {
     PathBuf::from(".sensidoc_workspace.json")
 }
 
+/// 获取上传原始文档暂存目录 (uploads/)
+pub fn get_uploads_dir() -> PathBuf {
+    if is_macos_bundle() {
+        let dir = get_user_data_dir().join("uploads");
+        let _ = std::fs::create_dir_all(&dir);
+        return dir;
+    }
+
+    let local_uploads = PathBuf::from("uploads");
+    if !local_uploads.exists() {
+        let _ = std::fs::create_dir_all(&local_uploads);
+    }
+    local_uploads
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

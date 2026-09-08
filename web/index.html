@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SensiDoc - 离线信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.1.2">
+  <title>SensiDoc - 信息审计与脱敏工具</title>
+  <link rel="stylesheet" href="style.css?v=1.1.8">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -23,6 +23,18 @@
         <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
         <span>设置</span>
       </button>
+      <!-- Windows 专属无边框原生控制按钮组 (仅在 Windows 桌面端显示) -->
+      <div class="win-window-controls" id="winWindowControls">
+        <button class="win-control-btn" id="winMinBtn" title="最小化" aria-label="最小化">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="5" x2="10" y2="5" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+        <button class="win-control-btn" id="winMaxBtn" title="最大化/还原" aria-label="最大化/还原">
+          <svg width="10" height="10" viewBox="0 0 10 10"><rect x="0.5" y="0.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.1"/></svg>
+        </button>
+        <button class="win-control-btn win-close-btn" id="winCloseBtn" title="关闭" aria-label="关闭">
+          <svg width="10" height="10" viewBox="0 0 10 10"><line x1="1" y1="1" x2="9" y2="9" stroke="currentColor" stroke-width="1.2"/><line x1="9" y1="1" x2="1" y2="9" stroke="currentColor" stroke-width="1.2"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 
@@ -45,6 +57,53 @@
       <!-- 方案一：一体化搜索与筛选工具条 -->
       <div class="sidebar-toolbar">
         <div class="sidebar-search-row">
+          <!-- 格式筛选下拉组件 (支持多选复选框，前置布局) -->
+          <div class="sidebar-filter-wrapper" id="docFilterWrapper">
+            <button id="docFilterBtn" class="sidebar-filter-btn" title="格式筛选：全部格式" aria-haspopup="true" aria-expanded="false">
+              <svg class="lucide-icon sm filter-btn-icon" viewBox="0 0 24 24"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
+              <span id="docFilterLabel" class="filter-btn-label">全部</span>
+              <svg class="lucide-icon xxs filter-btn-arrow" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="sidebar-filter-dropdown" id="docFilterDropdown">
+              <div class="filter-menu-header">文件格式筛选</div>
+              <div class="filter-menu-list">
+                <button type="button" class="filter-menu-item active" data-ext="DOCX">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg></span>
+                  <span class="filter-item-label">Word 文档</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="PDF">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span>
+                  <span class="filter-item-label">PDF 文档</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="XLSX">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 3v18"></path><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="M3 15h18"></path></svg></span>
+                  <span class="filter-item-label">Excel 表格</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="PPTX">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M2 3h20"></path><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"></path><path d="m7 21 5-5 5 5"></path></svg></span>
+                  <span class="filter-item-label">PPT 演示</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="TXT">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"></path><path d="M6 6h10"></path><path d="M6 10h10"></path></svg></span>
+                  <span class="filter-item-label">纯文本 / MD</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="CSV">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line></svg></span>
+                  <span class="filter-item-label">CSV 数据</span>
+                </button>
+              </div>
+              <div class="filter-menu-footer">
+                <button type="button" id="filterSelectAllBtn" class="filter-action-btn">取消全选</button>
+                <button type="button" id="filterClearAllBtn" class="filter-action-btn">清空</button>
+              </div>
+            </div>
+          </div>
           <div class="sidebar-search-box">
             <svg class="search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="11" cy="11" r="8"></circle>
@@ -53,29 +112,55 @@
             <input type="text" id="docSearchInput" class="sidebar-search-input" placeholder="搜索文件名..." autocomplete="off">
             <button id="docSearchClearBtn" class="search-clear-btn" title="清空搜索" style="display: none; align-items: center; justify-content: center;"><svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" x2="6" y1="6" y2="18"></line><line x1="6" x2="18" y1="6" y2="18"></line></svg></button>
           </div>
-          <!-- 排序菜单选择器 -->
-          <div class="sidebar-sort-select-wrapper" title="切换文档排序规则">
-            <select id="docSortSelect" class="sidebar-sort-select">
-              <option value="time_asc">添加时间 (最早在前)</option>
-              <option value="time_desc">添加时间 (最新在前)</option>
-              <option value="name_asc">文件名称 (A - Z)</option>
-              <option value="name_desc">文件名称 (Z - A)</option>
-              <option value="chars_desc">字数 (多到少)</option>
-              <option value="chars_asc">字数 (少到多)</option>
+          <!-- 排序下拉组件 (结合 Lucide 图标与精简表述) -->
+          <div class="sidebar-sort-wrapper" id="docSortWrapper">
+            <button id="docSortBtn" class="sidebar-sort-btn" title="当前排序：时间从新到旧" aria-haspopup="true" aria-expanded="false">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path></svg>
+            </button>
+            <select id="docSortSelect" style="display: none;">
+              <option value="time_desc" selected>时间从新到旧</option>
+              <option value="time_asc">时间从旧到新</option>
+              <option value="name_asc">名称 A → Z</option>
+              <option value="name_desc">名称 Z → A</option>
+              <option value="chars_desc">字数从多到少</option>
+              <option value="chars_asc">字数从少到多</option>
             </select>
-            <span class="sort-icon-badge" style="display: inline-flex; align-items: center;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m21 16-4 4-4-4"></path><path d="M17 20V4"></path><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path></svg></span>
+            <div class="sidebar-sort-dropdown" id="docSortDropdown">
+              <div class="sort-menu-header">文档排序</div>
+              <button class="sort-menu-item active" data-sort="time_desc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg></span>
+                <span class="sort-item-label">时间从新到旧</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+              <button class="sort-menu-item" data-sort="time_asc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l4 2"></path></svg></span>
+                <span class="sort-item-label">时间从旧到新</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+              <div class="sort-menu-divider"></div>
+              <button class="sort-menu-item" data-sort="name_asc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M15 4h5l-5 6h5"></path><path d="M15 20v-3.5a2.5 2.5 0 0 1 5 0V20"></path><path d="M15 18h5"></path></svg></span>
+                <span class="sort-item-label">名称 A → Z</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+              <button class="sort-menu-item" data-sort="name_desc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path><path d="M15 4h5l-5 6h5"></path><path d="M15 20v-3.5a2.5 2.5 0 0 1 5 0V20"></path><path d="M15 18h5"></path></svg></span>
+                <span class="sort-item-label">名称 Z → A</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+              <div class="sort-menu-divider"></div>
+              <button class="sort-menu-item" data-sort="chars_desc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m3 16 4 4 4-4"></path><path d="M7 20V4"></path><path d="M11 4h10"></path><path d="M11 8h7"></path><path d="M11 12h4"></path></svg></span>
+                <span class="sort-item-label">字数从多到少</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+              <button class="sort-menu-item" data-sort="chars_asc">
+                <span class="sort-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m3 8 4-4 4 4"></path><path d="M7 4v16"></path><path d="M11 12h4"></path><path d="M11 16h7"></path><path d="M11 20h10"></path></svg></span>
+                <span class="sort-item-label">字数从少到多</span>
+                <span class="sort-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+              </button>
+            </div>
           </div>
-        </div>
-
-        <!-- 格式扩展名快捷胶囊组 -->
-        <div class="sidebar-filter-pills" id="extFilterPills">
-          <button class="filter-pill active" data-ext="ALL">全部</button>
-          <button class="filter-pill" data-ext="DOCX">DOCX</button>
-          <button class="filter-pill" data-ext="PDF">PDF</button>
-          <button class="filter-pill" data-ext="XLSX">XLSX</button>
-          <button class="filter-pill" data-ext="PPTX">PPTX</button>
-          <button class="filter-pill" data-ext="TXT">TXT</button>
-          <button class="filter-pill" data-ext="CSV">CSV</button>
         </div>
       </div>
 
@@ -215,9 +300,20 @@
                 <button id="saveTemplateBtn" class="btn-text-link" title="将当前规则组合保存为新模板">另存新模板</button>
               </div>
             </div>
-            <select id="presetSelect" class="preset-select" style="width: 100%;">
-              <!-- 动态填充 -->
-            </select>
+            <div class="custom-select-wrapper" id="presetSelectWrapper">
+              <button id="presetSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="当前模板：无模板">
+                <span class="custom-select-label" id="presetSelectLabel">无模板</span>
+                <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+              </button>
+              <select id="presetSelect" class="preset-select" style="display: none;">
+                <!-- 动态填充 -->
+              </select>
+              <div class="custom-select-dropdown" id="presetSelectDropdown">
+                <div class="custom-select-list" id="presetSelectList">
+                  <!-- 动态填充 -->
+                </div>
+              </div>
+            </div>
           </div>
 
           <!-- 常用字段推荐池 (点击速加) -->
@@ -253,15 +349,25 @@
           <!-- 方案一：一体化模型下拉选择与启停控制条 -->
           <div class="model-control-strip" id="modelControlStrip">
             <div class="model-status-indicator">
-              <span class="status-indicator-dot" id="footerModelDot" title="离线服务运行状态"></span>
               <span class="model-strip-label" style="display: inline-flex; align-items: center; gap: 4px;">
                 <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
                 <span>模型:</span>
               </span>
             </div>
-            <select id="footerModelSelect" class="footer-model-select" title="选择要执行提取的本地 GGUF 模型">
-              <option value="">扫描本地模型中...</option>
-            </select>
+            <div class="custom-select-wrapper footer-model-custom-wrapper" id="footerModelWrapper" style="flex: 1; min-width: 0;">
+              <button id="footerModelBtn" class="custom-select-btn footer-model-btn" type="button" aria-haspopup="true" aria-expanded="false" title="选择要执行提取的模型">
+                <span class="custom-select-label" id="footerModelLabel">扫描本地模型中...</span>
+                <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+              </button>
+              <select id="footerModelSelect" class="footer-model-select" style="display: none;">
+                <option value="">扫描本地模型中...</option>
+              </select>
+              <div class="custom-select-dropdown footer-model-dropdown drop-up" id="footerModelDropdown">
+                <div class="custom-select-list" id="footerModelList">
+                  <!-- 动态分组渲染 -->
+                </div>
+              </div>
+            </div>
             <label class="toggle-switch" title="开启/关闭选中的离线模型">
               <input type="checkbox" id="footerModelToggle">
               <span class="toggle-slider"></span>
@@ -282,7 +388,6 @@
               <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>
               <span>命中清单</span>
             </span>
-            <span id="auditCount" class="file-chip">0 项命中</span>
           </div>
           <div>
             <button id="viewRawJsonBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="查看本次提取的原始 JSON 数据">
@@ -299,20 +404,43 @@
         </div>
 
         <div class="inspector-footer">
-          <div style="display: flex; gap: 8px;">
-            <button id="exportCsvBtn" class="btn sm" style="flex: 1; display: inline-flex; align-items: center; gap: 5px;">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: relative;">
+            <button id="exportCsvBtn" class="btn" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;" title="导出当前敏感词清单为 CSV 表格">
               <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
               <span>导出清单 (CSV)</span>
             </button>
-            <button id="exportDesensBtn" class="btn primary sm" style="flex: 1; display: inline-flex; align-items: center; gap: 5px;">
-              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
-              <span>脱敏导出文档</span>
-            </button>
+            <div class="export-dropdown-wrapper" id="exportDropdownWrapper" style="width: 100%; position: relative;">
+              <button id="exportDesensBtn" class="btn primary" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="导出脱敏后的文档">
+                <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+                <span>脱敏导出 ▼</span>
+              </button>
+              <div class="export-dropdown-menu" id="exportDropdownMenu">
+                <button class="export-menu-item" id="exportNativeDocBtn">
+                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--accent);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg></span>
+                  <div class="export-item-text">
+                    <span class="export-item-title">导出原格式文档</span>
+                    <span class="export-item-desc">保留原文件格式与排版 (.docx/.pdf/.xlsx/.txt等)</span>
+                  </div>
+                </button>
+                <div class="export-menu-divider"></div>
+                <button class="export-menu-item" id="exportMarkdownDocBtn">
+                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M4 22h16a2 2 0 0 0 2-2V7.5L14.5 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"></path><polyline points="8 15 12 11 16 15"></polyline></svg></span>
+                  <div class="export-item-text">
+                    <span class="export-item-title">导出脱敏 Markdown</span>
+                    <span class="export-item-desc">轻量脱敏纯文本 (.md)</span>
+                  </div>
+                </button>
+                <div class="export-menu-divider"></div>
+                <button class="export-menu-item" id="exportJsonMenuBtn">
+                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></span>
+                  <div class="export-item-text">
+                    <span class="export-item-title">导出全量审计 JSON</span>
+                    <span class="export-item-desc">已检出与未检出完整闭环数据 (.json)</span>
+                  </div>
+                </button>
+              </div>
+            </div>
           </div>
-          <button id="backToRulesBtn" class="btn sm" style="width: 100%; font-size: 11px; color: var(--text-mute); display: inline-flex; align-items: center; gap: 4px;">
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="19" x2="5" y1="12" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
-            <span>返回修改规则重新提取</span>
-          </button>
         </div>
       </div>
     </aside>
@@ -668,6 +796,60 @@
     </div>
   </div>
 
+  <!-- 居中新增规则字段模态框 -->
+  <div class="modal-overlay" id="addRuleModal" style="z-index: 300;">
+    <div class="modal-box" style="width: 440px; max-width: 90%; padding: 22px 24px; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--surface-2); border: 1px solid var(--border);">
+            <svg class="lucide-icon" viewBox="0 0 24 24" style="color: var(--accent); width: 16px; height: 16px;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="16"></line><line x1="8" y1="12" x2="16" y2="12"></line></svg>
+          </div>
+          <h3 style="font-size: 15px; font-weight: 600; color: var(--text); margin: 0;">新增提取规则</h3>
+        </div>
+        <button id="closeAddRuleModalBtn" class="btn sm" style="font-size: 11px; padding: 2px 8px;">关闭</button>
+      </div>
+
+      <form id="addRuleForm" style="display: flex; flex-direction: column; gap: 14px;">
+        <div style="display: flex; gap: 12px;">
+          <div style="flex: 1;">
+            <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px;">
+              字段名称 <span style="color: var(--danger);">*</span>
+            </label>
+            <input type="text" id="addRuleNameInput" class="input-text" style="width: 100%; box-sizing: border-box;" placeholder="例如：甲方企业" required autocomplete="off" />
+          </div>
+          <div style="width: 92px; flex-shrink: 0;">
+            <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px;">
+              优先级
+            </label>
+            <select id="addRulePrioritySelect" class="input-text" style="width: 100%; box-sizing: border-box; padding: 0 8px; text-align: center;">
+              <option value="high">高</option>
+              <option value="medium" selected>中</option>
+              <option value="low">低</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style="display: block; font-size: 12px; font-weight: 500; color: var(--text); margin-bottom: 6px;">
+            提取特征描述 <span style="color: var(--text-mute); font-weight: 400;">(选填)</span>
+          </label>
+          <textarea id="addRuleDescInput" class="input-text" rows="2" style="width: 100%; min-height: 54px; box-sizing: border-box; resize: vertical; line-height: 1.45; font-family: var(--font-sans); font-size: 12px; padding: 7px 10px;" placeholder="例如：合同采购方或甲方公司全称"></textarea>
+        </div>
+
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 2px;">
+          <label style="display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-dim); cursor: pointer; user-select: none;">
+            <input type="checkbox" id="addRuleSaveToTagCheckbox" style="cursor: pointer;">
+            <span>同时保存至常用标签库</span>
+          </label>
+          <div style="display: flex; gap: 10px;">
+            <button type="button" id="cancelAddRuleBtn" class="btn sm" style="min-width: 68px;">取消</button>
+            <button type="submit" id="confirmAddRuleBtn" class="btn primary sm" style="min-width: 68px;">确认添加</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- 居中另存为场景模板模态框 -->
   <div class="modal-overlay" id="saveTemplateModal" style="z-index: 300;">
     <div class="modal-box" style="width: 440px; max-width: 90%; padding: 22px 24px; box-sizing: border-box;">
@@ -708,7 +890,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.1.2"></script>
+  <script src="app.js?v=1.1.8"></script>
 </body>
 </html>
 

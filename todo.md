@@ -759,12 +759,313 @@
 
 ---
 
-## 阶段五十九：规则特征描述输入框常态化可见与添加交互优化 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
-- [x] 59.1 **规则特征描述输入框样式常态化 (`web/style.css`)**：
-  - 将 `.rule-desc-input` 从原有的透明边框与透明背景（容易误认为是不可编辑纯文本）重构为具象常态输入框样式：`border: 1px solid var(--border); background: var(--surface);`；
-  - 补充 `:hover` 边框微亮与 `:focus` 聚焦光晕外圈，使用户无需点击也能清晰感知该区域为输入框。
-- [x] 59.2 **添加字段交互与占位符透出优化 (`web/app.js`)**：
-  - 点击「＋ 新增规则」时，新建规则的描述默认值由原硬编码的 `"提取特征与上下文模式描述"` 改为空字符串 `""`，使原生的 `placeholder="请输入提取目标的特征描述"` 清晰透出提示，引导用户直观输入；
-  - 在 `renderRulesTable` 中对 `rule.description` 做空值安全回退处理。
-- [x] 59.3 **端到端实机验证与全链路回归**：
-  - 经 Headless Chrome 自动化实机交互与截图验证，点击添加规则后，字段名输入框与特征描述输入框均以清晰内嵌输入框常态呈现，视觉边界清晰且占位符指引明确。
+## 阶段五十九：新增提取规则居中模态弹窗与紧凑布局重构 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 59.1 **居中模态弹窗 UI 结构与极简紧凑布局构建 (`web/index.html`)**：
+  - 新增居中模态弹窗 `#addRuleModal`，采用左右两列紧凑布局：左侧「字段名称」（必填自适应伸缩，单例提示「例如：甲方企业」），右侧并排「优先级」（92px 紧凑选择框，精简纯净「高 / 中 / 低」选项）；
+  - 下方配置「提取特征描述 (选填)」文本框（默认适中 2 行舒适高度，单例提示「例如：合同采购方或甲方公司全称」），视觉层级清晰整齐；
+  - 严格遵循 Geist 中性极简设计规范，使用纯 SVG 图标，自适应深浅色主题。
+- [x] 59.2 **弹窗控制与表单提交逻辑重构 (`web/app.js`)**：
+  - 点击工作台右侧「＋ 新增规则」触发 `openAddRuleModal()`，清空历史输入并自动聚焦到字段名称输入框；
+  - 完善名称非空与防重复校验，提交后自动倒序插入至生效规则列表最顶部并即时刷新；
+  - 支持勾选「同时保存至常用标签库」同步调用 `saveRuleAsTag()` 存库；
+  - 支持 Esc 快捷键、点击关闭按钮及点击遮罩外部关闭弹窗。
+- [x] 59.3 **端到端交互与回归测试验证**：
+  - Cargo 13 项单元测试 100% 通过，JS 语法检查通过；
+  - Chrome 浏览器实机验证弹窗弹出、表单提交添加、首项聚焦与规则刷新流程正常。
+- [x] 59.4 **底部模型控制栏视觉精简**：
+  - 移除工作台右下角「模型:」标签左侧冗余的状态指示圆点（`#footerModelDot`），由右侧拨杆开关与模型下拉列表直观表达启停状态，底栏视觉更清爽。
+
+---
+
+## 阶段六十：llama-server 专属冷门端口迁移 (18188) 与精准进程隔离治理 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 60.1 **冷门专属端口迁移 (`18188`)**：
+  - 将项目中本地 llama-server 默认绑定的 `8081` 迁移至 SensiDoc 专属冷门端口 **`18188`**（[`src/model_manager.rs`](file:///Users/icychick/Projects/SensiDoc/src/model_manager.rs)），彻底避免与系统中常规 8080/8081/11434 等其他 AI/Web 项目产生端口冲突。
+- [x] 60.2 **精准进程生命周期治理与误杀根治**：
+  - 彻底移除原先盲目全局强杀的 `pkill -f llama-server`；
+  - 重构 `stop_server`：优先通过 PID 句柄优雅终止当前拉起的子进程；Unix 兜底机制重构为仅精准查找并释放占用 `18188` 专属端口的孤儿残留（`lsof -ti :18188`），绝对不误触系统其他正在运行的 llama.cpp / llama-server 服务。
+- [x] 60.3 **动态端口探测与全链路适配**：
+  - `ModelManager::get_active_model`、`Extractor::query_llm`、`BenchmarkEngine::run_benchmark` 及主服务启动回调统一由 `server_port()` 动态参数驱动；
+  - 13 项 Cargo 单元测试 100% 绿灯通过，服务热更新就绪。
+
+---
+
+## 阶段六十一：三栏顶部标题栏高度严格对齐与视觉规整 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 61.1 **三栏顶部标题栏高度统一基准 (`web/style.css`)**：
+  - 左侧文档面板标题栏（`.sidebar-header`）、中间正文预览工具栏（`.stage-toolbar`）与右侧审计面板选项卡（`.segmented-control`）统一重构为严格一致的 **`48px`** 高度与 `box-sizing: border-box`；
+  - 彻底消除原先中间工具条 `40px` 与左侧面板视觉高度不一的错落感，工作区三栏顶部水平基准线完全对齐。
+
+---
+
+## 阶段六十三：全系统数据契约与导出字段统一（`risk_level` 全量重构升级为 `priority`） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 63.1 **后端结构体与序列化字段统一 (`src/extractor.rs` / `src/exporter.rs` / `src/benchmark.rs`)**：
+  - `RuleField` 与 `SensitiveItem` 核心字段由 `risk_level` 全面更名为 `priority`；
+  - 增加 `#[serde(default = "default_priority", alias = "risk_level")]` 属性，确保完美向下兼容历史工作区存储；
+  - `Exporter::export_to_csv` 规范输出 `item.priority`，基准测试用例全部对齐 `priority` 字段。
+- [x] 63.2 **前端全链路与原始 JSON 字段统一 (`web/app.js` / `web/style.css`)**：
+  - 「原始 JSON」弹窗中 `detected_items` 与 `missed_fields` 统一输出 `priority: "high" | "medium" | "low"`；
+  - 规则列表（`renderRulesTable`）、标签库（`renderFieldTags` / `saveRuleAsTag`）、新增规则（`handleAddRuleSubmit`）、快照审查（`renderSnapshotRulesModal`）及 CSV 导出全面对齐优先读取 `priority`；
+  - CSS 选择器补齐 `mark.sensi-mark[data-priority="..."]`。
+- [x] 63.3 **全链路回归与数据持久化验证**：
+  - 13 项 Cargo 单元测试 100% 绿灯通过，JS 语法检查通过；
+  - `.sensidoc_workspace.json` 与企业基准测试集已全量完成字段迁移。
+
+---
+
+## 阶段六十四：输出 SensiDoc v2 实施方案（全格式纯代码原生无损脱敏架构） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 64.1 **完成 [`docs/IMPLEMENTATION_PLAN_v2.md`](file:///Users/icychick/Projects/SensiDoc/docs/IMPLEMENTATION_PLAN_v2.md) 编制**：
+  - 汇总 1~63 阶段的所有架构演进（18188 专属端口隔离、48px 视界对齐、priority 优先级体系、双轨模型调度、方案 A 闭环审计）；
+  - 全面确立 **v2 核心全格式纯代码原生脱敏导出引擎** 架构设计（DOCX/XLSX/PPTX 跨 Run XML 合并替换、97-2003 二进制资产升级转码、TXT/CSV 直接字符流替换、PDF 物理遮盖与文字流抹除）；
+  - 规范定义 RESTful 导出 API、全量数据协议契约与五大实施里程碑（M1~M5）。
+
+---
+
+## 阶段六十五：SensiDoc v2 原生脱敏导出引擎落地与全链路验证 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 65.1 **原生脱敏引擎核心实现 (`src/desensitizer.rs`)**：
+  - `mask_text`：智能等长掩码算法（<=2 字符全打码，>2 字符首尾保留+中间掩码）；
+  - `desensitize_docx` / `desensitize_docx_xml`：ZIP 内存流解压，段落级跨 `<w:t>` 节点 Unicode 字符投影合并、敏感词等长打码与无损精确回写；
+  - `desensitize_xlsx`：`xl/sharedStrings.xml` 字符串池与 worksheet 行内单元格脱敏；
+  - `desensitize_pptx`：`ppt/slides/slide*.xml` 幻灯片文本框段落脱敏；
+  - `desensitize_plain_text` / `desensitize_csv`：纯文本与 CSV 字符流就地打码；
+  - `desensitize_document_auto`：基于扩展名自动路由分发并生成规范 MIME 类型与文件名。
+- [x] 65.2 **原始文件暂存与后端脱敏接口接入 (`src/paths.rs` / `src/main.rs`)**：
+  - `paths::get_uploads_dir()`：管理 `uploads/` 原始上传二进制存储目录；
+  - `convert_document`：上传时自动暂存原始二进制至 `uploads/{doc_id}.bin`，`delete_document` 自动同步清理；
+  - 注册 `POST /api/documents/{id}/desensitize` 路由，支持 `mode: "native" | "markdown"` 及指定快照，支持 RFC 5987 / RFC 6266 中文文件名规范响应。
+- [x] 65.3 **前端 UI 导出菜单与交互重构 (`web/index.html` / `web/style.css` / `web/app.js`)**：
+  - 将「脱敏导出」升级为自适应向上弹出的「脱敏导出 ▼」交互菜单（Geist-Neutral 极简微动效）；
+  - 支持多维导出操作：
+    - 📄 **导出原格式文档**：原生无损保留排版与样式 (`.docx` / `.xlsx` / `.pptx` / `.txt` / `.csv`)；
+    - 📝 **导出脱敏 Markdown**：轻量纯文本 (`.md`)；
+    - 📊 **导出敏感词清单**：包含频次、优先级与检出来源 (`.csv`)；
+    - 📋 **导出全量审计 JSON**：包含已检出与未检出完整闭环数据 (`.json`)；
+  - `app.js` 实现流式二进制文件下载与错误捕获。
+- [x] 65.4 **全链路端到端功能验证与回归测试**：
+  - 21 项 Cargo 单元测试 100% 绿灯通过（含 DOCX/XLSX/PPTX 内存 ZIP 还原测试与全格式自动分发测试）；
+  - JS 语法检查通过，实机浏览器验证无阻断异常。
+
+---
+
+## 阶段六十六：原生 PDF 版式文档 Content Stream 纯代码脱敏引擎落地 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 66.1 **实施方案 v2 全面扩充更新 ([`docs/IMPLEMENTATION_PLAN_v2.md`](file:///Users/icychick/Projects/SensiDoc/docs/IMPLEMENTATION_PLAN_v2.md))**：
+  - 在第 3.4 节详细补充原生 PDF 版式文档 Content Stream 字符级抹除架构与数据流；
+  - 确立清晰边界：本阶段聚焦原生矢量/文字类 PDF 真脱敏，扫描件与图片型 PDF 的 OCR 像素级遮盖作为后续版本迭代任务；
+  - 同步更新第 6 节工程目录与第 7 节 M6 里程碑。
+- [x] 66.2 **引入纯 Rust PDF 底层解析引擎 (`Cargo.toml`)**：
+  - 引入 `lopdf = { version = "0.38", default-features = false }`，零外部 C/C++ 依赖，二进制增量仅 ~320KB。
+- [x] 66.3 **PDF 原生 Content Stream 算子解析与多编码打码器实现 (`src/desensitizer.rs`)**：
+  - 实现 `Desensitizer::desensitize_pdf`：解析 PDF 对象树与页面 `/Contents` 流，捕获 `Tj`、`TJ`、`'`、`"` 文字绘制算子；
+  - 实现 `desensitize_pdf_object` 与 `desensitize_pdf_tj_array`：
+    - UTF-16BE 编码（`\xFE\xFF` 开头）自适应解码与等长 `*` 替换；
+    - UTF-8 / WinAnsi 编码自适应等长打码；
+    - GB18030 / GBK 编码自适应等长打码；
+  - 自动清理文档级 `/Metadata`（XMP 敏感元数据）与 `/Info`；
+  - `desensitize_document_auto` 正式接入 `.pdf` 原生脱敏路由，自动生成 `xxx_脱敏.pdf`（`application/pdf`）。
+- [x] 66.4 **全链路端到端功能验证与回归测试**：
+  - 新增 `test_pdf_content_stream_pipeline` 测试用例，验证 PDF 对象构造、算子打码、元数据清理与重新序列化；
+  - 全部 **22 项 Cargo 单元测试 100% 绿灯通过**。
+- [x] 66.5 **脱敏导出菜单视觉去重与纯净化 (`web/index.html`)**：
+  - 移除「脱敏导出」下拉菜单中各选项标题前残留的 emoji 表情（如 `📄`、`📝`、`📋`），统一使用高精细度的纯矢量 SVG 图标，整体视觉更加中性专业、规整干练；
+  - 精简第一项子描述文案为 `保留原文件格式与排版 (.docx/.pdf/.xlsx/.txt/.csv等)`。
+- [x] 66.6 **脱敏导出菜单布局与等高规整优化 (`web/index.html` / `web/style.css`)**：
+  - 在「导出原格式文档」与「导出脱敏 Markdown」之间补充横向分割线；
+  - 规范化 3 个菜单选项的高度为统一的 46px，图标纵向居中对齐，排版彻底规整对称。
+
+---
+
+## 阶段六十七：SensiDoc 统一 CLI 命令行与 Agent 自动化调用支持 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 67.1 **引入 `clap` 并搭建 CLI 参数规范架构 (`src/cli.rs`)**：
+  - 引入精简特性 `clap`，定义 `audit`、`mask`、`convert`、`templates`、`serve` 5 大顶级子命令；
+  - 实现参数隔离：`stdout` 纯输出标准结构化数据（JSON/脱敏流），进度与警告统一输出至 `stderr`；
+  - 规范化退出码（0: 成功放行，1: 命中敏感阻断，2: 参数错误，3: 推理异常）。
+- [x] 67.2 **场景预设模板与规则决策链打通**：
+  - 支持 `-t / --template` 读取 `.sensidoc_workspace.json` 中保存的场景模板；
+  - 支持 `--rules` 命令行追加、`--rules-file` JSON 导入与 `--regex-only` 毫秒级免模型兜底模式；
+  - 实现 `sensidoc templates list` 查看当前所有可用场景模板及规则字段清单。
+- [x] 67.3 **核心执行引擎打通与服务探针复用**：
+  - `audit`：统一串联 anydoc 转换 ➔ 正则/LLM 抽取 ➔ 冲突消解 ➔ JSON 结构化输出；
+  - `mask`：直接生成原生脱敏文件（保留 DOCX/PDF/XLSX/PPTX 等原生排版）；
+  - `convert`：命令行快速预览任意文档为 Markdown 纯文本；
+  - 智能服务探针：检测 `18188` 端口，优先复用已常驻的 `llama-server` 实例，无实例时按需单次拉起并在退出时清理。
+- [x] 67.4 **主入口兼容重构 (`src/main.rs`) 与全链路测试**：
+  - 改造 `main.rs`：无子命令时自动回退至默认桌面 GUI / Web 服务启动，保持完全向前兼容；
+  - 22 项 Cargo 单元测试 100% 绿灯通过；实测 `audit`、`mask`、`convert`、`templates` 命令及管道 `jq` 解析全部通过。
+- [x] 67.5 **生成详细的 CLI 使用说明与 Agent 集成文档 ([`docs/CLI_GUIDE.md`](file:///Users/icychick/Projects/SensiDoc/docs/CLI_GUIDE.md))**：
+  - 包含命令行语法、参数手册、标准输出 JSON Schema、Python/Node.js Agent 快速接入指南。
+- [x] 67.6 **CLI 调用记录与 Web 界面「文档列表」实时双向联动 (`src/cli.rs` & `src/session.rs`)**：
+  - **自动入库与同名复用**：CLI 执行 `audit` / `mask` 时自动解析文档并入库，追加标有 `[CLI] 模板名` 的提取快照；
+  - **原始二进制转储**：原始文件写入 `uploads/{doc_id}.bin`，实现从 CLI 到 Web 界面随时点击「脱敏导出」下载原生版式打码文档；
+  - **跨进程磁盘热感知**：`SessionManager` 引入基于 `mtime` 状态机的 `sync_from_disk_if_modified()`，常驻 Web 服务零重启自动感知外部 CLI 新写入；
+  - **无痕开关 `--no-record`**：满足 Agent 高频批量处理或 CI/CD 扫描时的零磁盘留痕诉求；
+  - **全链路测试通过**：新增 `test_cross_instance_disk_sync` 单元测试，全部 23 项测试 100% 绿灯；实机验证 CLI 审计后 Web API 立即返回最新文档卡片与快照。
+- [x] 67.7 **魔搭离线模型预设库扩充 Tessera-4B-Preview (`src/model_manager.rs` & `src/session.rs`)**：
+  - **新增预设配置**：引入 `sahilchachra/Tessera-4B-Preview-GGUF` 的 `Tessera-4B-Preview-Q4_K_M.gguf` 量化版本（~2.6 GB，基于 Qwen3.5-4B 深度微调的高性能推理模型）；
+  - **下载探测优化**：在断点续传中增加对 `Content-Range` 响应头的解析，精准获取超大模型文件体积；
+  - **提示词自动映射**：在 `get_model_prompt_profile` 中将 `tessera` 自动映射至 `V4_超轻量极简直接抽取版`；
+  - **直链验证通过**：通过 `test_modelscope_connection` 单元测试验证 ModelScope 直链 Range 分块请求成功，Web 界面「设置」模态框即时呈现下载卡片。
+- [x] 67.8 **离线模型列表评测记录徽章移除与信息精简 (`web/app.js`)**：
+  - **精简视觉层次**：彻底移除模型卡片中原先展示的“评测记录: V4_超轻量极简直接抽取版 (实测冠军) (F1: 91.2%)”等信息补充徽章，保持列表干净清爽。
+- [x] 67.9 **模型下载过程取消与临时缓存自动清除闭环 (`src/model_manager.rs`, `src/main.rs`, `web/app.js`)**：
+  - **后端取消控制通道**：`ModelManager` 引入基于 `tokio::sync::oneshot` 的下载中断信号表 `download_cancellations`，下载数据流中通过 `tokio::select!` 监听取消信号并自动删除 `models/{filename}.part`；
+  - **新增取消接口**：注册 `/api/models/download/cancel` 路由，提供即时终止与磁盘残余缓存安全删除；
+  - **前端状态机闭环**：点击“下载”后按钮动态切换为醒目的红色边框“取消下载”按钮；点击取消后重置进度并弹出反馈对话框（“已终止模型下载，并自动清除了已下载的临时缓存文件”），按钮恢复为“下载”；
+  - **实机与单元测试验证**：`test_cancel_download_cleans_cache` 单元测试通过，并通过 Chrome DevTools 自动化实测验证取消、弹窗反馈与 `models/` 磁盘零缓存残留。
+- [x] 67.10 **魔搭推荐模型库轮换与参数大小排序、下载红色“取消”按钮加固 (`src/model_manager.rs`, `web/app.js`)**：
+  - **按参数大小升序排序**：推荐模型顺序调整为 `LFM2.5-VL-450M (Q8_0)` (450M) $\rightarrow$ `Qwen2.5-1.5B-Instruct (Q4_K_M)` (1.5B) $\rightarrow$ `Qwen3.5-2B (Q5_K_M)` (2B) $\rightarrow$ `Tessera-4B-Preview (Q4_K_M)` (4B)，Qwen3.5-2B 紧排在 Qwen2.5-1.5B 之后；
+  - **后端权威下载态**：`ModelPreset` 引入 `is_downloading` 状态字段，从服务端权威告知当前正在下载的模型，彻底杜绝前端刷新或二次渲染导致的按钮脱敏；
+  - **下载中红色“取消”按钮常驻**：下载启动及 SSE 流式传输期间，右侧操作区强制保持红色的“取消”按钮（`border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);`），直到下载完成或用户点击取消；
+  - **全链路实机回归**：通过 Chrome DevTools 自动化实机实测验证，下载过程中红色的“取消”按钮稳定常驻，取消时自动清除缓存并复原。
+
+---
+
+## 阶段六十八：老旧二进制文档 (.doc / .xls / .ppt 97-2003) 升级转码与脱敏导出支持 (待办)
+- [ ] 68.1 **旧版 Excel (.xls) 纯 Rust 升级转码与脱敏方案**：
+  - 调研与集成 `calamine` + `rust_xlsxwriter`，实现内存读取旧版 BIFF8 二进制流，执行敏感词等长打码，并重构导出为现代 `.xlsx` 格式；
+- [ ] 68.2 **旧版 Word (.doc) 二进制流解析与提取方案**：
+  - 探索基于 `cfb`（复合文档二进制格式解析器）读取 WordDocument Stream，提取段落文本并完成脱敏转码导出为 `.docx`；
+- [ ] 68.3 **旧版 PPT (.ppt) 兼容性评估与路由适配**：
+  - 评估轻量提取幻灯片文本框并升级打包为 `.pptx` 的可行性；
+- [ ] 68.4 **后端脱敏路由升级与单元测试**：
+  - 扩展 `Desensitizer::desensitize_document_auto`，实现 `.doc` $\rightarrow$ `.docx`、`.xls` $\rightarrow$ `.xlsx` 自动升级转码导出；
+  - 编写旧版二进制格式脱敏单元测试与回归测试用例。
+
+---
+
+## 阶段六十九：超大文档 (>50MB) 流式解压与高并发压测优化 (待办)
+- [ ] 69.1 **超大文档流式解压与分块打码 (Streaming & Chunking)**：
+  - 针对数十万行大表格与嵌套百张高分图的 DOCX/XLSX/PDF，优化内存解压与重打包机制，避免全量载入引发的内存峰值；
+- [ ] 69.2 **内存水位控制与零拷贝 (Zero-Copy / Disk Spooling)**：
+  - 实现超过特定阈值（如 30MB）时的临时磁盘缓冲（Spooling）机制，确保低配单机环境下平稳运行，彻底杜绝 OOM；
+- [ ] 69.3 **多用户并发压测与性能基准报告**：
+  - 编写自动化高并发压测脚本，模拟多文档并行提取与高频脱敏导出，输出吞吐量（TPS）、平均响应延迟与内存占用曲线。
+
+---
+
+## 阶段七十：扫描件与图片型 PDF 的 OCR 像素级光栅化遮盖 (规划中待办)
+- [ ] 70.1 **纯本地轻量 OCR 定位引擎集成**：
+  - 针对无矢量文字层的扫描件 PDF，引入纯本地离线 OCR 定位敏感词的图像像素矩形框（Bounding Box）；
+- [ ] 70.2 **图像像素级光栅化遮盖与 PDF 重新压制**：
+  - 实现像素级黑色矩形抹除/高斯模糊，并重新生成高保真光栅化脱敏 PDF。
+
+---
+
+## 阶段七十一：全面剔除 `risk_level` 历史兼容冗余，确立纯 `priority` 单轨架构 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 71.1 **后端数据结构彻底精简 (`src/extractor.rs`)**：
+  - 移除 `RuleField` 和 `SensitiveItem` 中遗留的 `risk_level` 别名及所有 Helper 辅助转换反序列化器；
+  - 确立 `priority` 检索辅助字段为唯一标准，保留 `#[serde(default = "default_priority")]` 容错；
+  - 更新单元测试 `test_rule_field_deserialization` 100% 绿灯。
+- [x] 71.2 **前端全链路剔除 `risk_level` 赋值与降级回退 (`web/app.js`)**：
+  - 规则表格渲染、标签添加/保存、快照审核、JSON 原始视图、Markdown 高亮、CSV 与全量 JSON 导出中全面清理 `risk_level`；
+  - `getCleanRulesPayload()` 仅构造标准 `priority` 字段，彻底根绝 Axum 422 反序列化冲突。
+- [x] 71.3 **测试集与运行态全链路验证**：
+  - `test_priority_benchmark.py` 清理所有 `risk_level` 依赖；
+  - 25 项 Cargo 单元测试全部通过，前端端到端实机验证成功完成离线提取。
+
+---
+
+## 阶段七十二：文档排序功能重构（精简表述、Lucide 图标浮层、默认时间从新到旧） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 72.1 **替换原生丑陋 `<select>` 为 Geist 现代自适应浮层下拉菜单 (`web/index.html` / `web/style.css`)**：
+  - 弃用系统原生蓝色 select 弹窗，构建带有自适应微阴影、毛玻璃与圆角的 `.sidebar-sort-dropdown`；
+  - 精简选项表述，移除冗余括号描述（如原“添加时间 (最新在前)”简化为“时间从新到旧”）；
+  - 每项排序规则统一配备精准的 Lucide 图标（`clock`、`history`、`arrow-down-a-z`、`arrow-up-a-z`、`arrow-down-wide-narrow`、`arrow-up-narrow-wide`）及激活态勾选符号。
+- [x] 72.2 **默认排序规则升级为按时间从新到旧 (`web/app.js`)**：
+  - 将 `state.docSortRule` 默认初始值由 `time_asc` 升级为 `time_desc`，新导入或新生成的文档默认置顶展示；
+  - 实现点击触发、选项切换、外部点击自动收起闭环交互。
+- [x] 72.3 **实机视觉与交互验证**：
+  - Chrome 真机截图确认下拉浮层视觉与等宽规范排布正常，即时切换生效。
+
+---
+
+## 阶段七十三：文件格式筛选重构（单行前置、多选下拉浮层、默认全选） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 73.1 **移除平铺胶囊并构建单行前置筛选组件与多选浮层 (`web/index.html`)**：
+  - 彻底移除第二行 `.sidebar-filter-pills`，释放侧边栏垂直 32px 空间；
+  - 在搜索框左侧前置 `.sidebar-filter-wrapper`，包含图标、自适应文本与下拉指示器；
+  - 构建包含复选框的多选下拉浮层 `.sidebar-filter-dropdown`（全部格式、Word、PDF、Excel、PPT、纯文本、CSV，及底部全选/清空快捷操作）。
+- [x] 73.2 **Geist 现代自适应多选浮层样式构建 (`web/style.css`)**：
+  - 针对 `.sidebar-filter-btn`、`.sidebar-filter-dropdown` 编写对标排序组件的精致阴影与动效；
+  - 解决图标与复选框主题变量适配（采用 `--accent` 单轨），实现自适应文本排布、复选框选中高亮及 `.has-filter` 激活高亮态。
+- [x] 73.3 **JavaScript 多选状态机与联动过滤升级 (`web/app.js`)**：
+  - `state.docExtFilters` 升级为 Set 集合，默认全部勾选；
+  - 封装 `getEffectiveDocExt` 智能识别 AnyDoc 转换后缀（如 `.docx.md` 识别为 Word，`.xlsx.md` 识别为 Excel）；
+  - 折叠态按钮自适应文案（默认“全部”，1项显示格式名如“Word”，多项显示“N 项”）；
+  - 实现“全部格式”与单项智能互斥联动、列表即时响应过滤。
+- [x] 73.4 **全链路实机验证与回归测试**：
+  - 通过 Chrome DevTools 自动化实机测试验证单行工具栏渲染、多选勾选交互、搜索+排序组合过滤；
+  - 25 项 Rust 后端单元测试持续全绿通过。
+- [x] 73.5 **多选面板精简与底部全选反选优化 (`web/index.html`, `web/style.css`, `web/app.js`)**：
+  - 移除顶部冗余的“全部格式”复选框与分割线；
+  - 隐藏各格式右侧扩展名文本（`.docx / .doc` 等），宽度收敛至极简 140px；
+  - 底部“全选”升级为智能切换按键（全选时显示“取消全选”，非全选时显示“全选”），点击即刻在全选与清空之间无感切换。
+
+---
+
+## 阶段七十四：审计结果动作栏精简与按钮规格统一 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 74.1 **移除冗余导航按钮 (`web/index.html`)**：
+  - 彻底移除右侧审计主控面板底部的“返回修改规则重新提取”按钮（`#backToRulesBtn`），精简操作认知负荷。
+- [x] 74.2 **导出按钮尺寸与栅格重构 (`web/index.html`, `web/style.css`)**：
+  - 底部操作区采用 `display: grid; grid-template-columns: 1fr 1fr; gap: 8px;` 实现严格 50%-50% 对称均分；
+  - “导出清单 (CSV)”（`#exportCsvBtn`）与“脱敏导出”（`#exportDesensBtn`）尺寸升级对齐顶部“提取规则”按钮（高度 32px，字号 12px，字重 500）；
+  - 脱敏导出下拉菜单（`#exportDropdownMenu`）保留精准向上停靠与层级逻辑。
+- [x] 74.3 **实机视觉对齐与全链路测试回归**：
+  - Chrome DevTools 实机验证两按钮宽度完全一致（170px vs 170px，高度 32px），与顶部标签栏形成视觉呼应；
+  - 25 项 Rust 单元测试全部通过。
+
+---
+
+## 阶段七十五：文档卡片信息重构（审计状态指示 + 智能添加时间） (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 75.1 **精简卡片结构与视觉布局优化 (`web/app.js`, `web/style.css`)**：
+  - 彻底移除卡片第二行低价值的“字符数统计”与“快照数量统计”；
+  - 采用方案 1 微型药丸风格：在卡片第一行（文件名右侧、删除垃圾桶按钮前）新增类似「存标签」样式的无小圆点微型状态标签（`[已审计]` 翡翠绿底色与边框 / `[待提取]` 中性浅灰底色与边框）；
+  - 卡片第二行专注呈现智能添加时间（如 `今天 HH:mm`、`昨天 HH:mm`、`MM-DD HH:mm`），悬停浮动秒级绝对时间；
+- [x] 75.2 **全系统设计语言统一与实机验证**：
+  - 标签与右侧主控台规则项的「存标签」/「优先级」视觉规格（字号 10px、内边距 1px 5px、圆角 3px）形成 100% 呼应；
+  - 补充 light/dark 主题 `--success` 规范变量与微动效，通过 Chrome DevTools 自动化实机测试验证浅色与深色模式下的真实渲染；
+  - 25 项 Rust 单元测试持续全绿通过。
+- [x] 75.3 **文档卡片激活态底色常驻修复 (`web/style.css`)**：
+  - 将 `.file-item.active` 的背景底色由原先回退的 `var(--surface)` 修正为常驻高亮浅灰 `var(--surface-hover)`；
+  - 移除了内层 `.file-card-inner:hover` 引起的底色竞争，确保鼠标移开后当前选中项依然清晰稳定保持浅灰底色与深色边框。
+
+---
+
+## 阶段七十六：主控台核心下拉菜单自定义伪下拉（Popover Select）重构 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 76.1 **统一伪下拉菜单样式体系构建 (`web/style.css`)**：
+  - 构建 Geist 极简风格的 `.custom-select-wrapper`、`.custom-select-btn` 与浮层 `.custom-select-dropdown`；
+  - 支持向下展开与针对底部控制条的向上弹出（`.drop-up`）；
+  - 提供 `.custom-select-item`（含 hover/active 态与激活勾选图标 `✓`）、`.custom-select-group-header`（分组大写标签）与 `.custom-select-divider`；
+  - 深度适配浅色/深色双色彩模式与阴影。
+- [x] 76.2 **场景预设模板下拉框重构 (`web/index.html`, `web/app.js`)**：
+  - 将原生 `#presetSelect` 升级为自定义浮层选择器，底层保留隐藏的 `<select>` 作为状态机与事件源；
+  - 实现 `syncPresetSelectUi()` 同步当前选中模板文案与激活勾选；
+  - 支持列表点击无感切换场景模板、自动同步规则定义并更新“删除此模板”按钮。
+- [x] 76.3 **底部提取模型选择器重构 (`web/index.html`, `web/app.js`)**：
+  - 将底部 `#footerModelSelect` 改造为紧凑型自定义选择器，结合 `.drop-up` 向上弹出，避免视口底部溢出；
+  - 支持 `optgroup` 自动解析（“离线本地模型 (GGUF)”与“在线云端模型 (API)”）；
+  - 实现模型切换、在线云端激活与离线本地模型状态联动的平滑同步；
+  - 增加全局外部点击（Click Outside）与 ESC 键自动关闭所有浮层的逻辑。
+- [x] 76.4 **实机视觉与功能回归测试**：
+  - Chrome DevTools 实机验证浅色/深色主题下的渲染效果、展开/收起过渡动效与选择交互；
+  - 25 项 Rust 后端单元测试全部通过。
+
+---
+
+## 阶段七十七：桌面客户端沉浸式标题栏、窗口拖拽与跨平台安全区域适配 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 77.1 **原生桌面窗口（Tao + Wry）沉浸式无边框架构重构 (`src/main.rs`)**：
+  - 去除传统系统标题栏与菜单栏，启用 `EventLoopBuilder::<UserEvent>::with_user_event()` 事件循环；
+  - **macOS**：配置 `with_title_hidden(true)`、`with_titlebar_transparent(true)`、`with_fullsize_content_view(true)`，网页全屏沉浸，系统原生三色红黄绿交通灯浮动于左上角；
+  - **Windows**：配置 `with_decorations(false)` 无边框窗口，移除原生标题栏；
+  - 建立 Wry IPC 消息通道，支持 `drag_window`、`minimize`、`maximize`、`close` 事件。
+- [x] 77.2 **平台安全区域（Safe Insets）与窗口拖动适配 (`web/style.css`, `web/index.html`)**：
+  - 顶栏 `.app-header` 添加 `-webkit-app-region: drag` 与硬件级拖拽支持，按钮及操作区声明 `no-drag`；
+  - **macOS**：自动增加 `padding-left: 78px`，避让左上角系统原生三色交通灯按钮；
+  - **Windows**：右上角增加标准 Windows 风格无边框三联控制按钮（最小化、最大化/还原、关闭），关闭按钮悬停红色高亮；
+  - **Web 模式**：纯浏览器访问保持零额外内边距与无 Windows 按钮，无侵入式平稳降级。
+- [x] 77.3 **前端环境嗅探与双重拖拽事件保障 (`web/app.js`)**：
+  - 注入 `window.__SENSIDOC_DESKTOP__` 与平台参数，在 `DOMContentLoaded` 第一时间动态赋予平台类名；
+  - 绑定鼠标左键拖拽（`drag_window`）与双击顶栏最大化/还原（`maximize`）双重保障。
+- [x] 77.4 **实机视觉与跨平台回归测试**：
+  - Chrome DevTools 实机验证 macOS 模式（左侧 78px 边距）、Windows 模式（右上角三联按键）与纯 Web 浏览器模式（标准无留白）；
+  - 25 项 Rust 自动化单元测试（`cargo test`）全绿通过。
+
+
+
+
+

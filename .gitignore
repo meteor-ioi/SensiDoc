@@ -5,4 +5,7 @@ sensidoc.log
 models/*.gguf
 !models/.gitkeep
 /dist
+/uploads
+__pycache__/
+*.pyc
 
