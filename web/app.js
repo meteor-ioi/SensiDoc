@@ -130,6 +130,9 @@ const el = {
   saveTemplateBtn: document.getElementById("saveTemplateBtn"),
   deleteTemplateBtn: document.getElementById("deleteTemplateBtn"),
   tagPool: document.getElementById("tagPool"),
+  tagPoolToggleBtn: document.getElementById("tagPoolToggleBtn"),
+  tagPoolDrawer: document.getElementById("tagPoolDrawer"),
+  tagPoolCloseBtn: document.getElementById("tagPoolCloseBtn"),
   ruleCardList: document.getElementById("ruleCardList"),
   addFieldBtn: document.getElementById("addFieldBtn"),
   aiGenRulesToggleBtn: document.getElementById("aiGenRulesToggleBtn"),
@@ -1282,6 +1285,10 @@ function initEventListeners() {
   if (el.addFieldBtn) {
     el.addFieldBtn.addEventListener("click", openAddRuleModal);
   }
+
+  // 常用标签库折叠抽屉交互事件
+  if (el.tagPoolToggleBtn) el.tagPoolToggleBtn.addEventListener("click", toggleTagPoolDrawer);
+  if (el.tagPoolCloseBtn) el.tagPoolCloseBtn.addEventListener("click", closeTagPoolDrawer);
 
   // AI 智能生成规则抽屉交互事件
   if (el.aiGenRulesToggleBtn) el.aiGenRulesToggleBtn.addEventListener("click", toggleAiGenRulesDrawer);
@@ -2505,6 +2512,30 @@ async function handleSaveCustomTemplate(e) {
 }
 
 // ==============================================================================
+// 常用标签库折叠抽屉交互逻辑
+// ==============================================================================
+function toggleTagPoolDrawer() {
+  if (!el.tagPoolDrawer) return;
+  const isHidden = el.tagPoolDrawer.style.display === "none";
+  if (isHidden) {
+    closeAiGenRulesDrawer();
+    el.tagPoolDrawer.style.display = "block";
+    if (el.tagPoolToggleBtn) el.tagPoolToggleBtn.classList.add("active");
+  } else {
+    closeTagPoolDrawer();
+  }
+}
+
+function closeTagPoolDrawer() {
+  if (el.tagPoolDrawer) {
+    el.tagPoolDrawer.style.display = "none";
+  }
+  if (el.tagPoolToggleBtn) {
+    el.tagPoolToggleBtn.classList.remove("active");
+  }
+}
+
+// ==============================================================================
 // AI 智能提取策略生成 (端云协同) 业务逻辑
 // ==============================================================================
 let aiGeneratedCandidateFields = [];
@@ -2513,7 +2544,10 @@ function toggleAiGenRulesDrawer() {
   if (!el.aiGenRulesDrawer) return;
   const isHidden = el.aiGenRulesDrawer.style.display === "none";
   if (isHidden) {
+    closeTagPoolDrawer();
+    el.tagPoolDrawer.style.display = "none";
     el.aiGenRulesDrawer.style.display = "block";
+    if (el.aiGenRulesToggleBtn) el.aiGenRulesToggleBtn.classList.add("active");
     populateAiGenRulesModelSelect();
     if (el.aiGenRulesPromptInput) {
       setTimeout(() => el.aiGenRulesPromptInput.focus(), 60);
@@ -2527,6 +2561,9 @@ function closeAiGenRulesDrawer() {
   closeAiGenRulesModelDropdown();
   if (el.aiGenRulesDrawer) {
     el.aiGenRulesDrawer.style.display = "none";
+  }
+  if (el.aiGenRulesToggleBtn) {
+    el.aiGenRulesToggleBtn.classList.remove("active");
   }
   if (el.aiGenRulesResultBox) {
     el.aiGenRulesResultBox.style.display = "none";

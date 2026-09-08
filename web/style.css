@@ -1969,6 +1969,40 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   outline: none;
 }
 
+/* 常用标签库折叠抽屉卡片 */
+.tag-pool-drawer {
+  position: relative;
+  z-index: 9;
+  background: var(--surface-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.tag-pool-drawer-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tag-pool-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.tag-pool-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 /* 常用标签按钮池 */
 .tag-pool {
   display: flex;

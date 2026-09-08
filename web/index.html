@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.2">
+  <link rel="stylesheet" href="style.css?v=1.2.3">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -316,35 +316,44 @@
             </div>
           </div>
 
-          <!-- 常用字段推荐池 (点击速加) -->
-          <div class="form-row">
-            <div class="pane-section-title">
-              <span style="display: inline-flex; align-items: center; gap: 5px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
-                <span>常用标签库 (点击即加)</span>
-              </span>
-            </div>
-            <div class="tag-pool" id="tagPool">
-              <!-- 动态填充 -->
-            </div>
-          </div>
-
-          <!-- 生效规则卡片列表 (自适应充满容器，无冗余空白) -->
+          <!-- 规则卡片列表 (自适应充满容器，无冗余空白) -->
           <div class="form-row" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
             <div class="pane-section-title">
               <span style="display: inline-flex; align-items: center; gap: 5px;">
                 <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-                <span>生效规则定义 (<span id="ruleTotalCount">0</span> 项)</span>
+                <span>规则列表 (<span id="ruleTotalCount">0</span> 项)</span>
               </span>
               <div style="display: flex; align-items: center; gap: 6px;">
                 <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
                   <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
                   <span>AI智能生成</span>
                 </button>
+                <button type="button" id="tagPoolToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="展开/收起常用标签库 (点击快速添加到当前规则)">
+                  <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                  <span>标签库</span>
+                </button>
                 <button type="button" id="addFieldBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="新增自定义抽取规则">
                   <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                   <span>新增规则</span>
                 </button>
+              </div>
+            </div>
+
+            <!-- 常用标签库折叠抽屉卡片 (默认收起) -->
+            <div id="tagPoolDrawer" class="tag-pool-drawer" style="display: none;">
+              <div class="tag-pool-drawer-inner">
+                <div class="tag-pool-header">
+                  <span class="tag-pool-title">
+                    <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                    <span>常用标签库 (点击快速添加到规则)</span>
+                  </span>
+                  <button type="button" id="tagPoolCloseBtn" class="btn-icon xs" title="收起标签库" style="padding: 2px;">
+                    <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+                  </button>
+                </div>
+                <div class="tag-pool" id="tagPool">
+                  <!-- 动态填充 -->
+                </div>
               </div>
             </div>
 
@@ -978,7 +987,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.2"></script>
+  <script src="app.js?v=1.2.3"></script>
 </body>
 </html>
 
