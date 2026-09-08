@@ -2226,6 +2226,34 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   padding-right: 2px;
 }
 
+/* 方案三：底部常驻轻质添加规则卡片按钮 */
+.add-rule-bottom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  padding: 8px 12px;
+  margin-top: 6px;
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  color: var(--text-dim);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+  flex-shrink: 0;
+}
+
+.add-rule-bottom-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--accent);
+  color: var(--text);
+  border-style: solid;
+}
+
 .rule-card {
   background: var(--surface-2);
   border: 1px solid var(--border);

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.6">
+  <link rel="stylesheet" href="style.css?v=1.2.7">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -327,13 +327,12 @@
               <div style="display: flex; align-items: center; gap: 6px;">
                 <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
                   <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
-                  <span>AI智能生成</span>
+                  <span>AI生成</span>
                 </button>
                 <button type="button" id="tagPoolToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="展开/收起常用标签库 (点击快速添加到当前规则)">
                   <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
                   <span>标签库</span>
                 </button>
-                <button type="button" id="addFieldBtn" class="btn-text-link" title="新增自定义抽取规则">＋ 新增规则</button>
               </div>
             </div>
 
@@ -405,6 +404,12 @@
             <div class="rule-card-list" id="ruleCardList">
               <!-- 动态填充规则卡片 -->
             </div>
+
+            <!-- 方案三：列表底部常驻轻质添加规则按钮 (Notion/Linear 风格) -->
+            <button type="button" id="addFieldBtn" class="add-rule-bottom-btn" title="点击添加新规则字段">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              <span>点击添加自定义规则</span>
+            </button>
           </div>
         </div>
 
@@ -976,7 +981,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.6"></script>
+  <script src="app.js?v=1.2.7"></script>
 </body>
 </html>
 
