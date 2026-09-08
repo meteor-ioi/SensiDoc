@@ -1188,6 +1188,21 @@
   - 将 `.file-item.active` 的背景色由 `var(--surface-hover)` 改为 `var(--surface-active)`；
   - 实现左侧文档卡片与右侧提取结果实体卡片在选中态的浅灰色底纹与 2px 边框线宽 100% 视觉统合。
 
+---
+
+## 阶段八十四：v1.3.0 正式版本发布与 GitHub 自动化构建 (进行中) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 84.1 **工程版本号升级与安装脚本同步**：
+  - `Cargo.toml` 与 `Cargo.lock` 正式升级至 `v1.3.0`；
+  - 同步更新 Windows 安装包配置 `scripts/installer.iss` 与 `scripts/build_win_installer.ps1` 默认版本号至 `1.3.0`；
+  - 静态资源版本标识同步更新。
+- [x] 84.2 **全套回归测试与本地验证**：
+  - 运行 `cargo test`，25 项单元测试全绿通过。
+- [ ] 84.3 **Git 分支与 Release Tag 推送至 GitHub**：
+  - 提交本地版本升级改动，推送到远端 `origin master`；
+  - 创建并推送 Git Tag `v1.3.0`，触发 GitHub Actions 自动构建流水线。
+- [ ] 84.4 **GitHub Actions 跨平台应用构建监控**：
+  - 触发并监控 `Build & Release SensiDoc Apps` 工作流，生成 macOS Universal DMG 与 Windows 安装包。
+
 
 
 
