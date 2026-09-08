@@ -1200,9 +1200,22 @@
 - [x] 84.3 **Git 分支与 Release Tag 推送至 GitHub**：
   - 本地 master 分支最新提交已成功推送到 `origin master`；
   - 成功创建并推送 Git Tag `v1.3.0`，触发 GitHub Actions 跨平台自动打包与发布流水线。
-- [x] 84.4 **GitHub Actions 跨平台应用构建已触发与启动**：
-  - 工作流 `Build & Release SensiDoc Apps` (Run ID: [34211440076](https://github.com/meteor-ioi/SensiDoc/actions/runs/34211440076)) 启动；
-  - 正在云端并行构建 macOS Universal DMG 与 Windows Installer 安装包，并自动发布 Release。
+- [x] 84.4 **GitHub Actions 跨平台应用构建初次触发**：
+  - 工作流首次运行排查，定位到 Windows 端 Inno Setup 缺失语言包导致中断。
+
+---
+
+## 阶段八十五：Windows 构建异常修复与流水线闭环监控 (进行中) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 85.1 **根因排查与定位**：
+  - Windows CI 环境下 Inno Setup 6 默认不包含非官方中文语言包，构建时抛出 `Couldn't open include file ChineseSimplified.isl` 导致编译中断。
+- [x] 85.2 **语言包内置与打包流水线增强**：
+  - 仓库内置官方标准 `scripts/ChineseSimplified.isl`，修复 `scripts/installer.iss` 中的相对路径依赖；
+  - 升级 `scripts/build_win_installer.ps1` 与 `.github/workflows/release.yml`，同步生成 `.exe` 安装程序与 `.zip` 绿色免安装版；
+  - 更新 `.gitignore` 排除本地测试临时文件。
+- [ ] 85.3 **更新代码与 Tag 并推送至 GitHub**：
+  - 推送 master 分支与更新后的 `v1.3.0` Tag，触发全新 GitHub Actions 流水线。
+- [ ] 85.4 **持续监控构建全过程直至发布成功**：
+  - 实时监控 macOS 与 Windows 任务，直至 Release 产物成功发布。
 
 
 

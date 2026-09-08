@@ -72,8 +72,28 @@ if (Test-Path $installerPath) {
     Write-Host "========================================================" -ForegroundColor Cyan
     Write-Host "✅ Windows 安装包制作成功！" -ForegroundColor Green
     Write-Host "📦 安装包路径: $installerPath" -ForegroundColor Green
-    Write-Host "========================================================" -ForegroundColor Cyan
 } else {
     Write-Error "安装包生成异常，未在 dist 目录找到期望文件！"
     exit 1
 }
+
+# 5. 同时打包绿色免安装便携版 (ZIP)
+Write-Host "==> 正在生成 Windows 绿色免安装压缩包..." -ForegroundColor Green
+$pkgDir = Join-Path $distDir "SensiDoc-v$Version-windows-x86_64"
+$zipPath = Join-Path $distDir "sensidoc-v$Version-windows-x86_64.zip"
+
+if (Test-Path $pkgDir) { Remove-Item -Recurse -Force $pkgDir }
+New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+Copy-Item -Path "target/release/sensidoc.exe" -Destination "$pkgDir/sensidoc.exe"
+Copy-Item -Recurse -Path "web" -Destination "$pkgDir/web"
+if (Test-Path "assets/sensidoc_win.ico") {
+    Copy-Item -Path "assets/sensidoc_win.ico" -Destination "$pkgDir/sensidoc.ico"
+}
+if (Test-Path "README.md") {
+    Copy-Item -Path "README.md" -Destination "$pkgDir/README.md"
+}
+New-Item -ItemType Directory -Force -Path "$pkgDir/models" | Out-Null
+Compress-Archive -Path "$pkgDir/*" -DestinationPath $zipPath -Force
+Remove-Item -Recurse -Force $pkgDir
+Write-Host "📦 绿色版压缩包: $zipPath" -ForegroundColor Green
+Write-Host "========================================================" -ForegroundColor Cyan

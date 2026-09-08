@@ -8,4 +8,5 @@ models/*.gguf
 /uploads
 __pycache__/
 *.pyc
+.sensidoc_workspace.json
 

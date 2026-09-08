@@ -101,7 +101,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: windows-app-v${{ steps.get_version.outputs.VERSION }}
-          path: dist/*-setup.exe
+          path: |
+            dist/*-setup.exe
+            dist/*.zip
 
   publish-release:
     name: Publish GitHub Release
@@ -120,7 +122,7 @@ jobs:
       - name: Prepare Release Assets
         run: |
           mkdir -p release-files
-          find release-artifacts -type f \( -name "*.dmg" -o -name "*-setup.exe" \) -exec cp {} release-files/ \;
+          find release-artifacts -type f \( -name "*.dmg" -o -name "*-setup.exe" -o -name "*.zip" \) -exec cp {} release-files/ \;
           echo "Release files to upload:"
           ls -lh release-files/
 
