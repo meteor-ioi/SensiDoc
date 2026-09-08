@@ -2234,7 +2234,7 @@ function renderRulesTable() {
   if (state.currentRules.length === 0) {
     el.ruleCardList.innerHTML = `
       <div style="padding: 24px 12px; text-align: center; color: var(--text-mute); font-size: 11.5px; line-height: 1.6;">
-        当前暂无生效规则<br>请从上方选取标签或点击「+ 新增规则」添加
+        暂无生效规则<br>可从上方选取标签/AI生成，或点击下方添加
       </div>
     `;
     return;
