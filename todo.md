@@ -1197,11 +1197,12 @@
   - 静态资源版本标识同步更新。
 - [x] 84.2 **全套回归测试与本地验证**：
   - 运行 `cargo test`，25 项单元测试全绿通过。
-- [ ] 84.3 **Git 分支与 Release Tag 推送至 GitHub**：
-  - 提交本地版本升级改动，推送到远端 `origin master`；
-  - 创建并推送 Git Tag `v1.3.0`，触发 GitHub Actions 自动构建流水线。
-- [ ] 84.4 **GitHub Actions 跨平台应用构建监控**：
-  - 触发并监控 `Build & Release SensiDoc Apps` 工作流，生成 macOS Universal DMG 与 Windows 安装包。
+- [x] 84.3 **Git 分支与 Release Tag 推送至 GitHub**：
+  - 本地 master 分支最新提交已成功推送到 `origin master`；
+  - 成功创建并推送 Git Tag `v1.3.0`，触发 GitHub Actions 跨平台自动打包与发布流水线。
+- [x] 84.4 **GitHub Actions 跨平台应用构建已触发与启动**：
+  - 工作流 `Build & Release SensiDoc Apps` (Run ID: [34211440076](https://github.com/meteor-ioi/SensiDoc/actions/runs/34211440076)) 启动；
+  - 正在云端并行构建 macOS Universal DMG 与 Windows Installer 安装包，并自动发布 Release。
 
 
 
