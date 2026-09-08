@@ -1205,17 +1205,18 @@
 
 ---
 
-## 阶段八十五：Windows 构建异常修复与流水线闭环监控 (进行中) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+## 阶段八十五：Windows 构建异常修复与流水线闭环监控 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
 - [x] 85.1 **根因排查与定位**：
-  - Windows CI 环境下 Inno Setup 6 默认不包含非官方中文语言包，构建时抛出 `Couldn't open include file ChineseSimplified.isl` 导致编译中断。
+  - Windows CI 环境下 Inno Setup 6 默认不包含非官方中文语言包，构建时抛出 `Couldn't open include file ChineseSimplified.isl` 导致编译中断；
+  - 随后识别到缺失 `README.md` 导致的次级编译中断。
 - [x] 85.2 **语言包内置与打包流水线增强**：
   - 仓库内置官方标准 `scripts/ChineseSimplified.isl`，修复 `scripts/installer.iss` 中的相对路径依赖；
   - 升级 `scripts/build_win_installer.ps1` 与 `.github/workflows/release.yml`，同步生成 `.exe` 安装程序与 `.zip` 绿色免安装版；
-  - 更新 `.gitignore` 排除本地测试临时文件。
-- [ ] 85.3 **更新代码与 Tag 并推送至 GitHub**：
+  - 根目录补全标准 `README.md`，并在 `installer.iss` 中为外部文件追加 `skipifsourcedoesntexist` 容错标记。
+- [x] 85.3 **更新代码与 Tag 并推送至 GitHub**：
   - 推送 master 分支与更新后的 `v1.3.0` Tag，触发全新 GitHub Actions 流水线。
-- [ ] 85.4 **持续监控构建全过程直至发布成功**：
-  - 实时监控 macOS 与 Windows 任务，直至 Release 产物成功发布。
+- [x] 85.4 **持续监控构建全过程直至发布成功**：
+  - 实时监控 macOS（2m14s）、Windows（22m39s）跨平台任务与 Release 发布任务（17s），所有阶段 100% 成功闭环。
 
 
 
