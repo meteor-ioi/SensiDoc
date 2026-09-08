@@ -1075,11 +1075,11 @@ function initEventListeners() {
         const item = e.target.closest(".custom-select-item");
         if (!item) return;
         const val = item.getAttribute("data-val") || "";
-        if (el.presetSelect.value !== val) {
-          el.presetSelect.value = val;
+        const isChanged = el.presetSelect.value !== val;
+        el.presetSelect.value = val;
+        syncPresetSelectUi();
+        if (isChanged) {
           el.presetSelect.dispatchEvent(new Event("change"));
-        } else {
-          syncPresetSelectUi();
         }
         closePresetDropdown();
       });
@@ -1106,11 +1106,11 @@ function initEventListeners() {
         const item = e.target.closest(".custom-select-item");
         if (!item) return;
         const val = item.getAttribute("data-val") || "";
-        if (el.footerModelSelect.value !== val) {
-          el.footerModelSelect.value = val;
+        const isChanged = el.footerModelSelect.value !== val;
+        el.footerModelSelect.value = val;
+        syncFooterModelSelectUi();
+        if (isChanged) {
           el.footerModelSelect.dispatchEvent(new Event("change"));
-        } else {
-          syncFooterModelSelectUi();
         }
         closeFooterModelDropdown();
       });
@@ -1137,11 +1137,11 @@ function initEventListeners() {
         const item = e.target.closest(".custom-select-item");
         if (!item) return;
         const val = item.getAttribute("data-val") || "";
-        if (el.onlineModelSelect.value !== val) {
-          el.onlineModelSelect.value = val;
+        const isChanged = el.onlineModelSelect.value !== val;
+        el.onlineModelSelect.value = val;
+        syncOnlineModelSelectUi();
+        if (isChanged) {
           el.onlineModelSelect.dispatchEvent(new Event("change"));
-        } else {
-          syncOnlineModelSelectUi();
         }
         closeOnlineModelDropdown();
       });
@@ -1168,11 +1168,11 @@ function initEventListeners() {
         const item = e.target.closest(".custom-select-item");
         if (!item) return;
         const val = item.getAttribute("data-val") || "";
-        if (el.promptTargetModelSelect.value !== val) {
-          el.promptTargetModelSelect.value = val;
+        const isChanged = el.promptTargetModelSelect.value !== val;
+        el.promptTargetModelSelect.value = val;
+        syncPromptTargetModelSelectUi();
+        if (isChanged) {
           el.promptTargetModelSelect.dispatchEvent(new Event("change"));
-        } else {
-          syncPromptTargetModelSelectUi();
         }
         closePromptTargetModelDropdown();
       });
@@ -1199,11 +1199,11 @@ function initEventListeners() {
         const item = e.target.closest(".custom-select-item");
         if (!item) return;
         const val = item.getAttribute("data-val") || "";
-        if (el.aiGenRulesModelSelect.value !== val) {
-          el.aiGenRulesModelSelect.value = val;
+        const isChanged = el.aiGenRulesModelSelect.value !== val;
+        el.aiGenRulesModelSelect.value = val;
+        syncAiGenRulesModelSelectUi();
+        if (isChanged) {
           el.aiGenRulesModelSelect.dispatchEvent(new Event("change"));
-        } else {
-          syncAiGenRulesModelSelectUi();
         }
         closeAiGenRulesModelDropdown();
       });
@@ -1265,6 +1265,7 @@ function initEventListeners() {
   // 预设模板切换
   if (el.presetSelect) {
     el.presetSelect.addEventListener("change", (e) => {
+      syncPresetSelectUi();
       updateDeleteTemplateBtnVisibility();
       const presetId = e.target.value;
       if (!presetId) {
@@ -1297,6 +1298,9 @@ function initEventListeners() {
   if (el.aiGenRulesSubmitBtn) el.aiGenRulesSubmitBtn.addEventListener("click", handleAiGenerateRules);
   if (el.aiGenRulesApplyOnlyBtn) el.aiGenRulesApplyOnlyBtn.addEventListener("click", () => handleAiGenApply(false));
   if (el.aiGenRulesSaveTemplateBtn) el.aiGenRulesSaveTemplateBtn.addEventListener("click", () => handleAiGenApply(true));
+  if (el.aiGenRulesModelSelect) {
+    el.aiGenRulesModelSelect.addEventListener("change", syncAiGenRulesModelSelectUi);
+  }
 
   // 立即提取
   if (el.quickExtractBtn) el.quickExtractBtn.addEventListener("click", triggerExtraction);
@@ -2043,8 +2047,8 @@ function updateDeleteTemplateBtnVisibility() {
 function syncPresetSelectUi() {
   if (!el.presetSelect) return;
   const selectedVal = el.presetSelect.value;
-  const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
-  const labelText = selectedOpt ? selectedOpt.innerText : "无模板";
+  const opt = Array.from(el.presetSelect.options).find((o) => o.value === selectedVal);
+  const labelText = opt ? (opt.innerText || opt.text) : "无模板";
   if (el.presetSelectLabel) el.presetSelectLabel.innerText = labelText;
   if (el.presetSelectBtn) el.presetSelectBtn.title = `当前模板：${labelText}`;
 
@@ -2584,8 +2588,9 @@ function closeAiGenRulesModelDropdown() {
 function syncAiGenRulesModelSelectUi() {
   if (!el.aiGenRulesModelSelect) return;
   const currentVal = el.aiGenRulesModelSelect.value;
-  const selectedOpt = el.aiGenRulesModelSelect.selectedOptions ? el.aiGenRulesModelSelect.selectedOptions[0] : null;
-  const currentText = selectedOpt ? selectedOpt.text : (el.aiGenRulesModelSelect.options[0]?.text || "选择在线模型");
+  const opt = Array.from(el.aiGenRulesModelSelect.options).find((o) => o.value === currentVal)
+    || (el.aiGenRulesModelSelect.selectedOptions ? el.aiGenRulesModelSelect.selectedOptions[0] : null);
+  const currentText = opt ? (opt.text || opt.innerText) : (el.aiGenRulesModelSelect.options[0]?.text || "选择在线模型");
 
   if (el.aiGenRulesModelSelectLabel) {
     el.aiGenRulesModelSelectLabel.textContent = currentText;
@@ -3423,8 +3428,9 @@ function closeOnlineModelDropdown() {
 function syncOnlineModelSelectUi() {
   if (!el.onlineModelSelect) return;
   const currentVal = el.onlineModelSelect.value;
-  const selectedOpt = el.onlineModelSelect.selectedOptions ? el.onlineModelSelect.selectedOptions[0] : null;
-  const currentText = selectedOpt ? selectedOpt.text : (el.onlineModelSelect.options[0]?.text || "选择模型");
+  const opt = Array.from(el.onlineModelSelect.options).find((o) => o.value === currentVal)
+    || (el.onlineModelSelect.selectedOptions ? el.onlineModelSelect.selectedOptions[0] : null);
+  const currentText = opt ? (opt.text || opt.innerText) : (el.onlineModelSelect.options[0]?.text || "选择模型");
 
   if (el.onlineModelSelectLabel) {
     el.onlineModelSelectLabel.textContent = currentText;
@@ -3919,8 +3925,9 @@ function closePromptTargetModelDropdown() {
 function syncPromptTargetModelSelectUi() {
   if (!el.promptTargetModelSelect) return;
   const currentVal = el.promptTargetModelSelect.value;
-  const selectedOpt = el.promptTargetModelSelect.selectedOptions ? el.promptTargetModelSelect.selectedOptions[0] : null;
-  const currentText = selectedOpt ? selectedOpt.text : (el.promptTargetModelSelect.options[0]?.text || "选择目标模型");
+  const opt = Array.from(el.promptTargetModelSelect.options).find((o) => o.value === currentVal)
+    || (el.promptTargetModelSelect.selectedOptions ? el.promptTargetModelSelect.selectedOptions[0] : null);
+  const currentText = opt ? (opt.text || opt.innerText) : (el.promptTargetModelSelect.options[0]?.text || "选择目标模型");
 
   if (el.promptTargetModelSelectLabel) {
     el.promptTargetModelSelectLabel.textContent = currentText;
@@ -4167,8 +4174,9 @@ function syncFooterModelSelectUi() {
   }
 
   const selectedVal = el.footerModelSelect.value;
-  const selectedOpt = el.footerModelSelect.options[el.footerModelSelect.selectedIndex];
-  const labelText = selectedOpt ? selectedOpt.innerText : (isDisabled ? "无就绪模型" : "选择模型");
+  const opt = Array.from(el.footerModelSelect.querySelectorAll("option")).find((o) => o.value === selectedVal)
+    || (el.footerModelSelect.selectedOptions ? el.footerModelSelect.selectedOptions[0] : null);
+  const labelText = opt ? (opt.innerText || opt.text) : (isDisabled ? "无就绪模型" : "选择模型");
 
   if (el.footerModelLabel) {
     el.footerModelLabel.innerText = labelText;
@@ -4226,6 +4234,7 @@ function closeFooterModelDropdown() {
 async function handleFooterModelSelectChange(e) {
   const chosenVal = e.target.value;
   if (!chosenVal) return;
+  syncFooterModelSelectUi();
 
   if (chosenVal.startsWith("online:")) {
     const onlineId = chosenVal.slice("online:".length);

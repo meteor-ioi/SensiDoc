@@ -1164,6 +1164,22 @@
   - 25 项 Rust 单元测试（`cargo test`）全绿通过；
   - Chrome 实机端到端模拟测试（标题纯粹无尾缀、标题行双轻按钮对齐、底部虚线添加卡片点击拉起弹窗、抽屉展开/收起/互斥联动、伪下拉展开收起与双向绑定）全部正常。
 
+---
+
+## 阶段八十三：全系统双层架构自定义伪下拉组件即时同步与闭环加固 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 83.1 **点击项即时同步逻辑全面重构 (`web/app.js`)**：
+  - 根因定位：旧逻辑在 `select.value !== val` 时只派发 `change` 事件而遗漏了立即调用 `syncXxxSelectUi()`，且部分原生 `<select>` 缺少 `change` 监听，导致折叠后 Trigger 文本不刷新、需二次展开才更新；
+  - 重构全系统 5 个自定义下拉组件的点击事件处理：先设置 `select.value = val` 并**立即执行** `syncXxxSelectUi()` 刷新 Trigger 文案与选中高亮，值发生变化时派发 `change` 事件通知业务层，最后关闭浮层。
+- [x] 83.2 **双向联动保底与文本查找健壮性加固 (`web/app.js`)**：
+  - 为 `aiGenRulesModelSelect` 补充原生的 `change` 事件监听联动 `syncAiGenRulesModelSelectUi`；
+  - 在 `presetSelect`、`footerModelSelect`、`onlineModelSelect` 的 `change` 回调中补充即时 UI 同步；
+  - 加固 5 个 `syncXxxSelectUi` 函数中的选项文本查找算法（优先使用 `Array.from(options).find(o => o.value === currentVal)`），彻底避免隐藏 select 在特定时序下 `selectedIndex` 滞后。
+- [x] 83.3 **端到端实机验证与测试闭环**：
+  - 静态资源版本缓存升级至 `v=1.2.8`；
+  - Chrome 实机测试全部 5 个下拉组件（AI 抽屉模型、场景预设模板、底部执行模型、设置面板在线模型、设置面板提示词模型），选项切换后折叠即刻显示最新选中项；
+  - 25 项 Rust 后端单元测试（`cargo test`）全绿通过。
+
+
 
 
 
