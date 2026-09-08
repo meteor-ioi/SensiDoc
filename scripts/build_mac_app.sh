@@ -9,7 +9,8 @@ PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd
 cd "$PROJECT_ROOT"
 
 APP_NAME="SensiDoc"
-VERSION="1.0.2"
+RAW_VER="${1:-${APP_VERSION:-1.0.2}}"
+VERSION="${RAW_VER#v}"
 BUNDLE_ID="com.sensidoc.desktop"
 DIST_DIR="$PROJECT_ROOT/dist"
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
@@ -121,8 +122,8 @@ codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 # 11. 打包分发文件 (ZIP 与 DMG)
 echo "==> 正在生成分发包..."
 ARCH="$(uname -m)"
-ZIP_NAME="SensiDoc-${VERSION}-macOS-${ARCH}.zip"
-DMG_NAME="SensiDoc-${VERSION}-macOS-${ARCH}.dmg"
+ZIP_NAME="SensiDoc-v${VERSION}-macOS-${ARCH}.zip"
+DMG_NAME="SensiDoc-v${VERSION}-macOS-${ARCH}.dmg"
 
 cd "$DIST_DIR"
 rm -f "$ZIP_NAME" "$DMG_NAME"

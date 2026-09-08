@@ -90,6 +90,7 @@ dependencies = [
 [[package]]
 name = "anydoc"
 version = "0.1.8"
+source = "git+https://github.com/firecrawl/anydoc?rev=4e3089b1ed43404241a303109f81e2c7933040b2#4e3089b1ed43404241a303109f81e2c7933040b2"
 dependencies = [
  "calamine",
  "cfb",

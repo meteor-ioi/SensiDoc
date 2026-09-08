@@ -1,0 +1,165 @@
+name: Build & Release SensiDoc Apps
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '发布版本号 (例如 v1.0.2)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos:
+    name: Build macOS App
+    runs-on: macos-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Determine Version
+        id: get_version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            RAW_VER="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_VER="${GITHUB_REF#refs/tags/}"
+          else
+            RAW_VER="v1.0.2"
+          fi
+          VER="${RAW_VER#v}"
+          echo "VERSION=${VER}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=v${VER}" >> $GITHUB_OUTPUT
+
+      - name: Run Tests
+        run: cargo test --verbose
+
+      - name: Package macOS App Bundle & DMG
+        env:
+          APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          chmod +x scripts/build_mac_app.sh
+          ./scripts/build_mac_app.sh "v${{ steps.get_version.outputs.VERSION }}"
+
+      - name: Upload macOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-v${{ steps.get_version.outputs.VERSION }}
+          path: |
+            dist/*.dmg
+            dist/*.zip
+
+  build-windows:
+    name: Build Windows App
+    runs-on: windows-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Determine Version
+        id: get_version
+        shell: bash
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            RAW_VER="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            RAW_VER="${GITHUB_REF#refs/tags/}"
+          else
+            RAW_VER="v1.0.2"
+          fi
+          VER="${RAW_VER#v}"
+          echo "VERSION=${VER}" >> $GITHUB_OUTPUT
+          echo "TAG_NAME=v${VER}" >> $GITHUB_OUTPUT
+
+      - name: Run Tests
+        run: cargo test --verbose
+
+      - name: Build Windows Release Binary
+        run: cargo build --release
+
+      - name: Package Windows Distribution Zip
+        shell: pwsh
+        run: |
+          $ver = "${{ steps.get_version.outputs.VERSION }}"
+          $distDir = "dist"
+          $pkgDir = "$distDir/SensiDoc-v$ver-windows-x86_64"
+          $zipPath = "$distDir/SensiDoc-v$ver-windows-x86_64.zip"
+
+          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
+          Copy-Item -Path "target/release/sensidoc.exe" -Destination "$pkgDir/sensidoc.exe"
+          Copy-Item -Recurse -Path "web" -Destination "$pkgDir/web"
+          if (Test-Path "assets/sensidoc_win.ico") {
+            Copy-Item -Path "assets/sensidoc_win.ico" -Destination "$pkgDir/sensidoc.ico"
+          }
+          if (Test-Path "README.md") {
+            Copy-Item -Path "README.md" -Destination "$pkgDir/README.md"
+          }
+          New-Item -ItemType Directory -Force -Path "$pkgDir/models" | Out-Null
+
+          Compress-Archive -Path "$pkgDir/*" -DestinationPath $zipPath -Force
+          Write-Host "Created $zipPath successfully"
+
+      - name: Upload Windows Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app-v${{ steps.get_version.outputs.VERSION }}
+          path: dist/*.zip
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-macos, build-windows]
+    if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download All Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-artifacts
+
+      - name: Prepare Release Assets
+        run: |
+          mkdir -p release-files
+          find release-artifacts -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} release-files/ \;
+          echo "Release files to upload:"
+          ls -lh release-files/
+
+      - name: Determine Tag Name
+        id: release_tag
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            RAW_VER="${{ github.event.inputs.version }}"
+          else
+            RAW_VER="${GITHUB_REF#refs/tags/}"
+          fi
+          VER="${RAW_VER#v}"
+          echo "TAG=v${VER}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.TAG }}
+          name: SensiDoc ${{ steps.release_tag.outputs.TAG }}
+          files: release-files/*
+          draft: false
+          prerelease: false
+          generate_release_notes: true
