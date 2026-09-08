@@ -3495,29 +3495,97 @@ div.prompt-area-box {
   margin: 3px 0;
 }
 
-/* 底部模型选择器微调适配 */
-.footer-model-custom-wrapper {
-  flex: 1;
-  min-width: 0;
+/* 底部模型选择器与复合执行按钮 (方案三：Split Action Button) */
+.split-extract-group {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  height: 36px;
+  position: relative;
+  box-shadow: var(--shadow-sm);
+  border-radius: var(--radius-sm);
 }
 
-.footer-model-btn {
-  height: 24px;
-  padding: 1px 6px;
-  border-radius: calc(var(--radius-sm) - 1px);
-  font-size: 11px;
+.split-model-wrapper {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+
+.split-model-btn {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-right: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  font-size: 11.5px;
   font-family: var(--font-mono);
+  color: var(--text);
+  cursor: pointer;
+  box-sizing: border-box;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.split-model-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.split-model-btn.active,
+.split-model-btn[aria-expanded="true"] {
+  border-color: var(--text);
+  background: var(--surface-hover);
+}
+
+.split-extract-btn {
+  flex-shrink: 0;
+  height: 100%;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--accent);
+  color: var(--accent-text);
+  border: 1px solid var(--accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  box-sizing: border-box;
+  transition: opacity 0.12s ease, transform 0.08s;
+}
+
+.split-extract-btn:hover {
+  opacity: 0.9;
+}
+
+.split-extract-btn:active {
+  transform: translateY(1px);
+}
+
+.split-extract-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
 }
 
 .footer-model-dropdown {
-  min-width: 240px;
-  max-width: 320px;
+  min-width: 260px;
+  max-width: 340px;
   font-family: var(--font-mono);
 }
 
 .footer-model-dropdown .custom-select-item {
   font-size: 11px;
-  padding: 4px 6px;
+  padding: 5px 8px;
 }
 
 

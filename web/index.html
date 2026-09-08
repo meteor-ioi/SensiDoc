@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.13">
+  <link rel="stylesheet" href="style.css?v=1.2.14">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -413,18 +413,15 @@
           </div>
         </div>
 
-        <!-- 规则底部执行与模型控制卡 -->
+        <!-- 规则底部执行与模型控制卡 (方案三：一体化复合执行按钮组) -->
         <div class="inspector-footer">
-          <!-- 方案一：一体化模型下拉选择与启停控制条 -->
-          <div class="model-control-strip" id="modelControlStrip">
-            <div class="model-status-indicator">
-              <span class="model-strip-label" style="display: inline-flex; align-items: center; gap: 4px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
-                <span>模型:</span>
-              </span>
-            </div>
-            <div class="custom-select-wrapper footer-model-custom-wrapper" id="footerModelWrapper" style="flex: 1; min-width: 0;">
-              <button id="footerModelBtn" class="custom-select-btn footer-model-btn" type="button" aria-haspopup="true" aria-expanded="false" title="选择要执行提取的模型">
+          <div class="split-extract-group" id="splitExtractGroup">
+            <!-- 左侧：模型选择器自定义下拉菜单 (保留全部自定义样式与分组) -->
+            <div class="custom-select-wrapper footer-model-custom-wrapper split-model-wrapper" id="footerModelWrapper">
+              <button id="footerModelBtn" class="custom-select-btn footer-model-btn split-model-btn" type="button" aria-haspopup="true" aria-expanded="false" title="选择要执行提取的模型">
+                <span class="model-icon-indicator" style="display: inline-flex; align-items: center; opacity: 0.7; flex-shrink: 0; margin-right: 4px;">
+                  <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+                </span>
                 <span class="custom-select-label" id="footerModelLabel">扫描本地模型中...</span>
                 <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
               </button>
@@ -437,15 +434,12 @@
                 </div>
               </div>
             </div>
-            <label class="toggle-switch" title="开启/关闭选中的离线模型">
-              <input type="checkbox" id="footerModelToggle">
-              <span class="toggle-slider"></span>
-            </label>
+            <!-- 右侧：立即执行触发按钮 -->
+            <button id="quickExtractBtn" class="btn primary split-extract-btn" type="button" title="使用所选模型立即执行敏感信息提取">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+              <span>立即执行</span>
+            </button>
           </div>
-          <button id="quickExtractBtn" class="btn primary" style="width: 100%; padding: 8px 0; justify-content: center; gap: 6px;">
-            <svg class="lucide-icon sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <span>立即执行</span>
-          </button>
         </div>
       </div>
 
@@ -981,7 +975,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.2.13"></script>
+  <script src="app.js?v=1.2.14"></script>
 </body>
 </html>
 
