@@ -24,6 +24,8 @@ jobs:
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -45,7 +47,7 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
-      - name: Package macOS App Bundle & DMG
+      - name: Package macOS App Bundle & Universal DMG
         env:
           APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
@@ -59,7 +61,7 @@ jobs:
           path: dist/*.dmg
 
   build-windows:
-    name: Build Windows App
+    name: Build Windows Installer
     runs-on: windows-latest
     steps:
       - name: Checkout Code
@@ -89,36 +91,17 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
-      - name: Build Windows Release Binary
-        run: cargo build --release
-
-      - name: Package Windows Distribution Zip
+      - name: Build Windows Installer (Inno Setup)
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.VERSION }}"
-          $distDir = "dist"
-          $pkgDir = "$distDir/SensiDoc-v$ver-windows-x86_64"
-          $zipPath = "$distDir/SensiDoc-v$ver-windows-x86_64.zip"
-
-          New-Item -ItemType Directory -Force -Path $pkgDir | Out-Null
-          Copy-Item -Path "target/release/sensidoc.exe" -Destination "$pkgDir/sensidoc.exe"
-          Copy-Item -Recurse -Path "web" -Destination "$pkgDir/web"
-          if (Test-Path "assets/sensidoc_win.ico") {
-            Copy-Item -Path "assets/sensidoc_win.ico" -Destination "$pkgDir/sensidoc.ico"
-          }
-          if (Test-Path "README.md") {
-            Copy-Item -Path "README.md" -Destination "$pkgDir/README.md"
-          }
-          New-Item -ItemType Directory -Force -Path "$pkgDir/models" | Out-Null
-
-          Compress-Archive -Path "$pkgDir/*" -DestinationPath $zipPath -Force
-          Write-Host "Created $zipPath successfully"
+          ./scripts/build_win_installer.ps1 -Version $ver
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: windows-app-v${{ steps.get_version.outputs.VERSION }}
-          path: dist/*.zip
+          path: dist/*-setup.exe
 
   publish-release:
     name: Publish GitHub Release
@@ -137,7 +120,7 @@ jobs:
       - name: Prepare Release Assets
         run: |
           mkdir -p release-files
-          find release-artifacts -type f \( -name "*.dmg" -o -name "*.zip" \) -exec cp {} release-files/ \;
+          find release-artifacts -type f \( -name "*.dmg" -o -name "*-setup.exe" \) -exec cp {} release-files/ \;
           echo "Release files to upload:"
           ls -lh release-files/
 

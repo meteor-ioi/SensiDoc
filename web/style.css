@@ -31,8 +31,8 @@
   --shadow-md: 0 0 0 1px rgba(0, 0, 0, 0.08), 0 4px 14px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 0 0 1px rgba(0, 0, 0, 0.1), 0 16px 40px rgba(0, 0, 0, 0.12);
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Monaco, Consolas, "Cascadia Code", "Courier New", monospace;
 }
 
 /* 媒体查询：系统默认深色 */
@@ -139,6 +139,21 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* 全局表单与交互控件统一继承字体，杜绝 Windows 下系统默认宋体问题 */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+
+/* Windows 原生桌面端与 Windows 浏览器环境下，严格优先使用微软雅黑与 Segoe UI */
+html.platform-win,
+body.platform-win {
+  --font-sans: "Segoe UI", "Microsoft YaHei", "微软雅黑", sans-serif;
+  --font-mono: Consolas, "Cascadia Code", "Courier New", monospace;
 }
 
 /* 顶部栏 TopBar (支持桌面端窗口拖动与各操作系统安全边距) */

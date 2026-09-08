@@ -252,7 +252,8 @@ fn launch_desktop_gui(
     enum UserEvent {
         Minimize,
         Maximize,
-        Close,
+        RequestClose,
+        ForceClose,
         DragWindow,
     }
 
@@ -311,7 +312,7 @@ fn launch_desktop_gui(
         "#
     );
 
-    let _webview = WebViewBuilder::new()
+    let webview = WebViewBuilder::new()
         .with_url(app_url)
         .with_initialization_script(&init_script)
         .with_ipc_handler(move |req: wry::http::Request<String>| {
@@ -324,7 +325,10 @@ fn launch_desktop_gui(
                     let _ = ipc_proxy.send_event(UserEvent::Maximize);
                 }
                 "close" => {
-                    let _ = ipc_proxy.send_event(UserEvent::Close);
+                    let _ = ipc_proxy.send_event(UserEvent::RequestClose);
+                }
+                "force_close" => {
+                    let _ = ipc_proxy.send_event(UserEvent::ForceClose);
                 }
                 "drag_window" => {
                     let _ = ipc_proxy.send_event(UserEvent::DragWindow);
@@ -347,8 +351,20 @@ fn launch_desktop_gui(
                 event: WindowEvent::CloseRequested,
                 ..
             }
-            | Event::UserEvent(UserEvent::Close) => {
-                tracing::info!("收到窗口关闭事件，正在安全释放模型进程并退出客户端...");
+            | Event::UserEvent(UserEvent::RequestClose) => {
+                tracing::info!("收到窗口关闭请求，向前端发起二次确认提示...");
+                let _ = webview.evaluate_script(
+                    "if (typeof window.__handleAppExitRequest === 'function') { \
+                        window.__handleAppExitRequest(); \
+                     } else { \
+                        if (confirm('确定要退出 SensiDoc 吗？未导出的文档与脱敏结果可能会丢失。')) { \
+                            if (window.ipc) window.ipc.postMessage('force_close'); \
+                        } \
+                     }",
+                );
+            }
+            Event::UserEvent(UserEvent::ForceClose) => {
+                tracing::info!("用户已确认退出，正在安全释放模型进程并退出客户端...");
                 let mgr = shutdown_mgr.clone();
                 std::thread::spawn(move || {
                     let rt = tokio::runtime::Builder::new_current_thread()

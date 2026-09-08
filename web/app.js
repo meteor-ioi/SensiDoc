@@ -4746,7 +4746,13 @@ function initDesktopEnvironment() {
     }
   }
 
-  // 若处于原生桌面客户端或调试参数指定状态，赋予对应的平台样式标识
+  // 注入通用平台类名 (如 platform-win / platform-mac) 以便字体与布局自动适配
+  if (platform) {
+    document.documentElement.classList.add(`platform-${platform}`);
+    if (document.body) document.body.classList.add(`platform-${platform}`);
+  }
+
+  // 若处于原生桌面客户端或调试参数指定状态，赋予对应的桌面端样式标识
   if (isDesktop || paramDesktop) {
     const activePlatform = paramDesktop || platform;
     document.documentElement.classList.add("desktop-app", `platform-${activePlatform}`);
@@ -4789,7 +4795,30 @@ function initDesktopEnvironment() {
   }
   if (closeBtn) {
     closeBtn.addEventListener("click", () => {
-      if (window.ipc) window.ipc.postMessage("close");
+      handleWindowCloseRequest();
     });
   }
 }
+
+// 软件退出统一二次确认
+async function handleWindowCloseRequest() {
+  const confirmed = await showConfirmDialog({
+    title: "退出 SensiDoc",
+    message: "确定要关闭并退出软件吗？未导出的文档与脱敏结果可能会丢失。",
+    confirmText: "确认退出",
+    cancelText: "取消",
+    isDanger: true,
+    iconType: "danger",
+  });
+  if (confirmed) {
+    if (window.ipc) {
+      window.ipc.postMessage("force_close");
+    } else {
+      window.close();
+    }
+  }
+}
+
+// 暴露给原生宿主拦截调用
+window.__handleAppExitRequest = handleWindowCloseRequest;
+

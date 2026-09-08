@@ -22,9 +22,31 @@ echo "========================================================"
 echo "   SensiDoc macOS 应用打包流水线 (v$VERSION)"
 echo "========================================================"
 
-# 1. 编译 Rust 生产版本二进制 (Release Profile)
-echo "==> 正在编译 Rust Release 二进制 (Cargo)..."
-cargo build --release
+# 1. 编译 Rust 生产版本二进制 (Release Profile, 优先构建 Universal 架构以兼容 M 芯片与 Intel 芯片)
+echo "==> 检查并安装跨架构编译目标 (aarch64 & x86_64)..."
+rustup target add aarch64-apple-darwin x86_64-apple-darwin 2>/dev/null || true
+
+IS_UNIVERSAL=false
+MAIN_BIN="target/release/sensidoc"
+
+if rustup target list --installed | grep -q "x86_64-apple-darwin" && rustup target list --installed | grep -q "aarch64-apple-darwin"; then
+    echo "==> 正在编译 aarch64 (Apple Silicon M系列) 架构..."
+    if cargo build --release --target aarch64-apple-darwin && cargo build --release --target x86_64-apple-darwin; then
+        echo "==> 正在使用 lipo 合并生成 Universal 2 通用二进制 (兼容 Apple Silicon 与 Intel 芯片)..."
+        mkdir -p target/universal/release
+        lipo -create -output target/universal/release/sensidoc \
+            target/aarch64-apple-darwin/release/sensidoc \
+            target/x86_64-apple-darwin/release/sensidoc
+        MAIN_BIN="target/universal/release/sensidoc"
+        IS_UNIVERSAL=true
+    else
+        echo "==> 双架构跨编译失败，降级为宿主架构构建..."
+        cargo build --release
+    fi
+else
+    echo "==> 采用宿主架构编译 Release 二进制..."
+    cargo build --release
+fi
 
 # 2. 检查并生成 macOS 图标 (.icns)
 if [ ! -f "assets/AppIcon.icns" ]; then
@@ -51,7 +73,7 @@ mkdir -p "$MACOS_DIR"
 mkdir -p "$RESOURCES_DIR"
 
 # 4. 拷贝主可执行文件
-cp "target/release/sensidoc" "$MACOS_DIR/sensidoc"
+cp "$MAIN_BIN" "$MACOS_DIR/sensidoc"
 chmod +x "$MACOS_DIR/sensidoc"
 
 # 5. 拷贝前端静态资源 (web/)
@@ -121,11 +143,16 @@ codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
 # 11. 打包分发文件 (DMG)
 echo "==> 正在生成分发包..."
-ARCH="$(uname -m)"
-DMG_NAME="SensiDoc-v${VERSION}-macOS-${ARCH}.dmg"
+if [ "$IS_UNIVERSAL" = true ]; then
+    DMG_NAME="sensidoc-v${VERSION}-macOS-universal.dmg"
+else
+    ARCH="$(uname -m)"
+    DMG_NAME="sensidoc-v${VERSION}-macOS-${ARCH}.dmg"
+fi
+STD_DMG_NAME="sensidoc-v${VERSION}-macOS.dmg"
 
 cd "$DIST_DIR"
-rm -f "$DMG_NAME"
+rm -f "$DMG_NAME" "$STD_DMG_NAME"
 
 # 制作 DMG 磁盘映像 (如果 hdiutil 可用)
 if command -v hdiutil >/dev/null 2>&1; then
@@ -138,12 +165,18 @@ if command -v hdiutil >/dev/null 2>&1; then
     
     hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_TMP" -ov -format UDZO "$DMG_NAME" -quiet
     rm -rf "$DMG_TMP"
+
+    # 若为 Universal 或单架构，同步生成标准化 sensidoc-v${VERSION}-macOS.dmg
+    cp "$DMG_NAME" "$STD_DMG_NAME" 2>/dev/null || true
 fi
 
 echo "========================================================"
 echo "✅ macOS 应用构建完成！"
 echo "📦 应用程序 Bundle: $APP_BUNDLE"
-if [ -f "$DIST_DIR/$DMG_NAME" ]; then
-    echo "💿 DMG 安装映像: $DIST_DIR/$DMG_NAME"
+if [ -f "$DIST_DIR/$STD_DMG_NAME" ]; then
+    echo "💿 DMG 安装映像: $DIST_DIR/$STD_DMG_NAME"
+fi
+if [ -f "$DIST_DIR/$DMG_NAME" ] && [ "$DMG_NAME" != "$STD_DMG_NAME" ]; then
+    echo "💿 架构专属 DMG: $DIST_DIR/$DMG_NAME"
 fi
 echo "========================================================"

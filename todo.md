@@ -1086,3 +1086,32 @@
   - 25 项 Rust 单元测试（`cargo test`）全绿通过；
   - 本地仅 commit，不推送到 GitHub 远端。
 
+---
+
+## 阶段七十九：Windows标准安装包构建、应用图标嵌入、微软雅黑字体统合、窗口关闭二次确认与macOS双架构Universal兼容 (已完成) · [🔗 对话跳转](conversation://685f5dec-bb61-46f3-845f-db3dcf5d662a)
+- [x] 79.1 **Windows Inno Setup 标准安装包流水线 (`scripts/installer.iss`, `scripts/build_win_installer.ps1`, `.github/workflows/release.yml`)**：
+  - 编写官方级 Inno Setup 脚本，产出单一便携的 `sensidoc-v{VERSION}-windows-x86_64-setup.exe` 安装向导程序；
+  - 自动创建桌面快捷方式（带自定义图标）、开始菜单项、标准 Windows 卸载程序（`unins000.exe`）及安装完成立即启动向导；
+  - CI 工作流改为自动编译调用 Inno Setup 生成安装包并发布。
+- [x] 79.2 **Windows PE 可执行文件图标与元数据嵌入 (`build.rs`, `Cargo.toml`)**：
+  - 引入 `winres = "0.1"` 作为 Windows 目标平台的构建依赖；
+  - 新建 `build.rs`，在 Windows 编译时自动将 `assets/sensidoc_win.ico` 嵌入 `sensidoc.exe` 的 PE 资源段中；
+  - 解决 Windows 资源管理器、任务栏和快捷方式显示为默认空白通用图标的问题。
+- [x] 79.3 **Windows 界面字体统合为“微软雅黑” (`web/style.css`, `web/app.js`)**：
+  - 更新 `--font-sans` 回退链，针对 Windows 优先匹配 `"Segoe UI", "Microsoft YaHei", "微软雅黑"`；
+  - 针对 `platform-win` 声明强覆盖，并确保所有 `button`, `input`, `select`, `textarea` 继承字体；
+  - 彻底解决 Windows 下由于系统默认无衬线字体回退机制导致的宋体与黑体混杂显示问题。
+- [x] 79.4 **跨平台窗口关闭统一二次确认 (`src/main.rs`, `web/app.js`)**：
+  - 前端封装 `handleWindowCloseRequest()`，调用现有的标准 `showConfirmDialog` 模态框，支持取消与确认退出；
+  - Windows 原生端点击右上角 `#winCloseBtn` 触发确认框；
+  - 后端 Tao 窗口收到 `WindowEvent::CloseRequested`（点击 macOS 交通灯红点或按 Alt+F4 / Cmd+W）时拦截直接关闭，向 webview 发送脚本拉起前端退出确认框；
+  - 只有用户在前端点击“确认退出”后，才分发 `force_close` 并由后端安全停止模型推理服务并退出应用。
+- [x] 79.5 **macOS Universal 架构（M 处理器 + Intel 处理器）双兼容与产物命名 (`scripts/build_mac_app.sh`, `.github/workflows/release.yml`)**：
+  - `build_mac_app.sh` 增加 `aarch64-apple-darwin` 与 `x86_64-apple-darwin` 目标构建与 `lipo -create` 通用二进制合并；
+  - 一键产出兼顾 M1/M2/M3/M4 与 Intel Mac 的 Universal DMG；
+  - 产物遵循用户要求的 `sensidoc + 版本号` 命名规则：`sensidoc-v{VERSION}-macOS.dmg` 与 `sensidoc-v{VERSION}-windows-x86_64-setup.exe`。
+- [x] 79.6 **实机视觉与功能回归测试**：
+  - Chrome 实机验证 Windows 模式下字体计算值（全部统一为 Segoe UI + Microsoft YaHei）与退出二次确认弹窗的弹出与交互；
+  - 25 项 Rust 后端自动化单元测试（`cargo test`）全绿通过。
+
+
