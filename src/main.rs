@@ -786,6 +786,7 @@ async fn extract_sensitive_info(
                         cfg.temperature,
                         cfg.top_k,
                         cfg.repeat_penalty,
+                        cfg.max_tokens,
                         cfg.enable_thinking,
                         &system_prompt_used,
                         &chunk_text,
@@ -805,6 +806,7 @@ async fn extract_sensitive_info(
                     offline_profile.temperature,
                     offline_profile.top_k,
                     offline_profile.repeat_penalty,
+                    offline_profile.max_tokens,
                     offline_profile.enable_thinking,
                     &system_prompt_used,
                     &chunk_text,
@@ -1137,8 +1139,14 @@ struct SaveOfflineProfileRequest {
     temperature: f32,
     top_k: u32,
     repeat_penalty: f32,
+    #[serde(default = "default_max_tokens_u32")]
+    max_tokens: u32,
     #[serde(default)]
     enable_thinking: bool,
+}
+
+fn default_max_tokens_u32() -> u32 {
+    1024
 }
 
 async fn get_all_offline_profiles(
@@ -1155,6 +1163,7 @@ async fn save_offline_profile(
         temperature: payload.temperature,
         top_k: payload.top_k,
         repeat_penalty: payload.repeat_penalty,
+        max_tokens: payload.max_tokens,
         enable_thinking: payload.enable_thinking,
     };
     state.session_mgr.save_offline_model_profile(payload.filename, profile).await;

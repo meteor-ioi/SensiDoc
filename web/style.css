@@ -2797,6 +2797,14 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   user-select: none;
 }
 
+.param-toggle-btn.compact {
+  width: auto;
+  min-width: 82px;
+  height: 24px;
+  padding: 0 6px;
+  font-size: 10.5px;
+}
+
 .param-toggle-btn:hover {
   background: var(--surface-hover);
   border-color: var(--border-strong);
@@ -2826,7 +2834,22 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-top: 6px;
+  margin-top: 8px;
+  gap: 8px;
+}
+
+.model-param-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.model-param-tip {
+  font-size: 10px;
+  color: var(--text-mute);
+  white-space: nowrap;
 }
 
 .model-param-status-text {
@@ -2841,9 +2864,10 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
   font-size: 10.5px;
   color: var(--text-dim);
   cursor: pointer;
-  padding: 2px 4px;
+  padding: 2px 6px;
   border-radius: calc(var(--radius-sm) - 2px);
   transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
 }
 
 .model-param-reset-btn:hover {
@@ -3697,6 +3721,13 @@ div.prompt-area-box {
   background: var(--surface-hover);
 }
 
+.split-model-btn.locked,
+.split-model-btn.disabled {
+  opacity: 0.6;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
 .split-extract-btn {
   flex-shrink: 0;
   height: 100%;
@@ -3714,7 +3745,7 @@ div.prompt-area-box {
   cursor: pointer;
   white-space: nowrap;
   box-sizing: border-box;
-  transition: opacity 0.12s ease, transform 0.08s;
+  transition: opacity 0.12s ease, transform 0.08s, background 0.15s, border-color 0.15s, color 0.15s;
 }
 
 .split-extract-btn:hover {
@@ -3729,6 +3760,30 @@ div.prompt-area-box {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+.split-extract-btn.extracting,
+.split-extract-btn.danger {
+  background: var(--danger, #ef4444);
+  border-color: var(--danger, #ef4444);
+  color: #ffffff;
+}
+
+.split-extract-btn.extracting:hover,
+.split-extract-btn.danger:hover {
+  background: #dc2626;
+  border-color: #dc2626;
+  opacity: 1;
+}
+
+.split-extract-btn.extracting .lucide-icon,
+.split-extract-btn.danger .lucide-icon {
+  animation: pulseStop 1.5s infinite;
+}
+
+@keyframes pulseStop {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(0.92); }
 }
 
 .footer-model-dropdown {

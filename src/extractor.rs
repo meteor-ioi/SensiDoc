@@ -336,6 +336,7 @@ impl Extractor {
         temperature: f32,
         top_k: u32,
         repeat_penalty: f32,
+        max_tokens: u32,
         enable_thinking: bool,
         system_prompt: &str,
         user_text: &str,
@@ -350,6 +351,12 @@ impl Extractor {
             format!("<document>\n{}\n</document>", user_text)
         };
 
+        let effective_max_tokens = if max_tokens == 0 {
+            if enable_thinking { 2048 } else { 1024 }
+        } else {
+            max_tokens
+        };
+
         let request_payload = serde_json::json!({
             "messages": [
                 { "role": "system", "content": system_prompt },
@@ -358,7 +365,7 @@ impl Extractor {
             "temperature": temperature,
             "top_k": top_k,
             "repeat_penalty": repeat_penalty,
-            "max_tokens": if enable_thinking { 2048 } else { 1024 }
+            "max_tokens": effective_max_tokens
         });
 
         let resp = client
@@ -392,6 +399,7 @@ impl Extractor {
         temperature: f32,
         top_k: u32,
         repeat_penalty: f32,
+        max_tokens: u32,
         enable_thinking: bool,
         system_prompt: &str,
         user_text: &str,
@@ -415,6 +423,12 @@ impl Extractor {
             format!("<document>\n{}\n</document>", user_text)
         };
 
+        let effective_max_tokens = if max_tokens == 0 {
+            if enable_thinking { 4096 } else { 2048 }
+        } else {
+            max_tokens
+        };
+
         let mut request_payload = serde_json::json!({
             "model": model_id,
             "messages": [
@@ -424,7 +438,7 @@ impl Extractor {
             "temperature": temperature,
             "top_k": top_k,
             "repeat_penalty": repeat_penalty,
-            "max_tokens": if enable_thinking { 4096 } else { 2048 }
+            "max_tokens": effective_max_tokens
         });
 
         if enable_thinking {

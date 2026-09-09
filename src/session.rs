@@ -56,6 +56,8 @@ pub struct OnlineModelProfile {
     pub top_k: u32,
     #[serde(default = "default_repeat_penalty")]
     pub repeat_penalty: f32,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
     #[serde(default)]
     pub enable_thinking: bool,
 }
@@ -80,6 +82,10 @@ fn default_repeat_penalty() -> f32 {
     1.1
 }
 
+fn default_max_tokens() -> u32 {
+    1024
+}
+
 fn default_online_models() -> Vec<OnlineModelProfile> {
     vec![OnlineModelProfile {
         id: "deepseek-v3".to_string(),
@@ -90,6 +96,7 @@ fn default_online_models() -> Vec<OnlineModelProfile> {
         temperature: 0.1,
         top_k: 50,
         repeat_penalty: 1.1,
+        max_tokens: 2048,
         enable_thinking: false,
     }]
 }
@@ -103,6 +110,8 @@ pub struct OfflineModelProfile {
     pub top_k: u32,
     #[serde(default = "default_repeat_penalty")]
     pub repeat_penalty: f32,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
     #[serde(default)]
     pub enable_thinking: bool,
 }
@@ -113,6 +122,7 @@ impl Default for OfflineModelProfile {
             temperature: default_temperature(),
             top_k: default_top_k(),
             repeat_penalty: default_repeat_penalty(),
+            max_tokens: default_max_tokens(),
             enable_thinking: false,
         }
     }

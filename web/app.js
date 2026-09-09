@@ -50,8 +50,12 @@ const state = {
   downloadingModels: new Set(), // 正在下载中的模型 ID 集合
 
   // 离线大模型推理超参数状态 (跟着模型走)
-  offlineModelProfiles: {},   // 离线模型个性化推理参数字典 { [filename]: { temperature, top_k, repeat_penalty } }
+  offlineModelProfiles: {},   // 离线模型个性化推理参数字典 { [filename]: { temperature, top_k, repeat_penalty, max_tokens, enable_thinking } }
   expandedModelDrawers: new Set(), // 当前展开推理参数抽屉的模型文件名集合
+
+  // 提取执行与打断状态
+  isExtracting: false,
+  extractAbortController: null,
 };
 window.state = state;
 
@@ -252,6 +256,7 @@ const el = {
   onlineModelTempInput: document.getElementById("onlineModelTempInput"),
   onlineModelTopKInput: document.getElementById("onlineModelTopKInput"),
   onlineModelRepeatPenaltyInput: document.getElementById("onlineModelRepeatPenaltyInput"),
+  onlineModelMaxTokensInput: document.getElementById("onlineModelMaxTokensInput"),
   onlineModelThinkingBtn: document.getElementById("onlineModelThinkingBtn"),
   onlineModelTestStatusText: document.getElementById("onlineModelTestStatusText"),
   testOnlineModelBtn: document.getElementById("testOnlineModelBtn"),
@@ -2841,8 +2846,53 @@ async function resetPromptTemplate() {
   }
 }
 
+// 设置提取执行状态 UI (执行中 vs 就绪)
+function setExtractingUi(isExtracting) {
+  state.isExtracting = !!isExtracting;
+  if (!el.quickExtractBtn) return;
+
+  if (state.isExtracting) {
+    el.quickExtractBtn.classList.add("extracting");
+    el.quickExtractBtn.innerHTML = `
+      <svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="2" fill="currentColor"></rect></svg>
+      <span>停止执行</span>
+    `;
+    el.quickExtractBtn.title = "点击立即停止当前敏感信息提取";
+    if (el.footerModelBtn) {
+      el.footerModelBtn.classList.add("locked");
+      el.footerModelBtn.setAttribute("aria-disabled", "true");
+    }
+  } else {
+    el.quickExtractBtn.classList.remove("extracting");
+    el.quickExtractBtn.innerHTML = `
+      <svg class="lucide-icon sm" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+      <span>立即执行</span>
+    `;
+    el.quickExtractBtn.title = "使用所选模型立即执行敏感信息提取";
+    if (el.footerModelBtn) {
+      el.footerModelBtn.classList.remove("locked");
+      el.footerModelBtn.removeAttribute("aria-disabled");
+    }
+  }
+}
+
+// 主动停止当前提取请求
+function stopExtraction() {
+  if (state.extractAbortController) {
+    state.extractAbortController.abort();
+    state.extractAbortController = null;
+  }
+  setExtractingUi(false);
+}
+
 // 触发敏感信息提取
 async function triggerExtraction() {
+  // 如果当前正在提取中，点击直接触发手动停止
+  if (state.isExtracting) {
+    stopExtraction();
+    return;
+  }
+
   if (!state.currentDocId) {
     showAlertDialog({
       title: "提示",
@@ -2854,9 +2904,6 @@ async function triggerExtraction() {
 
   const doc = state.documents.find((d) => d.id === state.currentDocId);
   if (!doc) return;
-
-  const btn = el.quickExtractBtn;
-  const origHtml = btn.innerHTML;
 
   // 1. 检查选中的模型类型 (离线 vs 在线)
   const chosenVal = el.footerModelSelect ? el.footerModelSelect.value : "";
@@ -2875,8 +2922,8 @@ async function triggerExtraction() {
 
   // 场景 1: 在线云端模型 (无需启动本地 llama-server)
   if (modelSource === "online") {
-    btn.disabled = true;
-    btn.innerText = "正在云端提取...";
+    state.extractAbortController = new AbortController();
+    setExtractingUi(true);
 
     try {
       const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
@@ -2885,6 +2932,7 @@ async function triggerExtraction() {
       const res = await fetch("/api/extract", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: state.extractAbortController.signal,
         body: JSON.stringify({
           doc_id: state.currentDocId,
           template_name: templateName,
@@ -2919,14 +2967,18 @@ async function triggerExtraction() {
       selectSnapshot(state.currentDocId, snapshot.id);
       switchInspectorTab("audit");
     } catch (e) {
+      if (e.name === "AbortError" || e.message?.includes("aborted")) {
+        console.log("在线提取已被用户手动停止");
+        return;
+      }
       showAlertDialog({
         title: "提取异常",
         message: e.message,
         type: "danger",
       });
     } finally {
-      btn.disabled = false;
-      btn.innerText = origText;
+      state.extractAbortController = null;
+      setExtractingUi(false);
     }
     return;
   }
@@ -2974,19 +3026,17 @@ async function triggerExtraction() {
 
   // 如果没有处于运行中的模型，或者选中的模型与运行中模型不一致，则先启动模型
   if (!state.activeModelName || state.activeModelName !== targetModel) {
-    btn.disabled = true;
-    btn.innerText = "正在启动模型...";
+    setExtractingUi(true);
     const started = await startLlamaModel(targetModel);
     if (!started) {
-      btn.disabled = false;
-      btn.innerHTML = origHtml;
+      setExtractingUi(false);
       return;
     }
   }
 
   // 执行本地模型敏感信息提取
-  btn.disabled = true;
-  btn.innerText = "正在本地提取...";
+  state.extractAbortController = new AbortController();
+  setExtractingUi(true);
 
   try {
     const selectedOpt = el.presetSelect.options[el.presetSelect.selectedIndex];
@@ -2995,6 +3045,7 @@ async function triggerExtraction() {
     const res = await fetch("/api/extract", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal: state.extractAbortController.signal,
       body: JSON.stringify({
         doc_id: state.currentDocId,
         template_name: templateName,
@@ -3028,14 +3079,18 @@ async function triggerExtraction() {
     selectSnapshot(state.currentDocId, snapshot.id);
     switchInspectorTab("audit");
   } catch (e) {
+    if (e.name === "AbortError" || e.message?.includes("aborted")) {
+      console.log("离线提取已被用户手动停止");
+      return;
+    }
     showAlertDialog({
       title: "提取异常",
       message: e.message,
       type: "danger",
     });
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = origHtml;
+    state.extractAbortController = null;
+    setExtractingUi(false);
   }
 }
 
@@ -3480,6 +3535,7 @@ function fillOnlineModelForm(profile) {
     if (el.onlineModelTempInput) el.onlineModelTempInput.value = 0.1;
     if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = 50;
     if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = 1.1;
+    if (el.onlineModelMaxTokensInput) el.onlineModelMaxTokensInput.value = 2048;
     if (el.onlineModelThinkingBtn) {
       el.onlineModelThinkingBtn.classList.remove("active");
       const ind = el.onlineModelThinkingBtn.querySelector(".toggle-indicator");
@@ -3499,6 +3555,7 @@ function fillOnlineModelForm(profile) {
   if (el.onlineModelTempInput) el.onlineModelTempInput.value = profile.temperature !== undefined ? profile.temperature : 0.1;
   if (el.onlineModelTopKInput) el.onlineModelTopKInput.value = profile.top_k !== undefined ? profile.top_k : 50;
   if (el.onlineModelRepeatPenaltyInput) el.onlineModelRepeatPenaltyInput.value = profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1;
+  if (el.onlineModelMaxTokensInput) el.onlineModelMaxTokensInput.value = profile.max_tokens !== undefined ? profile.max_tokens : 2048;
   if (el.onlineModelThinkingBtn) {
     const isThinking = !!profile.enable_thinking;
     el.onlineModelThinkingBtn.classList.toggle("active", isThinking);
@@ -3590,6 +3647,7 @@ async function handleSaveOnlineModel() {
   const temp = el.onlineModelTempInput ? parseFloat(el.onlineModelTempInput.value) || 0.1 : 0.1;
   const topK = el.onlineModelTopKInput ? parseInt(el.onlineModelTopKInput.value, 10) || 50 : 50;
   const repeatPenalty = el.onlineModelRepeatPenaltyInput ? parseFloat(el.onlineModelRepeatPenaltyInput.value) || 1.1 : 1.1;
+  const maxTokens = el.onlineModelMaxTokensInput ? parseInt(el.onlineModelMaxTokensInput.value, 10) || 2048 : 2048;
   const enableThinking = el.onlineModelThinkingBtn ? el.onlineModelThinkingBtn.classList.contains("active") : false;
 
   if (!name) {
@@ -3614,6 +3672,7 @@ async function handleSaveOnlineModel() {
     temperature: temp,
     top_k: topK,
     repeat_penalty: repeatPenalty,
+    max_tokens: maxTokens,
     enable_thinking: enableThinking,
   };
 
@@ -4687,12 +4746,12 @@ async function autoLoadModelOptimalPrompt(filename) {
   }
 }
 
-// 获取离线模型超参数 (未配置则返回默认 0.1 / 50 / 1.1 / enable_thinking: false)
+// 获取离线模型超参数 (未配置则返回默认 0.1 / 50 / 1.1 / 1024 / enable_thinking: false)
 function getOfflineModelProfile(filename) {
   if (state.offlineModelProfiles && state.offlineModelProfiles[filename]) {
     return state.offlineModelProfiles[filename];
   }
-  return { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, enable_thinking: false };
+  return { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, max_tokens: 1024, enable_thinking: false };
 }
 
 // 异步持久化离线模型超参数
@@ -4709,6 +4768,7 @@ async function saveOfflineModelProfile(filename, profile, statusEl) {
         temperature: profile.temperature,
         top_k: profile.top_k,
         repeat_penalty: profile.repeat_penalty,
+        max_tokens: profile.max_tokens,
         enable_thinking: !!profile.enable_thinking,
       }),
     });
@@ -4727,11 +4787,12 @@ async function saveOfflineModelProfile(filename, profile, statusEl) {
   }
 }
 
-// 生成离线模型抽屉 HTML (紧凑4列并排与恢复默认)
+// 生成离线模型抽屉 HTML (方案B：4个数值输入框 + 下方独立思考模式与说明)
 function renderOfflineParamDrawerHtml(filename) {
   const profile = getOfflineModelProfile(filename);
   const isOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(filename);
   const isThinking = !!profile.enable_thinking;
+  const maxTokens = profile.max_tokens !== undefined ? profile.max_tokens : 1024;
 
   return `
     <div class="model-param-drawer ${isOpen ? "open" : ""}" id="param-drawer-${escapeHtml(filename)}">
@@ -4749,16 +4810,23 @@ function renderOfflineParamDrawerHtml(filename) {
           <input type="number" class="input-text sm offline-param-repeat" data-file="${escapeHtml(filename)}" min="1.0" max="2.0" step="0.05" value="${profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1}" style="width: 100%; box-sizing: border-box;">
         </div>
         <div class="model-param-cell">
-          <label>思考模式 (Think)：</label>
-          <button type="button" class="param-toggle-btn offline-param-thinking ${isThinking ? "active" : ""}" data-file="${escapeHtml(filename)}" title="点击切换是否开启 CoT 思维链深度思考推理">
-            <span class="toggle-indicator">${isThinking ? "[──●]" : "[●──]"}</span>
-            <span class="toggle-text">${isThinking ? "已开启" : "未开启"}</span>
-          </button>
+          <label>最大Token (Max)：</label>
+          <input type="number" class="input-text sm offline-param-maxtokens" data-file="${escapeHtml(filename)}" min="64" max="16384" step="64" value="${maxTokens}" style="width: 100%; box-sizing: border-box;">
         </div>
       </div>
       <div class="model-param-footer">
-        <div class="model-param-status-text" id="param-status-${escapeHtml(filename)}">参数已绑定该模型并在调用时自动生效</div>
-        <button type="button" class="model-param-reset-btn" data-file="${escapeHtml(filename)}" title="恢复系统默认参数 (0.1 / 50 / 1.1 / 关闭思考)">恢复默认</button>
+        <div class="model-param-footer-left">
+          <span style="font-size: 11px; font-weight: 500;">思考模式：</span>
+          <button type="button" class="param-toggle-btn compact offline-param-thinking ${isThinking ? "active" : ""}" data-file="${escapeHtml(filename)}" title="点击切换是否开启 CoT 思维链深度思考推理">
+            <span class="toggle-indicator">${isThinking ? "[──●]" : "[●──]"}</span>
+            <span class="toggle-text">${isThinking ? "已开启" : "未开启"}</span>
+          </button>
+          <span class="model-param-tip">(针对推理模型)</span>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <div class="model-param-status-text" id="param-status-${escapeHtml(filename)}">参数已绑定该模型</div>
+          <button type="button" class="model-param-reset-btn" data-file="${escapeHtml(filename)}" title="恢复系统默认参数 (0.1 / 50 / 1.1 / 1024 / 关闭思考)">恢复默认</button>
+        </div>
       </div>
     </div>
   `;
@@ -4791,6 +4859,7 @@ function bindOfflineParamDrawerEvents(container) {
 
     const topkInput = drawer.querySelector(".offline-param-topk");
     const repeatInput = drawer.querySelector(".offline-param-repeat");
+    const maxTokensInput = drawer.querySelector(".offline-param-maxtokens");
     const thinkingBtn = drawer.querySelector(".offline-param-thinking");
     const statusEl = drawer.querySelector(".model-param-status-text");
     const resetBtn = drawer.querySelector(".model-param-reset-btn");
@@ -4799,11 +4868,12 @@ function bindOfflineParamDrawerEvents(container) {
       const temp = parseFloat(tempInput.value) || 0.1;
       const topk = parseInt(topkInput.value, 10) || 50;
       const repeat = parseFloat(repeatInput.value) || 1.1;
+      const maxTokens = parseInt(maxTokensInput?.value, 10) || 1024;
       const enableThinking = thinkingBtn ? thinkingBtn.classList.contains("active") : false;
-      saveOfflineModelProfile(file, { temperature: temp, top_k: topk, repeat_penalty: repeat, enable_thinking: enableThinking }, statusEl);
+      saveOfflineModelProfile(file, { temperature: temp, top_k: topk, repeat_penalty: repeat, max_tokens: maxTokens, enable_thinking: enableThinking }, statusEl);
     };
 
-    [tempInput, topkInput, repeatInput].forEach((inp) => {
+    [tempInput, topkInput, repeatInput, maxTokensInput].forEach((inp) => {
       if (!inp) return;
       inp.addEventListener("blur", doSave);
       inp.addEventListener("keydown", (e) => {
@@ -4830,6 +4900,7 @@ function bindOfflineParamDrawerEvents(container) {
         if (tempInput) tempInput.value = 0.1;
         if (topkInput) topkInput.value = 50;
         if (repeatInput) repeatInput.value = 1.1;
+        if (maxTokensInput) maxTokensInput.value = 1024;
         if (thinkingBtn) {
           thinkingBtn.classList.remove("active");
           const ind = thinkingBtn.querySelector(".toggle-indicator");
@@ -4837,7 +4908,7 @@ function bindOfflineParamDrawerEvents(container) {
           if (ind) ind.textContent = "[●──]";
           if (txt) txt.textContent = "未开启";
         }
-        saveOfflineModelProfile(file, { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, enable_thinking: false }, statusEl);
+        saveOfflineModelProfile(file, { temperature: 0.1, top_k: 50, repeat_penalty: 1.1, max_tokens: 1024, enable_thinking: false }, statusEl);
       });
     }
   });
