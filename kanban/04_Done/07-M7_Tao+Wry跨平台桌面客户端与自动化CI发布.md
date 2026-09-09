@@ -1,9 +1,16 @@
 ---
+id: card-9488a3d1eb66
+title: 07-M7 Tao+Wry跨平台桌面客户端与自动化CI发布
 priority: high
-tags: [desktop, tao, wry, windows, macos, ci]
+tags:
+  - desktop
+  - tao
+  - wry
+  - windows
+  - macos
+  - ci
 created: 2026-09-07
 ---
-
 # M7 - Tao+Wry 跨平台桌面客户端与自动化 CI 发布
 
 ### 📌 任务目标

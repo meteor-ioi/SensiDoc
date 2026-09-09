@@ -1,9 +1,13 @@
 ---
+id: card-8c3ad604ab07
+title: 01-M1 AnyDoc文档解析引擎与Rust基座
 priority: high
-tags: [backend, parser, core]
+tags:
+  - backend
+  - parser
+  - core
 created: 2026-09-01
 ---
-
 # M1 - AnyDoc 文档解析引擎与 Rust 基座
 
 ### 📌 任务目标

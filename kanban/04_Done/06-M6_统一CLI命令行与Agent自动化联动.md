@@ -1,9 +1,14 @@
 ---
+id: card-6b60d2fbad8a
+title: 06-M6 统一CLI命令行与Agent自动化联动
 priority: high
-tags: [backend, cli, agent, automation]
+tags:
+  - backend
+  - cli
+  - agent
+  - automation
 created: 2026-09-06
 ---
-
 # M6 - 统一 CLI 命令行与 Agent 自动化联动
 
 ### 📌 任务目标

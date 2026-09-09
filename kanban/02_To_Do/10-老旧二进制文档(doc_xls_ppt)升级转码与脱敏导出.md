@@ -1,9 +1,13 @@
 ---
+id: card-aea2131b12d7
+title: 10-老旧二进制文档(doc xls ppt)升级转码与脱敏导出
 priority: medium
-tags: [backend, desensitizer, legacy-formats]
+tags:
+  - backend
+  - desensitizer
+  - legacy-formats
 created: 2026-09-08
 ---
-
 # 老旧二进制文档 (.doc / .xls / .ppt 97-2003) 升级转码与脱敏导出
 
 ### 📌 任务目标

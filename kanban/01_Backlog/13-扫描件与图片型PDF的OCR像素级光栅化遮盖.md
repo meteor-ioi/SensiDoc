@@ -1,9 +1,14 @@
 ---
+id: card-fa3c414efd38
+title: 13-扫描件与图片型PDF的OCR像素级光栅化遮盖
 priority: low
-tags: [research, ocr, pdf, computer-vision]
+tags:
+  - research
+  - ocr
+  - pdf
+  - computer-vision
 created: 2026-09-08
 ---
-
 # 扫描件与图片型 PDF 的 OCR 像素级光栅化遮盖
 
 ### 📌 任务目标

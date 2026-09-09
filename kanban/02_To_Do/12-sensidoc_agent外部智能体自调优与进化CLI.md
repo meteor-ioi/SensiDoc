@@ -1,9 +1,14 @@
 ---
+id: card-ba8ddf522803
+title: 12-sensidoc agent外部智能体自调优与进化CLI
 priority: medium
-tags: [cli, agent, eval, benchmark]
+tags:
+  - cli
+  - agent
+  - eval
+  - benchmark
 created: 2026-09-08
 ---
-
 # sensidoc agent 外部智能体自调优与自进化 CLI 模块
 
 ### 📌 任务目标

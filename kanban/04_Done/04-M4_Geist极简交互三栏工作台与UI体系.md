@@ -1,9 +1,14 @@
 ---
+id: card-4ca747796640
+title: 04-M4 Geist极简交互三栏工作台与UI体系
 priority: high
-tags: [frontend, ui, css, geist]
+tags:
+  - frontend
+  - ui
+  - css
+  - geist
 created: 2026-09-04
 ---
-
 # M4 - Geist 极简交互三栏工作台与 UI 体系
 
 ### 📌 任务目标

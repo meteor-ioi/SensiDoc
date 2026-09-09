@@ -1,9 +1,13 @@
 ---
+id: card-ab7e74d4945c
+title: 02-M2 llama-server进程守护与模型管理
 priority: high
-tags: [backend, model, llama-cpp]
+tags:
+  - backend
+  - model
+  - llama-cpp
 created: 2026-09-02
 ---
-
 # M2 - llama-server 进程守护与模型管理
 
 ### 📌 任务目标
