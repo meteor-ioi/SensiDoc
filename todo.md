@@ -1316,3 +1316,27 @@
   - 静态资源版本升级至 `v=1.2.17`；
   - Chrome 实机端到端验证抽屉数值输入、失焦保存、恢复默认、在线模型配置与执行中红色打断停止按钮交互正常。
 
+---
+
+## 阶段九十二：4B 与 1B/1.5B/2B 多模型协同抽取天梯榜评测与高难度中英文 Benchmark 扩建 (进行中) · [🔗 对话跳转](conversation://3e7df9a1-379d-4d5b-aa2f-a04ec14a8434)
+- [x] 92.1 **Benchmark 测试集大扩建与 Ground Truth 对齐 (`src/benchmark.rs`)**：
+  - 扩展中文用例至包含长篇多段落、角色混淆、诱饵数字与长定语从句等复杂真实场景；
+  - 新增 10 份英文/跨国真实业务文档（跨国 MSA、HIPAA 医疗隐私、GDPR DPO、AWS 安全事件 RCA、M&A Term Sheet、AML 等）；
+  - 为 20 份文档构建完整中英文字段规则（RuleField）与无歧义标准真实标注（Ground Truth），通过 `test_benchmark_documents_integrity` 严谨回归验证。
+- [x] 92.2 **抽象 `DualModelStrategy` 与本地 Ollama 多模型适配器 (`src/extractor.rs`, `src/benchmark.rs`)**：
+  - 封装通用的本地 Ollama 客户端，无缝调用 `127.0.0.1:11434` 上的 4 款本地模型（`minicpm5-1b`、`qwen2.5-coder-1.5b`、`minicpm5-2b`、`tessera-4b`）；
+  - 抽象多模型协作策略枚举：`BaselineSingle4B`、`ProposalAndJudge`、`ConfidenceRouter`、`SpanAssigner`。
+- [x] 92.3 **实现 3 套协同策略数据流与专用微提示词协议 (`src/extractor.rs`)**：
+  - 实现策略一：小模型宽松提案 + 4B 批量终审验证；
+  - 实现策略二：小模型快慢车道路由 + 4B 专家模型疑难接管；
+  - 实现策略三：小模型实体 Span 提取 + 4B 选项连线归因。
+- [x] 92.4 **实现 10 组矩阵基准测试与自动化天梯榜输出 (`src/benchmark.rs`, `src/cli.rs`)**：
+  - 扩展 CLI 评测命令 `sensidoc benchmark`，支持 `--matrix`、`--limit`、`--filter`、`--doc-ids`；
+  - 自动输出宏观召回率、宏观精确率、F1 分数、端到端耗时与提速倍数天梯榜。
+- [x] 92.5 **全量测试执行与优胜方案分析定型**：
+  - 10 组全矩阵跑测完成，实测数据出炉：
+    * **极致性能优胜者**：【快慢路由】Qwen-1.5B + Tessera-4B，**单篇耗时暴降至 8.9 秒（相对纯4B提速 6.7x！）**，召回率高达 88.9%，F1 0.842；
+    * **高可信零误报优胜者**：【海选终审】Qwen-1.5B + Tessera-4B，精确率 100.0%，F1 0.909；
+    * 数据充分验证：在纯 CPU 离线环境下，Qwen-1.5B 作为快慢路由前置网关，大幅斩断 4B 的沉重推理开销。
+
+

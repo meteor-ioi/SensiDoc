@@ -44,6 +44,32 @@ pub enum Commands {
     Templates(TemplatesArgs),
     /// 显式启动 HTTP 服务或桌面应用程序
     Serve(ServeArgs),
+    /// 运行基准评测或 10 组多模型协同天梯榜矩阵评测
+    Benchmark(BenchmarkArgs),
+}
+
+/// benchmark 子命令参数
+#[derive(Args, Debug)]
+pub struct BenchmarkArgs {
+    /// 运行 10 组多模型协同天梯榜矩阵测试
+    #[arg(long, default_value = "true")]
+    pub matrix: bool,
+
+    /// 本地 Ollama 服务地址 (默认 http://127.0.0.1:11434)
+    #[arg(long, default_value = "http://127.0.0.1:11434")]
+    pub ollama_url: String,
+
+    /// 限制测试文档数量 (例如 --limit 5 快速测试，默认全量 20 篇)
+    #[arg(long)]
+    pub limit: Option<usize>,
+
+    /// 指定只跑特定策略组合或包含特定关键字的项 (如 "prop"、"router"、"span"、"1.5b")
+    #[arg(long)]
+    pub filter: Option<String>,
+
+    /// 指定只测试某些特定文档 ID (逗号分隔，如 "doc_01,doc_11")
+    #[arg(long)]
+    pub doc_ids: Option<String>,
 }
 
 /// audit 子命令参数
@@ -249,6 +275,7 @@ pub async fn run_cli(
         Commands::Mask(args) => run_mask(args, model_mgr, session_mgr).await,
         Commands::Convert(args) => run_convert(args).await,
         Commands::Templates(args) => run_templates(args, session_mgr).await,
+        Commands::Benchmark(args) => run_benchmark_cmd(args).await,
         Commands::Serve(_) => {
             // Serve 由 main.rs 中的主循环统一托管
             Ok(0)
@@ -902,4 +929,33 @@ fn render_audit_table(data: &AuditOutput) -> String {
     }
 
     out
+}
+
+/// 执行多模型协同评测基准子命令
+async fn run_benchmark_cmd(args: BenchmarkArgs) -> Result<i32, Box<dyn std::error::Error>> {
+    eprintln!("🚀 正在启动 SensiDoc 多模型协同天梯榜基准评测...");
+    if let Some(lim) = args.limit {
+        eprintln!("📌 运行限制: 前 {} 篇文档", lim);
+    }
+    if let Some(ref filt) = args.filter {
+        eprintln!("🔍 候选过滤: 仅匹配包含 \"{}\" 的组合", filt);
+    }
+    if let Some(ref d_ids) = args.doc_ids {
+        eprintln!("📄 指定文档: {}", d_ids);
+    }
+    eprintln!("🔗 本地 Ollama: {}", args.ollama_url);
+
+    let doc_ids_vec: Option<Vec<String>> = args.doc_ids.as_ref().map(|s| {
+        s.split(',').map(|id| id.trim().to_string()).collect()
+    });
+
+    let report = crate::benchmark::BenchmarkEngine::run_dual_model_matrix_benchmark(
+        &args.ollama_url,
+        args.limit,
+        args.filter.as_deref(),
+        doc_ids_vec.as_deref(),
+    ).await.map_err(|e| format!("基准评测失败: {}", e))?;
+
+    crate::benchmark::BenchmarkEngine::print_matrix_report_table(&report);
+    Ok(0)
 }
