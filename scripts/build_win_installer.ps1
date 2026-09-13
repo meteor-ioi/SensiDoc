@@ -61,24 +61,22 @@ if (-not (Test-Path $distDir)) {
     New-Item -ItemType Directory -Path $distDir | Out-Null
 }
 
-# 4. 执行 Inno Setup 编译
-Write-Host "==> 正在使用 Inno Setup 构建安装包..." -ForegroundColor Green
+# 4. 执行 Inno Setup 编译 (标准版)
+Write-Host "==> 正在使用 Inno Setup 构建标准版安装包..." -ForegroundColor Green
 & $isccPath "/DMyAppVersion=$Version" "scripts/installer.iss"
 
 $installerName = "sensidoc-v${Version}-windows-x86_64-setup.exe"
 $installerPath = Join-Path $distDir $installerName
 
 if (Test-Path $installerPath) {
-    Write-Host "========================================================" -ForegroundColor Cyan
-    Write-Host "✅ Windows 安装包制作成功！" -ForegroundColor Green
-    Write-Host "📦 安装包路径: $installerPath" -ForegroundColor Green
+    Write-Host "✅ Windows 标准版安装包制作成功: $installerPath" -ForegroundColor Green
 } else {
-    Write-Error "安装包生成异常，未在 dist 目录找到期望文件！"
+    Write-Error "标准版安装包生成异常，未在 dist 目录找到期望文件！"
     exit 1
 }
 
-# 5. 同时打包绿色免安装便携版 (ZIP)
-Write-Host "==> 正在生成 Windows 绿色免安装压缩包..." -ForegroundColor Green
+# 5. 打包标准版绿色免安装便携版 (ZIP)
+Write-Host "==> 正在生成 Windows 标准版绿色免安装压缩包..." -ForegroundColor Green
 $pkgDir = Join-Path $distDir "SensiDoc-v$Version-windows-x86_64"
 $zipPath = Join-Path $distDir "sensidoc-v$Version-windows-x86_64.zip"
 
@@ -95,5 +93,43 @@ if (Test-Path "README.md") {
 New-Item -ItemType Directory -Force -Path "$pkgDir/models" | Out-Null
 Compress-Archive -Path "$pkgDir/*" -DestinationPath $zipPath -Force
 Remove-Item -Recurse -Force $pkgDir
-Write-Host "📦 绿色版压缩包: $zipPath" -ForegroundColor Green
+Write-Host "📦 标准版绿色压缩包: $zipPath" -ForegroundColor Green
+
+# 6. 若检测到 models/ocr 模型套件，构建离线增强版 (Full)
+$ocrDetPath = "models/ocr/PP-OCRv6_det_small.onnx"
+if (Test-Path $ocrDetPath) {
+    Write-Host "==> 检测到 OCR 模型套件，正在构建 Windows 离线增强版 (Full)..." -ForegroundColor Cyan
+
+    # 6.1 Inno Setup 构建离线增强版安装包
+    & $isccPath "/DMyAppVersion=$Version" "/DIncludeOcrModels=1" "/DOutputSuffix=-full" "scripts/installer.iss"
+    $fullInstallerName = "sensidoc-v${Version}-windows-x86_64-full-setup.exe"
+    $fullInstallerPath = Join-Path $distDir $fullInstallerName
+    if (Test-Path $fullInstallerPath) {
+        Write-Host "✅ Windows 离线增强版安装包制作成功: $fullInstallerPath" -ForegroundColor Green
+    }
+
+    # 6.2 打包离线增强版绿色免安装便携版 (ZIP)
+    $fullPkgDir = Join-Path $distDir "SensiDoc-v$Version-windows-x86_64-full"
+    $fullZipPath = Join-Path $distDir "sensidoc-v$Version-windows-x86_64-full.zip"
+    if (Test-Path $fullPkgDir) { Remove-Item -Recurse -Force $fullPkgDir }
+    New-Item -ItemType Directory -Force -Path $fullPkgDir | Out-Null
+    Copy-Item -Path "target/release/sensidoc.exe" -Destination "$fullPkgDir/sensidoc.exe"
+    Copy-Item -Recurse -Path "web" -Destination "$fullPkgDir/web"
+    if (Test-Path "assets/sensidoc_win.ico") {
+        Copy-Item -Path "assets/sensidoc_win.ico" -Destination "$fullPkgDir/sensidoc.ico"
+    }
+    if (Test-Path "README.md") {
+        Copy-Item -Path "README.md" -Destination "$fullPkgDir/README.md"
+    }
+    New-Item -ItemType Directory -Force -Path "$fullPkgDir/models/ocr" | Out-Null
+    Copy-Item -Recurse -Path "models/ocr/*" -Destination "$fullPkgDir/models/ocr/"
+    Compress-Archive -Path "$fullPkgDir/*" -DestinationPath $fullZipPath -Force
+    Remove-Item -Recurse -Force $fullPkgDir
+    Write-Host "📦 离线增强版绿色压缩包: $fullZipPath" -ForegroundColor Green
+} else {
+    Write-Host "ℹ️ 未检测到 models/ocr 模型文件，跳过 Windows 离线增强版构建。" -ForegroundColor Yellow
+}
+
+Write-Host "========================================================" -ForegroundColor Cyan
+Write-Host "✅ Windows 应用构建流水线全部完成！" -ForegroundColor Green
 Write-Host "========================================================" -ForegroundColor Cyan

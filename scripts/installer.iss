@@ -6,6 +6,10 @@
 #define MyAppVersion "1.3.0"
 #endif
 
+#ifndef OutputSuffix
+#define OutputSuffix ""
+#endif
+
 #define MyAppName "SensiDoc"
 #define MyAppPublisher "SensiDoc Team"
 #define MyAppURL "https://github.com/meteor-ioi/SensiDoc"
@@ -24,7 +28,7 @@ DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
 OutputDir=..\dist
-OutputBaseFilename=sensidoc-v{#MyAppVersion}-windows-x86_64-setup
+OutputBaseFilename=sensidoc-v{#MyAppVersion}-windows-x86_64{#OutputSuffix}-setup
 SetupIconFile=..\assets\sensidoc_win.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma2/max
@@ -47,9 +51,15 @@ Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignorevers
 Source: "..\web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\assets\sensidoc_win.ico"; DestDir: "{app}"; DestName: "sensidoc.ico"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+#ifdef IncludeOcrModels
+Source: "..\models\ocr\*"; DestDir: "{app}\models\ocr"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 
 [Dirs]
 Name: "{app}\models"
+#ifdef IncludeOcrModels
+Name: "{app}\models\ocr"
+#endif
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\sensidoc.ico"

@@ -66,38 +66,53 @@ if [ ! -f "assets/AppIcon.icns" ]; then
     rm -rf assets/AppIcon.iconset
 fi
 
-# 3. 初始化并清理 dist 目录
-echo "==> 准备 App Bundle 目录结构..."
-rm -rf "$APP_BUNDLE"
-mkdir -p "$MACOS_DIR"
-mkdir -p "$RESOURCES_DIR"
+# 3. 准备生成 DMG 的通用打包函数
+build_app_and_dmg() {
+    local edition_label="$1"       # "标准版" 或 "离线增强版"
+    local dmg_filename="$2"        # DMG 输出文件名
+    local include_ocr="$3"         # true / false
 
-# 4. 拷贝主可执行文件
-cp "$MAIN_BIN" "$MACOS_DIR/sensidoc"
-chmod +x "$MACOS_DIR/sensidoc"
+    echo "--------------------------------------------------------"
+    echo "==> 正在打包 macOS [$edition_label]..."
+    echo "--------------------------------------------------------"
 
-# 5. 拷贝前端静态资源 (web/)
-mkdir -p "$RESOURCES_DIR/web"
-cp -R web/* "$RESOURCES_DIR/web/"
+    rm -rf "$APP_BUNDLE"
+    mkdir -p "$MACOS_DIR"
+    mkdir -p "$RESOURCES_DIR"
 
-# 6. 拷贝内置推理引擎与动态库 (bin/ 和 lib/)
-mkdir -p "$RESOURCES_DIR/bin"
-if [ -f "bin/llama-server" ]; then
-    cp "bin/llama-server" "$RESOURCES_DIR/bin/"
-    chmod +x "$RESOURCES_DIR/bin/llama-server"
-fi
+    # 拷贝主可执行文件
+    cp "$MAIN_BIN" "$MACOS_DIR/sensidoc"
+    chmod +x "$MACOS_DIR/sensidoc"
 
-if [ -d "lib" ]; then
-    mkdir -p "$RESOURCES_DIR/lib"
-    cp -R lib/* "$RESOURCES_DIR/lib/"
-fi
+    # 拷贝前端静态资源 (web/)
+    mkdir -p "$RESOURCES_DIR/web"
+    cp -R web/* "$RESOURCES_DIR/web/"
 
-# 7. 拷贝应用图标
-cp "assets/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+    # 拷贝内置推理引擎与动态库 (bin/ 和 lib/)
+    if [ -f "bin/llama-server" ]; then
+        mkdir -p "$RESOURCES_DIR/bin"
+        cp "bin/llama-server" "$RESOURCES_DIR/bin/"
+        chmod +x "$RESOURCES_DIR/bin/llama-server"
+    fi
 
-# 8. 生成 Info.plist
-echo "==> 写入 Info.plist 元数据..."
-cat > "$CONTENTS_DIR/Info.plist" <<EOF
+    if [ -d "lib" ]; then
+        mkdir -p "$RESOURCES_DIR/lib"
+        cp -R lib/* "$RESOURCES_DIR/lib/"
+    fi
+
+    # 拷贝应用图标
+    cp "assets/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+
+    # 如果是离线增强版，拷贝 OCR 原生模型套件
+    if [ "$include_ocr" = "true" ]; then
+        echo "   [离线全量] 正在将 OCR 模型套件内置打包至 Resources/models/ocr..."
+        mkdir -p "$RESOURCES_DIR/models/ocr"
+        cp -R models/ocr/* "$RESOURCES_DIR/models/ocr/"
+    fi
+
+    # 生成 Info.plist
+    echo "==> 写入 Info.plist 元数据..."
+    cat > "$CONTENTS_DIR/Info.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -134,37 +149,47 @@ cat > "$CONTENTS_DIR/Info.plist" <<EOF
 </plist>
 EOF
 
-# 9. 生成 PkgInfo
-echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
+    # 生成 PkgInfo
+    echo "APPL????" > "$CONTENTS_DIR/PkgInfo"
 
-# 10. 代码签名 (Ad-Hoc 本地签名，防止 macOS Gatekeeper 拦截)
-echo "==> 正在执行本地 Ad-Hoc 代码签名..."
-codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
+    # 代码签名 (Ad-Hoc 本地签名，防止 macOS Gatekeeper 拦截)
+    echo "==> 正在执行本地 Ad-Hoc 代码签名..."
+    codesign --force --deep --sign - "$APP_BUNDLE" 2>/dev/null || true
 
-# 11. 打包分发文件 (DMG)
-echo "==> 正在生成分发包..."
-DMG_NAME="sensidoc-v${VERSION}-macos-universal.dmg"
+    # 打包分发文件 (DMG)
+    if command -v hdiutil >/dev/null 2>&1; then
+        echo "==> 正在构建 DMG 安装映像: $dmg_filename..."
+        local dmg_tmp="$DIST_DIR/dmg_tmp_${edition_label}"
+        rm -rf "$dmg_tmp"
+        mkdir -p "$dmg_tmp"
+        cp -R "$APP_BUNDLE" "$dmg_tmp/"
+        ln -s /Applications "$dmg_tmp/Applications"
 
-cd "$DIST_DIR"
-rm -f "$DMG_NAME"
+        rm -f "$DIST_DIR/$dmg_filename"
+        hdiutil create -volname "$APP_NAME" -srcfolder "$dmg_tmp" -ov -format UDZO "$DIST_DIR/$dmg_filename" -quiet
+        rm -rf "$dmg_tmp"
+        echo "💿 [$edition_label] DMG 安装映像已生成: $DIST_DIR/$dmg_filename"
+    fi
+}
 
-# 制作 DMG 磁盘映像 (如果 hdiutil 可用)
-if command -v hdiutil >/dev/null 2>&1; then
-    echo "==> 正在构建 DMG 安装映像 $DMG_NAME..."
-    DMG_TMP="$DIST_DIR/dmg_tmp"
-    rm -rf "$DMG_TMP"
-    mkdir -p "$DMG_TMP"
-    cp -R "$APP_NAME.app" "$DMG_TMP/"
-    ln -s /Applications "$DMG_TMP/Applications"
-    
-    hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_TMP" -ov -format UDZO "$DMG_NAME" -quiet
-    rm -rf "$DMG_TMP"
+# 4. 构建分发包
+mkdir -p "$DIST_DIR"
+
+# 4.1 始终构建标准版 (Standard - 按需下载模型)
+STANDARD_DMG="sensidoc-v${VERSION}-macos-universal.dmg"
+build_app_and_dmg "标准版" "$STANDARD_DMG" "false"
+
+# 4.2 若 models/ocr 模型已就绪，则构建离线增强版 (Full - 内置 OCR 模型套件)
+FULL_DMG="sensidoc-v${VERSION}-macos-universal-full.dmg"
+if [ -f "models/ocr/PP-OCRv6_det_small.onnx" ]; then
+    build_app_and_dmg "离线增强版" "$FULL_DMG" "true"
+else
+    echo "ℹ️ 未检测到 models/ocr 模型文件，跳过离线增强版 DMG 构建。"
+    echo "   (提示: 可先运行 ./scripts/download_ocr_models.sh 下载模型)"
 fi
 
 echo "========================================================"
-echo "✅ macOS 应用构建完成！"
-echo "📦 应用程序 Bundle: $APP_BUNDLE"
-if [ -f "$DIST_DIR/$DMG_NAME" ]; then
-    echo "💿 通用 DMG 安装映像: $DIST_DIR/$DMG_NAME"
-fi
+echo "✅ macOS 应用构建流水线全部完成！"
+echo "📦 产物目录: $DIST_DIR"
+ls -lh "$DIST_DIR"/*.dmg 2>/dev/null || true
 echo "========================================================"

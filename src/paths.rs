@@ -171,6 +171,133 @@ pub fn get_models_dir() -> PathBuf {
     local_models
 }
 
+/// 获取用户可写的 OCR 模型下载存储目录 (models/ocr/)
+pub fn get_user_ocr_models_dir() -> PathBuf {
+    let ocr_dir = get_models_dir().join("ocr");
+    if !ocr_dir.exists() {
+        let _ = std::fs::create_dir_all(&ocr_dir);
+    }
+    ocr_dir
+}
+
+/// 获取纸质单据与表格 OCR 模型存储目录 (models/ocr/)
+/// 优先级：用户自定义下载目录 > App Bundle/安装包内置目录 > 可执行文件同级目录 > 默认回退目录
+pub fn get_ocr_models_dir() -> PathBuf {
+    // 1. 优先检查用户数据目录下是否已有模型 (支持热更新或按需下载)
+    let user_ocr = get_models_dir().join("ocr");
+    if user_ocr.join(OCR_DET_FILENAME).exists() {
+        return user_ocr;
+    }
+
+    // 2. 检查 App Bundle / 安装包资源目录下是否随包内置了 models/ocr (离线全量版)
+    if let Some(res) = get_bundle_resources_dir() {
+        let bundled_ocr = res.join("models").join("ocr");
+        if bundled_ocr.join(OCR_DET_FILENAME).exists() {
+            return bundled_ocr;
+        }
+    }
+
+    // 3. 检查程序同级目录的 models/ocr (例如 Windows 安装目录或绿色便携解压目录)
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let rel_ocr = dir.join("models").join("ocr");
+            if rel_ocr.join(OCR_DET_FILENAME).exists() {
+                return rel_ocr;
+            }
+        }
+    }
+
+    // 4. 默认返回用户数据目录 (用于后续按需下载)
+    get_user_ocr_models_dir()
+}
+
+pub const OCR_DET_FILENAME: &str = "PP-OCRv6_det_small.onnx";
+pub const OCR_REC_FILENAME: &str = "PP-OCRv6_rec_small.onnx";
+pub const OCR_TABLE_FILENAME: &str = "slanet-plus.onnx";
+pub const OCR_DICT_FILENAME: &str = "ppocrv6_dict.txt";
+
+/// 获取文本检测定位模型路径
+pub fn get_ocr_det_path() -> PathBuf {
+    get_ocr_models_dir().join(OCR_DET_FILENAME)
+}
+
+/// 获取文本字符识别模型路径 (优先更轻量的 small，若本地仅有历史 medium 则平滑兼容回退)
+pub fn get_ocr_rec_path() -> PathBuf {
+    let base = get_ocr_models_dir();
+    let small = base.join(OCR_REC_FILENAME);
+    if small.exists() {
+        return small;
+    }
+    let medium = base.join("PP-OCRv6_rec_medium.onnx");
+    if medium.exists() {
+        return medium;
+    }
+    small
+}
+
+/// 获取表格结构预测模型路径
+pub fn get_ocr_table_path() -> PathBuf {
+    get_ocr_models_dir().join(OCR_TABLE_FILENAME)
+}
+
+/// 获取 50 种语言统一映射字典路径
+pub fn get_ocr_dict_path() -> PathBuf {
+    get_ocr_models_dir().join(OCR_DICT_FILENAME)
+}
+
+/// OCR 组件详细就绪状态
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OcrStatus {
+    pub is_ready: bool,
+    pub det_ready: bool,
+    pub rec_ready: bool,
+    pub table_ready: bool,
+    pub dict_ready: bool,
+    pub total_size_bytes: u64,
+    pub expected_total_bytes: u64,
+    #[serde(default)]
+    pub is_loaded: bool,
+}
+
+/// 检查 OCR 核心组件是否全部就绪
+pub fn get_ocr_status() -> OcrStatus {
+    let det = get_ocr_det_path();
+    let rec = get_ocr_rec_path();
+    let table = get_ocr_table_path();
+    let dict = get_ocr_dict_path();
+
+    let det_ready = det.exists() && det.metadata().map(|m| m.len() > 8 * 1024 * 1024).unwrap_or(false);
+    let rec_ready = rec.exists() && rec.metadata().map(|m| m.len() > 18 * 1024 * 1024).unwrap_or(false);
+    let table_ready = table.exists() && table.metadata().map(|m| m.len() > 6 * 1024 * 1024).unwrap_or(false);
+    let dict_ready = dict.exists() && dict.metadata().map(|m| m.len() > 50 * 1024).unwrap_or(false);
+
+    let mut total_size_bytes = 0u64;
+    for p in [&det, &rec, &table, &dict] {
+        if let Ok(m) = p.metadata() {
+            total_size_bytes += m.len();
+        }
+    }
+
+    let is_ready = det_ready && rec_ready && table_ready && dict_ready;
+
+    OcrStatus {
+        is_ready,
+        det_ready,
+        rec_ready,
+        table_ready,
+        dict_ready,
+        total_size_bytes,
+        expected_total_bytes: crate::model_manager::get_ocr_total_expected_bytes(),
+        is_loaded: false,
+    }
+}
+
+/// 判断 OCR 是否完全就绪
+pub fn is_ocr_ready() -> bool {
+    get_ocr_status().is_ready
+}
+
+
 /// 获取工作区会话持久化 JSON 路径
 pub fn get_workspace_store_path() -> PathBuf {
     if is_macos_bundle() {
@@ -209,5 +336,12 @@ mod tests {
 
         let bin_path = get_llama_bin_path();
         assert!(bin_path.exists(), "bin/llama-server 应能正确解析");
+
+        let ocr_dir = get_ocr_models_dir();
+        assert!(ocr_dir.exists(), "models/ocr 目录应被自动创建并存在");
+
+        let status = get_ocr_status();
+        // 初始未下载时 status.is_ready 应为 false
+        assert_eq!(status.is_ready, is_ocr_ready());
     }
 }

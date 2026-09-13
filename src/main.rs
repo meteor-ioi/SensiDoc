@@ -5,6 +5,7 @@ mod desensitizer;
 mod exporter;
 mod extractor;
 mod model_manager;
+pub mod ocr;
 mod paths;
 mod session;
 
@@ -161,6 +162,7 @@ async fn run_server_mode(
         .route("/api/convert", post(convert_document))
         .route("/api/documents", get(list_documents))
         .route("/api/documents/{id}", get(get_document).delete(delete_document))
+        .route("/api/documents/{id}/file", get(get_document_file))
         .route("/api/documents/{id}/desensitize", post(desensitize_document).get(desensitize_document))
         .route("/api/documents/{id}/snapshot/{snapshot_id}", post(set_active_snapshot).delete(delete_snapshot))
         .route("/api/rules/presets", get(get_rule_presets))
@@ -189,6 +191,11 @@ async fn run_server_mode(
         .route("/api/models/download", post(download_model))
         .route("/api/models/download/cancel", post(cancel_download_model))
         .route("/api/models/download/progress", get(download_progress_sse))
+        .route("/api/ocr/status", get(get_ocr_status_handler))
+        .route("/api/ocr/unload", post(unload_ocr_handler))
+        .route("/api/ocr/download", post(download_ocr_handler))
+        .route("/api/ocr/cancel", post(cancel_ocr_handler))
+        .route("/api/ocr/delete", post(delete_ocr_handler).delete(delete_ocr_handler))
         .fallback_service(ServeDir::new(web_dir))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -443,7 +450,22 @@ async fn convert_document(
         ));
     }
 
-    match converter::DocConverter::convert_bytes(&filename, &file_bytes) {
+    let filename_clone = filename.clone();
+    let file_bytes_clone = file_bytes.clone();
+    let convert_res = tokio::task::spawn_blocking(move || {
+        converter::DocConverter::convert_bytes(&filename_clone, &file_bytes_clone)
+    })
+    .await
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("文档转换任务异常: {e}"),
+            }),
+        )
+    })?;
+
+    match convert_res {
         Ok(markdown) => {
             let doc = state.session_mgr.upsert_document(filename, markdown).await;
             // 暂存原始上传二进制文件，支持脱敏引擎原样无损导出
@@ -502,6 +524,68 @@ async fn delete_document(
             }),
         ))
     }
+}
+
+async fn get_document_file(
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<impl axum::response::IntoResponse, (StatusCode, Json<ErrorResponse>)> {
+    let doc = match state.session_mgr.get_document(&doc_id).await {
+        Some(d) => d,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "文档未找到".into(),
+                }),
+            ));
+        }
+    };
+
+    let upload_path = paths::get_uploads_dir().join(format!("{doc_id}.bin"));
+    if !upload_path.exists() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "原始文件不存在或已被清理".into(),
+            }),
+        ));
+    }
+
+    let bytes = std::fs::read(&upload_path).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("读取原始文件失败: {e}"),
+            }),
+        )
+    })?;
+
+    let ext = std::path::Path::new(&doc.filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let mime = match ext.as_str() {
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "bmp" => "image/bmp",
+        "webp" => "image/webp",
+        "tiff" | "tif" => "image/tiff",
+        "pdf" => "application/pdf",
+        _ => "application/octet-stream",
+    };
+
+    let headers = [
+        (axum::http::header::CONTENT_TYPE, mime),
+        (
+            axum::http::header::CONTENT_DISPOSITION,
+            "inline",
+        ),
+    ];
+
+    Ok((headers, bytes))
 }
 
 #[derive(Deserialize, Default)]
@@ -951,6 +1035,67 @@ async fn download_progress_sse(
     };
 
     Sse::new(stream).keep_alive(KeepAlive::new().interval(Duration::from_secs(5)))
+}
+
+async fn get_ocr_status_handler() -> Json<crate::paths::OcrStatus> {
+    let mut status = crate::paths::get_ocr_status();
+    status.is_loaded = crate::ocr::OcrEngine::is_loaded();
+    Json(status)
+}
+
+async fn unload_ocr_handler() -> Json<serde_json::Value> {
+    let unloaded = crate::ocr::OcrEngine::unload();
+    Json(serde_json::json!({
+        "status": "success",
+        "unloaded": unloaded,
+        "message": if unloaded { "OCR 原生推理引擎已成功释放内存" } else { "OCR 引擎未载入或正被占用" }
+    }))
+}
+
+async fn download_ocr_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let mgr = state.model_mgr.clone();
+
+    tokio::spawn(async move {
+        if let Err(e) = mgr.download_ocr_bundle().await {
+            tracing::error!("后台下载 OCR 模型套件失败: {}", e);
+        }
+    });
+
+    Ok(Json(serde_json::json!({
+        "status": "started",
+        "model_id": crate::model_manager::OCR_BUNDLE_ID,
+        "message": "已开始在后台下载 OCR 模型套件，请监听 SSE 进度通知"
+    })))
+}
+
+async fn cancel_ocr_handler(
+    State(state): State<AppState>,
+) -> Json<serde_json::Value> {
+    let mgr = state.model_mgr.clone();
+    let canceled = mgr.cancel_ocr_download().await;
+
+    Json(serde_json::json!({
+        "status": "success",
+        "canceled": canceled,
+        "message": "已成功取消 OCR 下载并清除本地缓存"
+    }))
+}
+
+async fn delete_ocr_handler(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    crate::ocr::OcrEngine::unload();
+    let mgr = state.model_mgr.clone();
+    mgr.delete_ocr_bundle()
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: e })))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "message": "已成功删除本地 OCR 模型组件并释放内存"
+    })))
 }
 
 async fn get_active_model_status(

@@ -47,7 +47,20 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
-      - name: Package macOS App Bundle & Universal DMG
+      - name: Cache OCR Models
+        id: cache-ocr-models
+        uses: actions/cache@v4
+        with:
+          path: models/ocr
+          key: ocr-models-v1
+
+      - name: Download OCR Models for Full Offline Edition
+        if: steps.cache-ocr-models.outputs.cache-hit != 'true'
+        run: |
+          chmod +x scripts/download_ocr_models.sh
+          ./scripts/download_ocr_models.sh
+
+      - name: Package macOS App Bundle & Universal DMG (Standard & Full)
         env:
           APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
@@ -91,7 +104,21 @@ jobs:
       - name: Run Tests
         run: cargo test --verbose
 
-      - name: Build Windows Installer (Inno Setup)
+      - name: Cache OCR Models
+        id: cache-ocr-models-win
+        uses: actions/cache@v4
+        with:
+          path: models/ocr
+          key: ocr-models-v1
+
+      - name: Download OCR Models for Full Offline Edition
+        if: steps.cache-ocr-models-win.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          chmod +x scripts/download_ocr_models.sh
+          ./scripts/download_ocr_models.sh
+
+      - name: Build Windows Installer (Standard & Full)
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.VERSION }}"

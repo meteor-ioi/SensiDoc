@@ -1077,6 +1077,66 @@ body.resizing-panels {
   border: 1px solid var(--border);
 }
 
+.file-status-tag.ocr_processing,
+.file-status-tag.parsing {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  animation: pulse-status-tag 1.8s infinite ease-in-out;
+}
+
+.file-status-tag.auditing {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  animation: pulse-status-tag 1.8s infinite ease-in-out;
+}
+
+.file-status-tag.failed {
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+}
+
+@keyframes pulse-status-tag {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.58; }
+}
+
+.doc-processing-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 280px;
+  padding: 48px 20px;
+  color: var(--text-dim);
+  text-align: center;
+  user-select: none;
+}
+
+.doc-processing-spinner {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+.doc-processing-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
+.doc-processing-desc {
+  font-size: 12px;
+  color: var(--text-mute);
+}
+
 /* 第二层：添加时间 */
 .file-card-bottom {
   display: flex;
@@ -3796,5 +3856,194 @@ div.prompt-area-box {
   font-size: 11px;
   padding: 5px 8px;
 }
+
+/* ==========================================================================
+   纸质单据与密集表格 OCR 引擎 (PP-OCRv6 + SLANet+) 及卷帘透视比对视图样式
+   ========================================================================== */
+
+/* OCR 设置卡片与状态指示 */
+.ocr-status-pill.ready {
+  background: rgba(16, 185, 129, 0.12) !important;
+  color: #10b981 !important;
+  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+}
+
+.ocr-status-pill.downloading {
+  background: rgba(59, 130, 246, 0.12) !important;
+  color: #3b82f6 !important;
+  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+}
+
+.ocr-status-pill.not-ready {
+  background: rgba(245, 158, 11, 0.12) !important;
+  color: #f59e0b !important;
+  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+}
+
+/* 方案二：原图全景视图 */
+.ocr-image-stage {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 32px 24px;
+  box-sizing: border-box;
+  background: var(--bg);
+}
+
+.ocr-image-wrapper {
+  max-width: 920px;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.ocr-image-wrapper img,
+#rawOriginalImg {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+}
+
+/* 方案二：卷帘透视比对舞台 (Curtain Slider Pivot) */
+.ocr-curtain-stage {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+  background: var(--bg);
+}
+
+.curtain-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+.curtain-content-wrapper {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px 80px 24px;
+  box-sizing: border-box;
+}
+
+/* 底层：原始扫描图像 */
+.curtain-image-layer {
+  background: var(--bg);
+}
+
+.curtain-image-layer .curtain-content-wrapper {
+  display: flex;
+  justify-content: center;
+}
+
+#curtainOriginalImg {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  background: #ffffff;
+}
+
+/* 顶层：结构化表格与 Markdown 渲染 (应用 clip-path 动态裁剪) */
+.curtain-table-layer {
+  background: var(--surface);
+  clip-path: polygon(var(--curtain-pos, 50%) 0%, 100% 0%, 100% 100%, var(--curtain-pos, 50%) 100%);
+  pointer-events: auto;
+}
+
+.curtain-markdown-body {
+  background: transparent;
+}
+
+/* 垂直卷帘分割线与手柄 */
+.curtain-divider {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 28px;
+  margin-left: -14px;
+  cursor: ew-resize;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: none;
+}
+
+.curtain-divider-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 13px;
+  width: 2px;
+  background: var(--primary);
+  box-shadow: 0 0 8px rgba(59, 130, 246, 0.6);
+  pointer-events: none;
+}
+
+.curtain-handle {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.25), 0 0 0 2px var(--surface);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  pointer-events: none;
+}
+
+.curtain-divider:hover .curtain-handle,
+.curtain-divider:active .curtain-handle {
+  transform: scale(1.15);
+  box-shadow: 0 4px 14px rgba(59, 130, 246, 0.4), 0 0 0 3px var(--surface);
+}
+
+/* 左右两侧视界辅助标签 */
+.curtain-badge {
+  position: absolute;
+  top: 16px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 20px;
+  pointer-events: none;
+  z-index: 40;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.curtain-badge-left {
+  left: 18px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.curtain-badge-right {
+  right: 18px;
+  background: var(--primary-bg, rgba(59, 130, 246, 0.15));
+  color: var(--primary);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
 
 

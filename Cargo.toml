@@ -23,6 +23,7 @@ csv = "1.3"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 async-stream = "0.3"
+sha2 = "0.10"
 
 # 正则表达式与工具
 encoding_rs = "0.8"
@@ -40,6 +41,10 @@ lopdf = { version = "0.38", default-features = false }
 
 # 命令行解析 (CLI)
 clap = { version = "4.5", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+
+# 纸质单据与表格 OCR 推理引擎 (基于 anyocr 原生抽象底座，国内高速镜像)
+anyocr = { git = "https://gitee.com/icychick/anyocr" }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp", "webp", "tiff"] }
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

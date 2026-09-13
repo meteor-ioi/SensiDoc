@@ -3,6 +3,8 @@
 *.log
 sensidoc.log
 models/*.gguf
+models/ocr/
+models/**/*.onnx
 !models/.gitkeep
 /dist
 /uploads

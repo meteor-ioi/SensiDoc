@@ -164,11 +164,40 @@ const el = {
 
   // 预览、源码与审计
   viewRenderedBtn: document.getElementById("viewRenderedBtn"),
+  viewCurtainBtn: document.getElementById("viewCurtainBtn"),
+  viewRawImgBtn: document.getElementById("viewRawImgBtn"),
   viewSourceBtn: document.getElementById("viewSourceBtn"),
   markdownSource: document.getElementById("markdownSource"),
   docMeta: document.getElementById("docMeta"),
   snapshotBanner: document.getElementById("snapshotBanner"),
   markdownPreview: document.getElementById("markdownPreview"),
+  ocrImageStage: document.getElementById("ocrImageStage"),
+  rawOriginalImg: document.getElementById("rawOriginalImg"),
+  ocrCurtainStage: document.getElementById("ocrCurtainStage"),
+  curtainImageLayer: document.getElementById("curtainImageLayer"),
+  curtainTableLayer: document.getElementById("curtainTableLayer"),
+  curtainOriginalImg: document.getElementById("curtainOriginalImg"),
+  curtainMarkdownBody: document.getElementById("curtainMarkdownBody"),
+  curtainDivider: document.getElementById("curtainDivider"),
+
+  // OCR 设置与下载卡片
+  ocrSettingsCard: document.getElementById("ocrSettingsCard"),
+  ocrStatusPill: document.getElementById("ocrStatusPill"),
+  ocrDownloadBtn: document.getElementById("ocrDownloadBtn"),
+  ocrCancelBtn: document.getElementById("ocrCancelBtn"),
+  ocrUnloadBtn: document.getElementById("ocrUnloadBtn"),
+  ocrDeleteBtn: document.getElementById("ocrDeleteBtn"),
+  ocrProgressContainer: document.getElementById("ocrProgressContainer"),
+  ocrProgressLabel: document.getElementById("ocrProgressLabel"),
+  ocrProgressStats: document.getElementById("ocrProgressStats"),
+  ocrProgressBarFill: document.getElementById("ocrProgressBarFill"),
+  ocrPromptModal: document.getElementById("ocrPromptModal"),
+  ocrPromptProgress: document.getElementById("ocrPromptProgress"),
+  ocrPromptProgressLabel: document.getElementById("ocrPromptProgressLabel"),
+  ocrPromptProgressStats: document.getElementById("ocrPromptProgressStats"),
+  ocrPromptProgressBarFill: document.getElementById("ocrPromptProgressBarFill"),
+  ocrPromptCancelBtn: document.getElementById("ocrPromptCancelBtn"),
+  ocrPromptConfirmBtn: document.getElementById("ocrPromptConfirmBtn"),
   auditCount: document.getElementById("auditCount"),
   auditList: document.getElementById("auditList"),
   exportCsvBtn: document.getElementById("exportCsvBtn"),
@@ -339,6 +368,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadFieldTags();
   await loadDocuments();
   await loadModelPresets();
+  await checkOcrStatus();
   initSSEForDownloads();
 });
 
@@ -357,19 +387,72 @@ function switchInspectorTab(tab) {
   }
 }
 
-// 拨杆切换函数：Markdown 渲染预览 vs 源码模式
+// 拨杆切换函数：结构渲染预览 vs 方案二卷帘透视比对 vs 原图视图 vs 源码模式
 function switchPreviewMode(mode) {
   state.previewMode = mode;
-  if (mode === "rendered") {
-    el.viewRenderedBtn.classList.add("active");
-    el.viewSourceBtn.classList.remove("active");
-    el.markdownPreview.style.display = "block";
-    el.markdownSource.style.display = "none";
+
+  const btns = [el.viewRenderedBtn, el.viewCurtainBtn, el.viewRawImgBtn, el.viewSourceBtn];
+  btns.forEach((btn) => {
+    if (btn) btn.classList.remove("active");
+  });
+
+  if (el.markdownPreview) el.markdownPreview.style.display = "none";
+  if (el.ocrCurtainStage) el.ocrCurtainStage.style.display = "none";
+  if (el.ocrImageStage) el.ocrImageStage.style.display = "none";
+  if (el.markdownSource) el.markdownSource.style.display = "none";
+
+  if (mode === "curtain") {
+    if (el.viewCurtainBtn) el.viewCurtainBtn.classList.add("active");
+    if (el.ocrCurtainStage) {
+      el.ocrCurtainStage.style.display = "block";
+      if (el.curtainMarkdownBody && el.markdownPreview) {
+        el.curtainMarkdownBody.innerHTML = el.markdownPreview.innerHTML;
+        el.curtainMarkdownBody.querySelectorAll(".sensi-mark").forEach((mark) => {
+          const txt = mark.getAttribute("data-sensi-text");
+          mark.addEventListener("click", () => {
+            switchInspectorTab("audit");
+            highlightAuditCard(txt);
+          });
+        });
+      }
+    }
+  } else if (mode === "raw") {
+    if (el.viewRawImgBtn) el.viewRawImgBtn.classList.add("active");
+    if (el.ocrImageStage) el.ocrImageStage.style.display = "flex";
+  } else if (mode === "source") {
+    if (el.viewSourceBtn) el.viewSourceBtn.classList.add("active");
+    if (el.markdownSource) el.markdownSource.style.display = "block";
   } else {
-    el.viewSourceBtn.classList.add("active");
-    el.viewRenderedBtn.classList.remove("active");
-    el.markdownSource.style.display = "block";
-    el.markdownPreview.style.display = "none";
+    // 默认结构渲染视图
+    if (el.viewRenderedBtn) el.viewRenderedBtn.classList.add("active");
+    if (el.markdownPreview) el.markdownPreview.style.display = "block";
+  }
+}
+
+function isImageDoc(filename) {
+  if (!filename) return false;
+  const ext = filename.split(".").pop().toLowerCase();
+  return ["jpg", "jpeg", "png", "bmp", "webp", "tiff", "tif"].includes(ext);
+}
+
+function updateViewModeForDocument(doc) {
+  const isImg = isImageDoc(doc ? doc.filename : "");
+  const ocrBtns = document.querySelectorAll(".ocr-only-btn");
+  ocrBtns.forEach((btn) => {
+    btn.style.display = isImg ? "inline-flex" : "none";
+  });
+
+  if (isImg && doc) {
+    const imgUrl = `/api/documents/${doc.id}/file`;
+    if (el.rawOriginalImg) el.rawOriginalImg.src = imgUrl;
+    if (el.curtainOriginalImg) el.curtainOriginalImg.src = imgUrl;
+  }
+
+  // 若从图片切到普通文档，且当前处于卷帘或原图模式，自动回退到渲染模式
+  if (!isImg && (state.previewMode === "curtain" || state.previewMode === "raw")) {
+    switchPreviewMode("rendered");
+  } else {
+    switchPreviewMode(state.previewMode || "rendered");
   }
 }
 
@@ -752,9 +835,28 @@ async function copySnapshotPrompt() {
 
 // 事件监听器注册
 function initEventListeners() {
-  // 预览 vs 源码模式拨杆切换
+  // 预览、卷帘透视比对、原图视图与源码模式拨杆切换
   if (el.viewRenderedBtn) el.viewRenderedBtn.addEventListener("click", () => switchPreviewMode("rendered"));
+  if (el.viewCurtainBtn) el.viewCurtainBtn.addEventListener("click", () => switchPreviewMode("curtain"));
+  if (el.viewRawImgBtn) el.viewRawImgBtn.addEventListener("click", () => switchPreviewMode("raw"));
   if (el.viewSourceBtn) el.viewSourceBtn.addEventListener("click", () => switchPreviewMode("source"));
+
+  // 初始化方案二卷帘滑轨拖拽与双向滚动
+  initCurtainSlider();
+
+  // OCR 引擎操作与弹窗按钮
+  if (el.ocrDownloadBtn) el.ocrDownloadBtn.addEventListener("click", startOcrDownload);
+  if (el.ocrCancelBtn) el.ocrCancelBtn.addEventListener("click", cancelOcrDownload);
+  if (el.ocrUnloadBtn) el.ocrUnloadBtn.addEventListener("click", unloadOcrBundle);
+  if (el.ocrDeleteBtn) el.ocrDeleteBtn.addEventListener("click", deleteOcrBundle);
+  if (el.ocrPromptConfirmBtn) {
+    el.ocrPromptConfirmBtn.addEventListener("click", async () => {
+      el.ocrPromptConfirmBtn.disabled = true;
+      if (el.ocrPromptProgress) el.ocrPromptProgress.style.display = "flex";
+      await startOcrDownload();
+    });
+  }
+  if (el.ocrPromptCancelBtn) el.ocrPromptCancelBtn.addEventListener("click", hideOcrPromptModal);
 
   // 方案C：工作台 Segmented Tabs 切换
   if (el.tabRulesBtn) el.tabRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
@@ -1569,11 +1671,35 @@ async function handleFilesUpload(files) {
 
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
+    const isImage = /\.(jpe?g|png|bmp|webp|tiff?)$/i.test(file.name);
+    const tempId = `temp_${Date.now()}_${i}_${Math.random().toString(36).slice(2, 6)}`;
+    const initialStatus = isImage ? "ocr_processing" : "parsing";
+
+    // 立即向左侧列表添加正在处理的文档项
+    const tempDoc = {
+      id: tempId,
+      filename: file.name,
+      created_at: new Date().toISOString(),
+      char_count: 0,
+      markdown: "",
+      snapshots: [],
+      status: initialStatus,
+      is_temp: true,
+    };
+
+    if (!state.documents) state.documents = [];
+    state.documents.unshift(tempDoc);
+    renderFileList();
+    selectDocument(tempId);
+
     const formData = new FormData();
     formData.append("file", file);
 
     try {
-      el.docMeta.innerText = `正在使用 anydoc 极速解析: ${file.name}...`;
+      el.docMeta.innerText = isImage
+        ? `正在执行 OCR 文本与复杂表格智能识别: ${file.name}...`
+        : `正在使用 anydoc 极速解析: ${file.name}...`;
+
       const res = await fetch("/api/convert", {
         method: "POST",
         body: formData,
@@ -1582,6 +1708,19 @@ async function handleFilesUpload(files) {
       if (!res.ok) {
         let err = {};
         try { err = await res.json(); } catch (_) {}
+        if (err.error && err.error.includes("OCR_NOT_READY")) {
+          // 未就绪，移除临时项并唤起安装弹窗
+          state.documents = state.documents.filter((d) => d.id !== tempId);
+          renderFileList();
+          showOcrPromptModal(file);
+          continue;
+        }
+
+        // 标记临时项为解析失败状态
+        tempDoc.status = "failed";
+        tempDoc.error_msg = err.error || "未能成功解析文档格式";
+        renderFileList();
+
         showAlertDialog({
           title: "解析失败",
           message: err.error || "未能成功解析文档格式",
@@ -1591,6 +1730,8 @@ async function handleFilesUpload(files) {
       }
 
       const data = await res.json();
+      // 成功解析：移除该临时项并加载最新文档
+      state.documents = state.documents.filter((d) => d.id !== tempId);
       await loadDocuments();
       selectDocument(data.doc_id);
 
@@ -1599,6 +1740,10 @@ async function handleFilesUpload(files) {
       state.currentRules = [];
       renderRulesTable();
     } catch (e) {
+      tempDoc.status = "failed";
+      tempDoc.error_msg = e.message;
+      renderFileList();
+
       showAlertDialog({
         title: "上传解析异常",
         message: e.message,
@@ -1613,7 +1758,12 @@ async function loadDocuments() {
   try {
     const res = await fetch("/api/documents");
     if (res.ok) {
-      state.documents = await res.json();
+      const serverDocs = await res.json();
+      // 保留正在处理中的临时文档
+      const pendingTemps = (state.documents || []).filter(
+        (d) => d.is_temp && (d.status === "ocr_processing" || d.status === "parsing" || d.status === "failed")
+      );
+      state.documents = [...pendingTemps, ...serverDocs];
       renderFileList();
       if (!state.currentDocId && state.documents.length > 0) {
         selectDocument(state.documents[0].id);
@@ -1730,15 +1880,39 @@ function renderFileList() {
 
     const timeInfo = formatDocCreatedAt(doc.created_at);
 
+    // 状态判定：
+    // 1. 任务中：ocr_processing ("OCR识别中..."), parsing ("解析中...")
+    // 2. 失败状态：failed ("解析失败")
+    // 3. 正常完成状态：若已有快照则 "已审计" (audited)，否则 "待提取" (pending)
+    let statusClass = "pending";
+    let statusText = "待提取";
+    let statusTitle = "尚未执行提取审计";
+
+    if (doc.status === "ocr_processing") {
+      statusClass = "ocr_processing";
+      statusText = "OCR识别中...";
+      statusTitle = "正在进行 PP-OCRv6 与 SLANet_plus 原生推理识别";
+    } else if (doc.status === "parsing") {
+      statusClass = "parsing";
+      statusText = "解析中...";
+      statusTitle = "正在进行文档格式极速转换";
+    } else if (doc.status === "failed") {
+      statusClass = "failed";
+      statusText = "解析失败";
+      statusTitle = doc.error_msg || "文档格式解析失败";
+    } else if (hasSnapshots) {
+      statusClass = "audited";
+      statusText = "已审计";
+      statusTitle = `已审计 (共 ${snapCount} 个快照版本)`;
+    }
+
     // 两层卡片结构：第一行文件名与状态标签+删除按钮，第二行添加时间
     itemEl.innerHTML = `
       <div class="file-card-inner" data-id="${doc.id}">
         <div class="file-card-top">
           <span class="file-name" title="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</span>
           <div class="file-card-actions">
-            <span class="file-status-tag ${hasSnapshots ? "audited" : "pending"}" title="${
-              hasSnapshots ? `已审计 (共 ${snapCount} 个快照版本)` : "尚未执行提取审计"
-            }">${hasSnapshots ? "已审计" : "待提取"}</span>
+            <span class="file-status-tag ${statusClass}" title="${statusTitle}">${statusText}</span>
             <span class="delete-btn doc-delete-btn" title="删除此文档" style="display: inline-flex; align-items: center; flex-shrink: 0;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
           </div>
         </div>
@@ -1776,6 +1950,35 @@ function renderFileList() {
 
 // 删除指定文档
 async function deleteDocument(docId) {
+  const targetDoc = (state.documents || []).find((d) => d.id === docId);
+  if (targetDoc && targetDoc.is_temp) {
+    const wasActive = state.currentDocId === docId;
+    state.documents = state.documents.filter((d) => d.id !== docId);
+    if (wasActive) {
+      if (state.documents.length > 0) {
+        selectDocument(state.documents[0].id);
+      } else {
+        state.currentDocId = null;
+        state.currentSnapshot = null;
+        if (el.docMeta) {
+          el.docMeta.innerText = "未选择文档";
+          el.docMeta.title = "";
+        }
+        if (el.markdownSource) el.markdownSource.value = "";
+        if (el.snapshotBanner) el.snapshotBanner.innerText = "";
+        renderMarkdownWithHighlights("", []);
+        renderAuditList([]);
+        updatePreviewFooterStats(null);
+        if (el.presetSelect) el.presetSelect.value = "";
+        state.currentRules = [];
+        renderRulesTable();
+        updateDeleteTemplateBtnVisibility();
+      }
+    }
+    renderFileList();
+    return;
+  }
+
   try {
     const res = await fetch(`/api/documents/${docId}`, { method: "DELETE" });
     if (res.ok) {
@@ -1813,10 +2016,9 @@ async function deleteDocument(docId) {
       });
     }
   } catch (e) {
-    console.error("删除文档失败:", e);
     showAlertDialog({
-      title: "网络异常",
-      message: "删除文档网络异常: " + e.message,
+      title: "删除异常",
+      message: e.message,
       type: "danger",
     });
   }
@@ -1946,6 +2148,31 @@ function selectDocument(docId) {
   el.docMeta.title = doc.filename;
   el.markdownSource.value = doc.markdown || "";
 
+  // 若处于识别或解析状态，渲染优雅的加载等待骨架
+  if (doc.status === "ocr_processing" || doc.status === "parsing") {
+    state.currentSnapshot = null;
+    if (el.snapshotBanner) el.snapshotBanner.innerText = "";
+    const isOcr = doc.status === "ocr_processing";
+    if (el.markdownViewer) {
+      el.markdownViewer.innerHTML = `
+        <div class="doc-processing-placeholder">
+          <div class="doc-processing-spinner"></div>
+          <div class="doc-processing-title">${isOcr ? "正在执行 OCR 文本与复杂表格智能识别..." : "正在极速解析文档格式..."}</div>
+          <div class="doc-processing-desc">${escapeHtml(doc.filename)}</div>
+        </div>
+      `;
+    }
+    renderAuditList([]);
+    updatePreviewFooterStats(doc, null);
+    if (el.presetSelect) el.presetSelect.value = "";
+    state.currentRules = [];
+    renderRulesTable();
+    updateDeleteTemplateBtnVisibility();
+    updateViewModeForDocument(doc);
+    renderFileList();
+    return;
+  }
+
   // 若有快照则恢复快照，否则显示原始渲染并重置为“无模板”与空白规则定义
   if (doc.snapshots && doc.snapshots.length > 0) {
     const activeSnap = doc.snapshots.find((s) => s.id === doc.active_snapshot_id) || doc.snapshots[doc.snapshots.length - 1];
@@ -1965,6 +2192,7 @@ function selectDocument(docId) {
     updateDeleteTemplateBtnVisibility();
   }
 
+  updateViewModeForDocument(doc);
   renderFileList();
 }
 
@@ -3189,6 +3417,18 @@ function renderMarkdownWithHighlights(markdown, items) {
 
     parent.replaceChild(frag, node);
   });
+
+  // 同步高亮结果至方案二卷帘透视顶层容器
+  if (el.curtainMarkdownBody) {
+    el.curtainMarkdownBody.innerHTML = el.markdownPreview.innerHTML;
+    el.curtainMarkdownBody.querySelectorAll(".sensi-mark").forEach((mark) => {
+      const txt = mark.getAttribute("data-sensi-text");
+      mark.addEventListener("click", () => {
+        switchInspectorTab("audit");
+        highlightAuditCard(txt);
+      });
+    });
+  }
 }
 
 // 解析并格式化当前快照或提取的检测来源标签 (离线模型 / 在线模型 / 规则正则)
@@ -5284,6 +5524,52 @@ function initSSEForDownloads() {
 
   eventSource.addEventListener("progress", async (e) => {
     const data = JSON.parse(e.data);
+
+    // 针对 OCR 专属模型包的下载进度处理
+    if (data.model_id === "ocr-ppocrv6-bundle") {
+      if (data.status === "downloading") {
+        if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "flex";
+        if (el.ocrProgressBarFill) el.ocrProgressBarFill.style.width = `${data.percent.toFixed(1)}%`;
+        if (el.ocrProgressStats) {
+          const dlMb = (data.downloaded_bytes / (1024 * 1024)).toFixed(1);
+          const totalMb = (data.total_bytes / (1024 * 1024)).toFixed(1);
+          el.ocrProgressStats.innerText = `${data.percent.toFixed(1)}% (${dlMb}MB / ${totalMb}MB · ${data.speed_mb.toFixed(1)} MB/s)`;
+        }
+        if (el.ocrStatusPill) {
+          el.ocrStatusPill.className = "ocr-status-pill downloading";
+          el.ocrStatusPill.innerText = `↓ 下载中 ${data.percent.toFixed(0)}%`;
+        }
+
+        // 同步引导弹窗中的进度条
+        if (el.ocrPromptProgress && el.ocrPromptProgress.style.display !== "none") {
+          if (el.ocrPromptProgressBarFill) el.ocrPromptProgressBarFill.style.width = `${data.percent.toFixed(1)}%`;
+          if (el.ocrPromptProgressStats) {
+            const dlMb = (data.downloaded_bytes / (1024 * 1024)).toFixed(1);
+            const totalMb = (data.total_bytes / (1024 * 1024)).toFixed(1);
+            el.ocrPromptProgressStats.innerText = `${data.percent.toFixed(1)}% (${dlMb}MB / ${totalMb}MB · ${data.speed_mb.toFixed(1)} MB/s)`;
+          }
+        }
+      } else if (data.status === "completed") {
+        await checkOcrStatus();
+        if (el.ocrPromptModal && el.ocrPromptModal.style.display !== "none") {
+          const pending = state.pendingOcrFile;
+          hideOcrPromptModal();
+          if (pending) {
+            showToast("OCR 模型套件已就绪，正在自动识别单据...", "success");
+            await handleFilesUpload([pending]);
+          }
+        }
+      } else if (data.status === "canceled" || data.status === "failed") {
+        await checkOcrStatus();
+        if (el.ocrPromptProgress) el.ocrPromptProgress.style.display = "none";
+        if (el.ocrPromptConfirmBtn) {
+          el.ocrPromptConfirmBtn.style.display = "inline-flex";
+          el.ocrPromptConfirmBtn.disabled = false;
+        }
+      }
+      return;
+    }
+
     const wrap = document.getElementById(`prog-wrap-${data.model_id}`);
     const fill = document.getElementById(`prog-fill-${data.model_id}`);
     const text = document.getElementById(`prog-text-${data.model_id}`);
@@ -5453,4 +5739,209 @@ async function handleWindowCloseRequest() {
 
 // 暴露给原生宿主拦截调用
 window.__handleAppExitRequest = handleWindowCloseRequest;
+
+// ==========================================================================
+// 方案二：卷帘透视比对交互与纸质单据 OCR 引擎组件管理
+// ==========================================================================
+
+function initCurtainSlider() {
+  if (!el.curtainDivider || !el.ocrCurtainStage) return;
+
+  let isDragging = false;
+
+  const updateCurtainPosition = (clientX) => {
+    const rect = el.ocrCurtainStage.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const x = clientX - rect.left;
+    const pct = Math.max(0, Math.min(100, (x / rect.width) * 100));
+    el.ocrCurtainStage.style.setProperty("--curtain-pos", `${pct.toFixed(2)}%`);
+    el.curtainDivider.style.left = `${pct.toFixed(2)}%`;
+  };
+
+  el.curtainDivider.addEventListener("pointerdown", (e) => {
+    isDragging = true;
+    el.curtainDivider.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+
+  el.ocrCurtainStage.addEventListener("pointermove", (e) => {
+    if (!isDragging) return;
+    updateCurtainPosition(e.clientX);
+  });
+
+  const endDrag = (e) => {
+    if (isDragging) {
+      isDragging = false;
+      try { el.curtainDivider.releasePointerCapture(e.pointerId); } catch (_) {}
+    }
+  };
+
+  el.curtainDivider.addEventListener("pointerup", endDrag);
+  el.curtainDivider.addEventListener("pointercancel", endDrag);
+
+  // 双向滚动联动同步
+  let isSyncing = false;
+  if (el.curtainImageLayer && el.curtainTableLayer) {
+    el.curtainImageLayer.addEventListener("scroll", () => {
+      if (isSyncing) return;
+      isSyncing = true;
+      el.curtainTableLayer.scrollTop = el.curtainImageLayer.scrollTop;
+      requestAnimationFrame(() => { isSyncing = false; });
+    });
+
+    el.curtainTableLayer.addEventListener("scroll", () => {
+      if (isSyncing) return;
+      isSyncing = true;
+      el.curtainImageLayer.scrollTop = el.curtainTableLayer.scrollTop;
+      requestAnimationFrame(() => { isSyncing = false; });
+    });
+  }
+}
+
+function formatModelSize(bytes) {
+  if (!bytes || bytes <= 0) return "~39 MB";
+  const mb = (bytes / (1024 * 1024)).toFixed(1);
+  return `~${mb} MB`;
+}
+
+async function checkOcrStatus() {
+  try {
+    const res = await fetch("/api/ocr/status");
+    if (!res.ok) return;
+    const data = await res.json();
+    const isReady = !!(data.is_ready || data.ready);
+    const isLoaded = !!data.is_loaded;
+    state.ocrReady = isReady;
+    state.ocrStatus = data;
+    const expectedSizeStr = formatModelSize(data.expected_total_bytes);
+
+    if (!el.ocrStatusPill) return;
+
+    if (isReady) {
+      el.ocrStatusPill.className = "ocr-status-pill ready";
+      if (isLoaded) {
+        el.ocrStatusPill.innerText = "● 运行中 (空闲3分钟自动释放)";
+        if (el.ocrUnloadBtn) el.ocrUnloadBtn.style.display = "inline-flex";
+      } else {
+        el.ocrStatusPill.innerText = "● 已就绪 (未占内存·按需加载)";
+        if (el.ocrUnloadBtn) el.ocrUnloadBtn.style.display = "none";
+      }
+      if (el.ocrDownloadBtn) el.ocrDownloadBtn.style.display = "none";
+      if (el.ocrCancelBtn) el.ocrCancelBtn.style.display = "none";
+      if (el.ocrDeleteBtn) el.ocrDeleteBtn.style.display = "inline-flex";
+      if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "none";
+    } else {
+      el.ocrStatusPill.className = "ocr-status-pill not-ready";
+      el.ocrStatusPill.innerText = `○ 未就绪 (${expectedSizeStr})`;
+      if (el.ocrDownloadBtn) {
+        el.ocrDownloadBtn.innerText = `下载模型套件 (${expectedSizeStr})`;
+        el.ocrDownloadBtn.style.display = "inline-flex";
+      }
+      if (el.ocrCancelBtn) el.ocrCancelBtn.style.display = "none";
+      if (el.ocrUnloadBtn) el.ocrUnloadBtn.style.display = "none";
+      if (el.ocrDeleteBtn) el.ocrDeleteBtn.style.display = "none";
+    }
+  } catch (e) {
+    console.error("查询 OCR 状态失败:", e);
+  }
+}
+
+async function unloadOcrBundle() {
+  try {
+    const res = await fetch("/api/ocr/unload", { method: "POST" });
+    if (res.ok) {
+      showToast("OCR 推理引擎内存已成功释放", "success");
+      await checkOcrStatus();
+    }
+  } catch (e) {
+    console.error("释放 OCR 内存失败:", e);
+  }
+}
+
+async function startOcrDownload() {
+  try {
+    if (el.ocrDownloadBtn) el.ocrDownloadBtn.style.display = "none";
+    if (el.ocrCancelBtn) el.ocrCancelBtn.style.display = "inline-flex";
+    if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "flex";
+    if (el.ocrStatusPill) {
+      el.ocrStatusPill.className = "ocr-status-pill downloading";
+      el.ocrStatusPill.innerText = "↓ 正在下载...";
+    }
+
+    const res = await fetch("/api/ocr/download", { method: "POST" });
+    if (!res.ok) {
+      const err = await res.json();
+      showAlertDialog({
+        title: "启动 OCR 下载失败",
+        message: err.error || "网络连接异常",
+        type: "danger",
+      });
+      await checkOcrStatus();
+    }
+  } catch (e) {
+    showAlertDialog({
+      title: "下载请求异常",
+      message: e.message,
+      type: "danger",
+    });
+    await checkOcrStatus();
+  }
+}
+
+async function cancelOcrDownload() {
+  try {
+    await fetch("/api/ocr/cancel", { method: "POST" });
+    if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "none";
+    await checkOcrStatus();
+  } catch (e) {
+    console.error("取消 OCR 下载失败:", e);
+  }
+}
+
+async function deleteOcrBundle() {
+  const sizeStr = formatModelSize(state.ocrStatus?.total_size_bytes || state.ocrStatus?.expected_total_bytes);
+  const confirmed = await showConfirmDialog({
+    title: "删除 OCR 模型套件",
+    message: `确定要清理纸质单据与密集表格 OCR 模型套件 (${sizeStr}) 吗？删除后再次识别单据图片需重新下载。`,
+    confirmText: "确认删除",
+    cancelText: "取消",
+    isDanger: true,
+  });
+
+  if (confirmed) {
+    try {
+      const res = await fetch("/api/ocr/delete", { method: "DELETE" });
+      if (res.ok) {
+        showToast("OCR 模型套件已清理", "success");
+        await checkOcrStatus();
+      }
+    } catch (e) {
+      showAlertDialog({
+        title: "清理失败",
+        message: e.message,
+        type: "danger",
+      });
+    }
+  }
+}
+
+function showOcrPromptModal(pendingFile) {
+  state.pendingOcrFile = pendingFile;
+  const sizeStr = formatModelSize(state.ocrStatus?.expected_total_bytes);
+  const sizeTag = document.getElementById("ocrModalExpectedSizeTag");
+  if (sizeTag) sizeTag.innerText = sizeStr;
+  if (el.ocrPromptProgress) el.ocrPromptProgress.style.display = "none";
+  if (el.ocrPromptConfirmBtn) {
+    el.ocrPromptConfirmBtn.innerText = `立即下载并识别 (${sizeStr})`;
+    el.ocrPromptConfirmBtn.style.display = "inline-flex";
+    el.ocrPromptConfirmBtn.disabled = false;
+  }
+  if (el.ocrPromptModal) el.ocrPromptModal.style.display = "flex";
+}
+
+function hideOcrPromptModal() {
+  state.pendingOcrFile = null;
+  if (el.ocrPromptModal) el.ocrPromptModal.style.display = "none";
+}
+
 

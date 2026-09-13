@@ -49,6 +49,56 @@ pub struct ModelManager {
 
 pub const DEFAULT_LLAMA_SERVER_PORT: u16 = 18188;
 
+pub const OCR_BUNDLE_ID: &str = "ocr-ppocrv6-bundle";
+
+pub struct OcrDownloadFileSpec {
+    pub filename: &'static str,
+    pub download_url: &'static str,
+    pub expected_size: u64,
+    pub sha256: &'static str,
+}
+
+pub const OCR_DOWNLOAD_SPECS: [OcrDownloadFileSpec; 4] = [
+    OcrDownloadFileSpec {
+        filename: crate::paths::OCR_DET_FILENAME,
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx",
+        expected_size: 9_929_594,
+        sha256: "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+    },
+    OcrDownloadFileSpec {
+        filename: crate::paths::OCR_REC_FILENAME,
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx",
+        expected_size: 21_234_383,
+        sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+    },
+    OcrDownloadFileSpec {
+        filename: crate::paths::OCR_TABLE_FILENAME,
+        download_url: "https://modelscope.cn/models/RapidAI/RapidTable/resolve/a484f11b64162cc443ccf14582996ca35be33030/slanet-plus.onnx",
+        expected_size: 7_758_305,
+        sha256: "d57a942af6a2f57d6a4a0372573c696a2379bf5857c45e2ac69993f3b334514b",
+    },
+    OcrDownloadFileSpec {
+        filename: crate::paths::OCR_DICT_FILENAME,
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/paddle/PP-OCRv6/rec/PP-OCRv6_rec_small/ppocrv6_dict.txt",
+        expected_size: 74_947,
+        sha256: "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+    },
+];
+
+pub fn get_ocr_total_expected_bytes() -> u64 {
+    OCR_DOWNLOAD_SPECS.iter().map(|s| s.expected_size).sum()
+}
+
+/// 校验本地指定路径文件的 SHA-256 哈希值是否匹配目标预期 (不区分大小写)
+pub fn verify_file_sha256(path: &std::path::Path, expected_sha256: &str) -> Result<bool, std::io::Error> {
+    use sha2::{Digest, Sha256};
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut file, &mut hasher)?;
+    let actual_hex = format!("{:x}", hasher.finalize());
+    Ok(actual_hex.eq_ignore_ascii_case(expected_sha256))
+}
+
 impl ModelManager {
     pub fn new() -> Self {
         let (progress_tx, _) = broadcast::channel(100);
@@ -716,6 +766,269 @@ end try"#;
 
         was_active
     }
+
+    /// 下载全套纸质单据与表格 OCR 模型组件 (包含 PP-OCRv6_det_small, PP-OCRv6_rec_small, slanet-plus, 字典)
+    pub async fn download_ocr_bundle(&self) -> Result<(), String> {
+        let ocr_dir = crate::paths::get_user_ocr_models_dir();
+        let total_bundle_size = get_ocr_total_expected_bytes();
+
+        let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
+        {
+            let mut map = self.download_cancellations.lock().await;
+            if map.contains_key(OCR_BUNDLE_ID) {
+                return Err("OCR 模型组件正在下载中，请勿重复触发".to_string());
+            }
+            map.insert(OCR_BUNDLE_ID.to_string(), cancel_tx);
+        }
+
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .build()
+            .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
+
+        let mut accumulated_bytes = 0u64;
+        let mut is_canceled = false;
+
+        for spec in OCR_DOWNLOAD_SPECS.iter() {
+            let target_path = ocr_dir.join(spec.filename);
+            let part_path = ocr_dir.join(format!("{}.part", spec.filename));
+
+            // 如果文件已存在且大小正常，执行 SHA-256 校验确保未损坏
+            if target_path.exists() {
+                if let Ok(meta) = target_path.metadata() {
+                    if meta.len() >= spec.expected_size.saturating_sub(1024) {
+                        if verify_file_sha256(&target_path, spec.sha256).unwrap_or(false) {
+                            accumulated_bytes += meta.len();
+                            let _ = self.progress_tx.send(DownloadProgress {
+                                model_id: OCR_BUNDLE_ID.to_string(),
+                                downloaded_bytes: accumulated_bytes,
+                                total_bytes: total_bundle_size,
+                                percent: (accumulated_bytes as f64 / total_bundle_size as f64 * 100.0).min(99.0),
+                                speed_mb: 0.0,
+                                status: "downloading".to_string(),
+                                error: None,
+                            });
+                            continue;
+                        } else {
+                            warn!("本地 OCR 组件 {} 哈希校验不匹配，将被重新下载覆盖", spec.filename);
+                            let _ = tokio::fs::remove_file(&target_path).await;
+                        }
+                    }
+                }
+            }
+
+            let mut file_downloaded = if part_path.exists() {
+                std::fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0)
+            } else {
+                0
+            };
+
+            let mut req = client.get(spec.download_url);
+            if file_downloaded > 0 {
+                req = req.header("Range", format!("bytes={}-", file_downloaded));
+            }
+
+            let resp = tokio::select! {
+                res = req.send() => {
+                    match res {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let mut map = self.download_cancellations.lock().await;
+                            map.remove(OCR_BUNDLE_ID);
+                            return Err(format!("连接下载源失败 ({}): {e}", spec.filename));
+                        }
+                    }
+                }
+                _ = &mut cancel_rx => {
+                    is_canceled = true;
+                    let _ = tokio::fs::remove_file(&part_path).await;
+                    break;
+                }
+            };
+
+            let mut stream = resp.bytes_stream();
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&part_path)
+                .await
+                .map_err(|e| format!("打开临时文件失败 ({}): {e}", spec.filename))?;
+
+            let mut last_broadcast = std::time::Instant::now();
+            let mut speed_calc_time = std::time::Instant::now();
+            let mut speed_bytes = 0u64;
+            let mut current_speed = 0.0f64;
+
+            loop {
+                tokio::select! {
+                    _ = &mut cancel_rx => {
+                        is_canceled = true;
+                        break;
+                    }
+                    chunk_opt = stream.next() => {
+                        match chunk_opt {
+                            Some(chunk_result) => {
+                                let chunk = match chunk_result {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let mut map = self.download_cancellations.lock().await;
+                                        map.remove(OCR_BUNDLE_ID);
+                                        return Err(format!("下载数据流中断 ({}): {e}", spec.filename));
+                                    }
+                                };
+                                let len = chunk.len() as u64;
+                                file_downloaded += len;
+                                speed_bytes += len;
+
+                                file.write_all(&chunk).await.map_err(|e| format!("写入数据块失败: {e}"))?;
+
+                                if speed_calc_time.elapsed() >= std::time::Duration::from_millis(500) {
+                                    let secs = speed_calc_time.elapsed().as_secs_f64();
+                                    current_speed = (speed_bytes as f64 / 1024.0 / 1024.0) / secs;
+                                    speed_bytes = 0;
+                                    speed_calc_time = std::time::Instant::now();
+                                }
+
+                                if last_broadcast.elapsed() >= std::time::Duration::from_millis(150) {
+                                    let cur_total = accumulated_bytes + file_downloaded;
+                                    let percent = ((cur_total as f64 / total_bundle_size as f64) * 100.0).min(99.9);
+                                    let _ = self.progress_tx.send(DownloadProgress {
+                                        model_id: OCR_BUNDLE_ID.to_string(),
+                                        downloaded_bytes: cur_total,
+                                        total_bytes: total_bundle_size,
+                                        percent,
+                                        speed_mb: current_speed,
+                                        status: "downloading".to_string(),
+                                        error: None,
+                                    });
+                                    last_broadcast = std::time::Instant::now();
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+
+            if is_canceled {
+                drop(file);
+                if part_path.exists() {
+                    let _ = tokio::fs::remove_file(&part_path).await;
+                }
+                break;
+            }
+
+            file.flush().await.map_err(|e| format!("刷新缓冲区失败: {e}"))?;
+            drop(file);
+
+            // 强校验 SHA-256 完整性指纹，防止传输截断或 CDN 损坏
+            let is_valid = verify_file_sha256(&part_path, spec.sha256)
+                .map_err(|e| format!("计算临时文件哈希失败 ({}): {e}", spec.filename))?;
+
+            if !is_valid {
+                let _ = tokio::fs::remove_file(&part_path).await;
+                let mut map = self.download_cancellations.lock().await;
+                map.remove(OCR_BUNDLE_ID);
+                return Err(format!(
+                    "OCR 组件完整性校验失败 ({}): SHA-256 校验和不匹配，已清除损坏的缓存",
+                    spec.filename
+                ));
+            }
+
+            // 当前组件校验通过，重命名为正式模型文件名
+            tokio::fs::rename(&part_path, &target_path)
+                .await
+                .map_err(|e| format!("重命名文件失败 ({}): {e}", spec.filename))?;
+
+            accumulated_bytes += file_downloaded;
+        }
+
+        {
+            let mut map = self.download_cancellations.lock().await;
+            map.remove(OCR_BUNDLE_ID);
+        }
+
+        if is_canceled {
+            info!("用户取消了 OCR 模型组件下载，已清理临时缓存");
+            let _ = self.progress_tx.send(DownloadProgress {
+                model_id: OCR_BUNDLE_ID.to_string(),
+                downloaded_bytes: 0,
+                total_bytes: total_bundle_size,
+                percent: 0.0,
+                speed_mb: 0.0,
+                status: "canceled".to_string(),
+                error: Some("OCR 下载已取消".to_string()),
+            });
+            return Err("下载已由用户取消".to_string());
+        }
+
+        // 全套组件顺利完成
+        let _ = self.progress_tx.send(DownloadProgress {
+            model_id: OCR_BUNDLE_ID.to_string(),
+            downloaded_bytes: total_bundle_size,
+            total_bytes: total_bundle_size,
+            percent: 100.0,
+            speed_mb: 0.0,
+            status: "completed".to_string(),
+            error: None,
+        });
+
+        Ok(())
+    }
+
+    /// 取消正在进行的 OCR 组件下载并清除未完成的 .part 缓存
+    pub async fn cancel_ocr_download(&self) -> bool {
+        let mut map = self.download_cancellations.lock().await;
+        let was_active = if let Some(tx) = map.remove(OCR_BUNDLE_ID) {
+            let _ = tx.send(());
+            true
+        } else {
+            false
+        };
+        drop(map);
+
+        let ocr_dir = crate::paths::get_user_ocr_models_dir();
+        for spec in OCR_DOWNLOAD_SPECS.iter() {
+            let part_path = ocr_dir.join(format!("{}.part", spec.filename));
+            if part_path.exists() {
+                let _ = tokio::fs::remove_file(&part_path).await;
+            }
+        }
+
+        let _ = self.progress_tx.send(DownloadProgress {
+            model_id: OCR_BUNDLE_ID.to_string(),
+            downloaded_bytes: 0,
+            total_bytes: 0,
+            percent: 0.0,
+            speed_mb: 0.0,
+            status: "canceled".to_string(),
+            error: Some("OCR 下载已取消，已清除缓存".to_string()),
+        });
+
+        was_active
+    }
+
+    /// 清理并删除已下载的 OCR 模型组件 (释放存储空间)
+    pub async fn delete_ocr_bundle(&self) -> Result<(), String> {
+        let ocr_dir = crate::paths::get_user_ocr_models_dir();
+        for spec in OCR_DOWNLOAD_SPECS.iter() {
+            let target_path = ocr_dir.join(spec.filename);
+            let part_path = ocr_dir.join(format!("{}.part", spec.filename));
+            if target_path.exists() {
+                let _ = tokio::fs::remove_file(&target_path).await;
+            }
+            if part_path.exists() {
+                let _ = tokio::fs::remove_file(&part_path).await;
+            }
+        }
+        // 兼容清理历史残留的 medium 模型文件
+        let legacy_rec = ocr_dir.join("PP-OCRv6_rec_medium.onnx");
+        if legacy_rec.exists() {
+            let _ = tokio::fs::remove_file(&legacy_rec).await;
+        }
+        Ok(())
+    }
 }
 
 /// 确保 Drop 时彻底终止子进程，杜绝孤儿/僵尸进程
@@ -786,6 +1099,55 @@ mod tests {
         let _ = mgr.cancel_download("tessera-4b-preview").await;
         // 验证 .part 临时文件已被自动清理
         assert!(!test_part.exists(), "cancel_download 应当自动清理 .part 临时缓存文件");
+    }
+
+    #[test]
+    fn test_ocr_bundle_metadata() {
+        assert_eq!(OCR_DOWNLOAD_SPECS.len(), 4);
+        let total_bytes = get_ocr_total_expected_bytes();
+        // 4 个文件总大小应在 35MB ~ 45MB 之间 (采用 rec_small 约 39MB)
+        assert!(total_bytes > 35 * 1024 * 1024 && total_bytes < 45 * 1024 * 1024);
+    }
+
+    #[tokio::test]
+    async fn test_cancel_ocr_download_cleans_cache() {
+        let mgr = ModelManager::new();
+        let ocr_dir = crate::paths::get_user_ocr_models_dir();
+        let test_part = ocr_dir.join(format!("{}.part", crate::paths::OCR_DET_FILENAME));
+        tokio::fs::write(&test_part, b"temporary ocr cache").await.unwrap();
+        assert!(test_part.exists());
+
+        let _ = mgr.cancel_ocr_download().await;
+        assert!(!test_part.exists(), "cancel_ocr_download 应自动清理 OCR 临时 .part 缓存");
+    }
+
+    #[test]
+    fn test_verify_file_sha256() {
+        let temp_dir = std::env::temp_dir();
+        let temp_file = temp_dir.join("test_sha256.txt");
+        let content = b"hello sensidoc ocr sha256";
+        std::fs::write(&temp_file, content).unwrap();
+
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(content);
+        let expected = format!("{:x}", hasher.finalize());
+
+        assert!(verify_file_sha256(&temp_file, &expected).unwrap());
+        assert!(!verify_file_sha256(&temp_file, "0000000000000000000000000000000000000000000000000000000000000000").unwrap());
+        let _ = std::fs::remove_file(temp_file);
+    }
+
+    #[test]
+    fn test_ocr_specs_sha256_against_local_files_if_exist() {
+        let ocr_dir = crate::paths::get_ocr_models_dir();
+        for spec in OCR_DOWNLOAD_SPECS.iter() {
+            let path = ocr_dir.join(spec.filename);
+            if path.exists() {
+                let ok = verify_file_sha256(&path, spec.sha256).expect("计算本地模型哈希失败");
+                assert!(ok, "本地已就绪模型文件 {} 的 SHA-256 校验失败", spec.filename);
+            }
+        }
     }
 }
 
