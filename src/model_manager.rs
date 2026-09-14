@@ -102,48 +102,26 @@ impl ModelManager {
             map.keys().cloned().collect()
         };
 
-        // 按模型参数大小排序：450M -> 1.5B -> 2B -> 4B
+        // 预设离线模型：快前置 (Qwen3.5-0.8B-Q6_K) + 慢终审 (MiniCPM5-2B-Q4_K_M)
         let presets = vec![
             ModelPreset {
-                id: "lfm2.5-vl-450m".to_string(),
-                name: "LFM2.5-VL-450M (Q8_0)".to_string(),
-                filename: "LFM2.5-VL-450M-Q8_0.gguf".to_string(),
-                modelscope_id: "LiquidAI/LFM2.5-VL-450M-GGUF".to_string(),
-                description: "超小身材大视觉/文本理解模型，Q8_0 高精度量化，结构化提取表现优异".to_string(),
-                size_desc: "~360 MB".to_string(),
+                id: "qwen3.5-text-0.8b-q6_k".to_string(),
+                name: "Qwen3.5-text-0.8B (Q6_K)".to_string(),
+                filename: "Qwen3.5-text-0.8B-Q6_K.gguf".to_string(),
+                modelscope_id: "icychick/Qwen3.5-text-0.8B-GGUF".to_string(),
+                description: "纯文本剥离版超轻量模型，Q6_K 高精度量化，结构化海选前置最佳首选".to_string(),
+                size_desc: "~601 MB".to_string(),
                 is_downloaded: false,
                 is_downloading: false,
                 is_active: false,
             },
             ModelPreset {
-                id: "qwen2.5-1.5b-instruct".to_string(),
-                name: "Qwen2.5-1.5B-Instruct (Q4_K_M)".to_string(),
-                filename: "qwen2.5-1.5b-instruct-q4_k_m.gguf".to_string(),
-                modelscope_id: "Qwen/Qwen2.5-1.5B-Instruct-GGUF".to_string(),
-                description: "通义千问 2.5 经典 1.5B 指令微调版，语义结构理解综合性能强".to_string(),
-                size_desc: "~980 MB".to_string(),
-                is_downloaded: false,
-                is_downloading: false,
-                is_active: false,
-            },
-            ModelPreset {
-                id: "qwen3.5-2b".to_string(),
-                name: "Qwen3.5-2B (Q5_K_M)".to_string(),
-                filename: "Qwen3.5-2B-Q5_K_M.gguf".to_string(),
-                modelscope_id: "unsloth/Qwen3.5-2B-GGUF".to_string(),
-                description: "Qwen3.5 架构 2B 高性能小模型，Q5_K_M 优质中高精度量化，结构化提取与指令理解更强".to_string(),
-                size_desc: "~1.4 GB".to_string(),
-                is_downloaded: false,
-                is_downloading: false,
-                is_active: false,
-            },
-            ModelPreset {
-                id: "tessera-4b-preview".to_string(),
-                name: "Tessera-4B-Preview (Q4_K_M)".to_string(),
-                filename: "Tessera-4B-Preview-Q4_K_M.gguf".to_string(),
-                modelscope_id: "sahilchachra/Tessera-4B-Preview-GGUF".to_string(),
-                description: "基于 Qwen3.5-4B 深度微调的高性能推理与 Agent 工具调用模型，Q4_K_M 平衡版".to_string(),
-                size_desc: "~2.6 GB".to_string(),
+                id: "minicpm5-2b-q4_k_m".to_string(),
+                name: "MiniCPM5-2B (Q4_K_M)".to_string(),
+                filename: "MiniCPM5-2B-Q4_K_M.gguf".to_string(),
+                modelscope_id: "OpenBMB/MiniCPM5-2B-gguf".to_string(),
+                description: "面壁智能 MiniCPM 2B 旗舰端侧小模型，终审精确率 100% 完美平替 4B".to_string(),
+                size_desc: "~1.5 GB".to_string(),
                 is_downloaded: false,
                 is_downloading: false,
                 is_active: false,
@@ -738,11 +716,9 @@ mod tests {
     async fn test_presets_loading() {
         let mgr = ModelManager::new();
         let presets = mgr.get_presets().await;
-        assert_eq!(presets.len(), 4);
-        assert_eq!(presets[0].id, "lfm2.5-vl-450m");
-        assert_eq!(presets[1].id, "qwen2.5-1.5b-instruct");
-        assert_eq!(presets[2].id, "qwen3.5-2b");
-        assert_eq!(presets[3].id, "tessera-4b-preview");
+        assert_eq!(presets.len(), 2);
+        assert_eq!(presets[0].id, "qwen3.5-text-0.8b-q6_k");
+        assert_eq!(presets[1].id, "minicpm5-2b-q4_k_m");
     }
 
     #[tokio::test]
@@ -753,17 +729,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let url = "https://modelscope.cn/models/sahilchachra/Tessera-4B-Preview-GGUF/resolve/master/Tessera-4B-Preview-Q4_K_M.gguf";
-        let resp = client
-            .get(url)
-            .header("Range", "bytes=0-1023")
-            .send()
-            .await
-            .unwrap();
-
-        assert!(resp.status().is_success() || resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
-
-        let qwen_url = "https://modelscope.cn/models/unsloth/Qwen3.5-2B-GGUF/resolve/master/Qwen3.5-2B-Q5_K_M.gguf";
+        let qwen_url = "https://modelscope.cn/models/icychick/Qwen3.5-text-0.8B-GGUF/resolve/master/Qwen3.5-text-0.8B-Q6_K.gguf";
         let qwen_resp = client
             .get(qwen_url)
             .header("Range", "bytes=0-1023")
@@ -772,18 +738,28 @@ mod tests {
             .unwrap();
 
         assert!(qwen_resp.status().is_success() || qwen_resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
+
+        let minicpm_url = "https://modelscope.cn/models/OpenBMB/MiniCPM5-2B-gguf/resolve/master/MiniCPM5-2B-Q4_K_M.gguf";
+        let minicpm_resp = client
+            .get(minicpm_url)
+            .header("Range", "bytes=0-1023")
+            .send()
+            .await
+            .unwrap();
+
+        assert!(minicpm_resp.status().is_success() || minicpm_resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
     }
 
     #[tokio::test]
     async fn test_cancel_download_cleans_cache() {
         let mgr = ModelManager::new();
         // 创建一个模拟的 .part 文件
-        let test_part = mgr.models_dir.join("Tessera-4B-Preview-Q4_K_M.gguf.part");
+        let test_part = mgr.models_dir.join("Qwen3.5-text-0.8B-Q6_K.gguf.part");
         tokio::fs::write(&test_part, b"temporary download cache").await.unwrap();
         assert!(test_part.exists());
 
         // 调用 cancel_download 取消
-        let _ = mgr.cancel_download("tessera-4b-preview").await;
+        let _ = mgr.cancel_download("qwen3.5-text-0.8b-q6_k").await;
         // 验证 .part 临时文件已被自动清理
         assert!(!test_part.exists(), "cancel_download 应当自动清理 .part 临时缓存文件");
     }

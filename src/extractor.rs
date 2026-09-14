@@ -550,17 +550,15 @@ impl Extractor {
         }
     }
 
-    /// 统一解析 LLM 返回的文本内容为实体项列表
-    pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
-        // 如果输出中带有思维链 <think>...</think>，优先提取 </think> 之后的最终结果
+    /// 智能剥离思维链并提取有效的 JSON 片段
+    pub fn clean_json_text(content: &str) -> &str {
         let content_after_think = if let Some(think_end) = content.rfind("</think>") {
             &content[think_end + 8..]
         } else {
             content
         };
 
-        // 智能截取 JSON 片段：优先匹配 [..] 数组，若无则匹配 {..} 对象
-        let cleaned_json = if let (Some(start), Some(end)) = (content_after_think.find('['), content_after_think.rfind(']')) {
+        if let (Some(start), Some(end)) = (content_after_think.find('['), content_after_think.rfind(']')) {
             if end > start {
                 &content_after_think[start..=end]
             } else {
@@ -574,8 +572,12 @@ impl Extractor {
             }
         } else {
             content_after_think
-        };
+        }
+    }
 
+    /// 统一解析 LLM 返回的文本内容为实体项列表
+    pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
+        let cleaned_json = Self::clean_json_text(content);
         let mut items = Vec::new();
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_json) {
             match parsed {
@@ -848,6 +850,7 @@ impl Extractor {
                 { "role": "user", "content": user_prompt }
             ],
             "stream": false,
+            "think": false,
             "options": {
                 "temperature": temperature,
                 "num_predict": if max_tokens == 0 { 1024 } else { max_tokens }
@@ -1045,7 +1048,7 @@ impl Extractor {
         Ok(confirmed_items)
     }
 
-    /// 策略二：动态路由快慢车道 (Confidence Router)
+    /// 策略二：动态路由快慢车道 (Confidence Router - 精准分流与存疑终审)
     pub async fn extract_confidence_router(
         ollama_url: &str,
         small_model: &str,
@@ -1057,23 +1060,30 @@ impl Extractor {
         let fields_def = Self::format_fields_definition(fields);
 
         let router_system_prompt = format!(
-            r#"# 敏感数据分流审计引擎
-请对照【待提取字段定义】从文本中提取敏感实体，并标注置信度 status：
-- 若上下文明确、无任何歧义，标记 status 为 "CONFIDENT"；
-- 若存疑、涉及复杂条款、指代不明或存在歧义，标记 status 为 "AMBIGUOUS"。
+            r#"# 敏感数据高精分流审计引擎
+你是一名严谨的数据安全审计专家。请严格对照【待提取字段定义】，从待审计文本中精确提取字段实体，并标注置信度 status：
+- status 为 "CONFIDENT"：仅当实体与【待提取字段定义】中的角色定义完全精确匹配、毫无歧义时标记（例如确属合同当事方的甲方/乙方企业全称、法定代表人姓名、合同总金额等）。
+- status 为 "AMBIGUOUS"：当实体身份存疑、可能属于非目标角色但无法完全排除时标记。
+
+【严苛边界与负向约束（极其重要，违反将被判错）】：
+1. 严禁超范围提取：凡是未在【待提取字段定义】中明确列出的信息类型（如物理地址、第三方见证律所/机构、职位头衔如 Director、公司注册编号、未明确指定为法人的一般人员），即使是敏感词，也一律绝对严禁提取！
+2. 严禁角色张冠李戴：见证方/监管方/第三方机构严禁归入甲方企业或乙方企业；项目执行代表/联系人严禁归入法定代表人。
+3. 提取的 text 必须是原文中的精确连续原词，严禁添加外部标点。
+
 【待提取字段定义】：
 {}
 
 【输出格式】：
+严格输出 JSON 数组，禁止任何解释：
 [
-  {{"field": "字段名", "text": "原文原词", "status": "CONFIDENT"}}
+  {{"field": "字段名", "text": "原文精确原词", "status": "CONFIDENT"}}
 ]
-若未找到输出 []。无多余文字。"#,
+若未找到任何匹配项，输出 []。"#,
             fields_def
         );
 
-        let mut confirmed_items = Vec::new();
-        let mut ambiguous_chunks = Vec::new();
+        let mut confident_items: Vec<SensitiveItem> = Vec::new();
+        let mut ambiguous_candidates: Vec<SensitiveItem> = Vec::new();
 
         for (_offset, chunk) in chunks {
             if let Ok(raw_resp) = Self::query_ollama_chat(
@@ -1084,33 +1094,100 @@ impl Extractor {
                 0.1,
                 800,
             ).await {
-                let items = Self::parse_llm_json_response(&raw_resp);
-                let has_ambiguous = raw_resp.contains("AMBIGUOUS");
-                if has_ambiguous || items.is_empty() {
-                    ambiguous_chunks.push(chunk);
+                // 兼容带思考标签与代码块的 JSON 文本
+                let clean_json = Self::clean_json_text(&raw_resp);
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(clean_json) {
+                    if let Some(arr) = val.as_array() {
+                        for item_val in arr {
+                            if let Some(obj) = item_val.as_object() {
+                                let field = obj.get("field").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                                let text = obj.get("text").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                                let status = obj.get("status").and_then(|v| v.as_str()).unwrap_or("CONFIDENT").to_uppercase();
+
+                                if !field.is_empty() && !text.is_empty() && chunk.contains(text) {
+                                    let item = SensitiveItem {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        text: text.to_string(),
+                                        category: field.to_string(),
+                                        priority: "medium".to_string(),
+                                        count: 1,
+                                        positions: Vec::new(),
+                                        source: "ai".to_string(),
+                                    };
+                                    if status.contains("AMBIGUOUS") {
+                                        // 慢车道：存疑项暂不直接采纳，放入待审列表
+                                        ambiguous_candidates.push(item);
+                                    } else {
+                                        // 快车道：高置信项直接收录！
+                                        if !confident_items.iter().any(|c| c.text == item.text && c.category == item.category) {
+                                            confident_items.push(item);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
-                confirmed_items.extend(items);
             }
         }
 
-        // 对存疑段落交由 4B 深度接管
-        if !ambiguous_chunks.is_empty() {
-            let system_prompt_4b = Self::build_system_prompt(fields, None);
-            for chunk in ambiguous_chunks.iter().take(3) {
-                if let Ok(raw_resp) = Self::query_ollama_chat(
-                    ollama_url,
-                    core_4b_model,
-                    &system_prompt_4b,
-                    &format!("<document>\n{}\n</document>", chunk),
-                    0.1,
-                    1024,
-                ).await {
-                    confirmed_items.extend(Self::parse_llm_json_response(&raw_resp));
+        // 仅保留未在快车道中收录的存疑项，进行去重
+        let mut dedup_ambiguous = Vec::new();
+        for item in ambiguous_candidates {
+            if !confident_items.iter().any(|c| c.text == item.text && c.category == item.category)
+                && !dedup_ambiguous.iter().any(|d: &SensitiveItem| d.text == item.text && d.category == item.category)
+            {
+                dedup_ambiguous.push(item);
+            }
+        }
+
+        // 慢车道终审：仅对存疑的极少数候选词，唤醒 4B 进行极简是非裁决 (Yes/No)，耗时极低
+        if !dedup_ambiguous.is_empty() {
+            let mut cand_summary = String::new();
+            for (idx, item) in dedup_ambiguous.iter().enumerate() {
+                cand_summary.push_str(&format!("{}. 原词: \"{}\" -> 字段: {}\n", idx + 1, item.text, item.category));
+            }
+
+            let judge_system_prompt = format!(
+                r#"# 敏感实体存疑终审
+请仔细核验以下前置模型标记为【存疑】的候选实体，结合参考原文判断其是否真正符合【待提取字段定义】。
+【待提取字段定义】：
+{}
+
+【规则】：
+1. 坚决剔除通用代称、公开普通条款、法律编号、虚假匹配等假阳性。
+2. 仅输出真正确认为敏感实体的项，严格输出 JSON 数组格式：
+[
+  {{"field": "字段名", "text": "原文原词"}}
+]
+若全部不符合，直接输出 []。禁止多余解释说明。"#,
+                fields_def
+            );
+
+            let judge_user_prompt = format!(
+                "【待裁决存疑候选】：\n{}\n\n【参考文档摘要】：\n{}",
+                cand_summary,
+                if doc_text.len() > 1500 { &doc_text[..1500] } else { doc_text }
+            );
+
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                core_4b_model,
+                &judge_system_prompt,
+                &judge_user_prompt,
+                0.0,
+                512,
+            ).await {
+                let verified = Self::parse_llm_json_response(&raw_resp);
+                for v in verified {
+                    if !confident_items.iter().any(|c| c.text == v.text && c.category == v.category) {
+                        confident_items.push(v);
+                    }
                 }
             }
         }
 
-        Ok(confirmed_items)
+        Ok(confident_items)
     }
 
     /// 策略三：Span 边界找词 + 4B 属性归因 (Span Assigner)

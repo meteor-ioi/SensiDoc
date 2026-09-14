@@ -1048,62 +1048,88 @@ An internal compliance scan identified that a proprietary proprietary high-frequ
         })
     }
 
-    /// 获取 10 组参测对决矩阵配置
+    /// 获取参测对决矩阵配置
     pub fn get_matrix_candidates() -> Vec<DualModelBenchmarkCandidate> {
         let core_4b = "tessera-4b-q4_k_m:latest".to_string();
+        let core_m_2b = "minicpm5-2b-q4_k_m:latest".to_string();
+        let q_0_8b_q6 = "qwen3.5-text-0.8b-q6_k:latest".to_string();
+        let q_0_8b_q4 = "qwen3.5-text-0.8b-q4_k_m:latest".to_string();
+        let m_1b_q4 = "minicpm5-1b-q4_k_m:latest".to_string();
         let m_1b = "minicpm5-1b-q4_k_m:latest".to_string();
-        let q_1_5b = "qwen2.5-coder-1.5b:latest".to_string();
         let m_2b = "minicpm5-2b-q4_k_m:latest".to_string();
+        let q_1_5b = "qwen2.5-coder-1.5b:latest".to_string();
 
         vec![
-            // 1. 基线组 (对照组)
+            // 0. Qwen3.5-0.8B-Q6_K 作为快模型分别与 MiniCPM-2B 和 Tessera-4B
             DualModelBenchmarkCandidate {
-                key: "baseline_4b".to_string(),
-                name: "① [基线] Tessera-4B 单模型全量扫描".to_string(),
-                strategy: crate::extractor::DualModelStrategy::BaselineSingle4B,
-                small_model: "".to_string(),
-                core_4b_model: core_4b.clone(),
+                key: "router_0.8b_q6_minicpm_2b".to_string(),
+                name: "★ [快慢路由] Qwen3.5-0.8B-Q6_K + MiniCPM-2B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
+                small_model: q_0_8b_q6.clone(),
+                core_4b_model: core_m_2b.clone(),
             },
-            // 2. 策略一: 宽松海选 + 4B 终审
             DualModelBenchmarkCandidate {
-                key: "prop_minicpm_1b".to_string(),
-                name: "② [海选终审] MiniCPM-1B + Tessera-4B".to_string(),
+                key: "prop_0.8b_q6_minicpm_2b".to_string(),
+                name: "★ [海选终审] Qwen3.5-0.8B-Q6_K + MiniCPM-2B".to_string(),
                 strategy: crate::extractor::DualModelStrategy::ProposalAndJudge,
-                small_model: m_1b.clone(),
-                core_4b_model: core_4b.clone(),
+                small_model: q_0_8b_q6.clone(),
+                core_4b_model: core_m_2b.clone(),
+            },
+            // 1. Qwen3.5-0.8B-Q4_K_M 作为快模型分别与 MiniCPM-2B 和 Tessera-4B 对决
+            DualModelBenchmarkCandidate {
+                key: "router_0.8b_q4_minicpm_2b".to_string(),
+                name: "① [快慢路由] Qwen3.5-0.8B-Q4 + MiniCPM-2B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
+                small_model: q_0_8b_q4.clone(),
+                core_4b_model: core_m_2b.clone(),
             },
             DualModelBenchmarkCandidate {
-                key: "prop_qwen_1.5b".to_string(),
-                name: "③ [海选终审] Qwen-1.5B + Tessera-4B".to_string(),
-                strategy: crate::extractor::DualModelStrategy::ProposalAndJudge,
-                small_model: q_1_5b.clone(),
+                key: "router_0.8b_q4_tessera_4b".to_string(),
+                name: "② [快慢路由] Qwen3.5-0.8B-Q4 + Tessera-4B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
+                small_model: q_0_8b_q4.clone(),
                 core_4b_model: core_4b.clone(),
+            },
+            // 2. MiniCPM-1B-Q4_K_M 作为快模型分别与 MiniCPM-2B 和 Tessera-4B 对决
+            DualModelBenchmarkCandidate {
+                key: "router_1b_q4_minicpm_2b".to_string(),
+                name: "③ [快慢路由] MiniCPM-1B-Q4 + MiniCPM-2B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
+                small_model: m_1b_q4.clone(),
+                core_4b_model: core_m_2b.clone(),
             },
             DualModelBenchmarkCandidate {
-                key: "prop_minicpm_2b".to_string(),
-                name: "④ [海选终审] MiniCPM-2B + Tessera-4B".to_string(),
-                strategy: crate::extractor::DualModelStrategy::ProposalAndJudge,
-                small_model: m_2b.clone(),
+                key: "router_1b_q4_tessera_4b".to_string(),
+                name: "④ [快慢路由] MiniCPM-1B-Q4 + Tessera-4B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
+                small_model: m_1b_q4.clone(),
                 core_4b_model: core_4b.clone(),
             },
-            // 3. 策略二: 快慢车道路由
+            // 3. 海选终审策略对比
+            DualModelBenchmarkCandidate {
+                key: "prop_0.8b_q4_minicpm_2b".to_string(),
+                name: "⑤ [海选终审] Qwen3.5-0.8B-Q4 + MiniCPM-2B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ProposalAndJudge,
+                small_model: q_0_8b_q4.clone(),
+                core_4b_model: core_m_2b.clone(),
+            },
+            DualModelBenchmarkCandidate {
+                key: "prop_1b_q4_minicpm_2b".to_string(),
+                name: "⑥ [海选终审] MiniCPM-1B-Q4 + MiniCPM-2B".to_string(),
+                strategy: crate::extractor::DualModelStrategy::ProposalAndJudge,
+                small_model: m_1b_q4.clone(),
+                core_4b_model: core_m_2b.clone(),
+            },
             DualModelBenchmarkCandidate {
                 key: "router_minicpm_1b".to_string(),
-                name: "⑤ [快慢路由] MiniCPM-1B + Tessera-4B".to_string(),
+                name: "⑧ [快慢路由] MiniCPM-1B + Tessera-4B".to_string(),
                 strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
                 small_model: m_1b.clone(),
-                core_4b_model: core_4b.clone(),
-            },
-            DualModelBenchmarkCandidate {
-                key: "router_qwen_1.5b".to_string(),
-                name: "⑥ [快慢路由] Qwen-1.5B + Tessera-4B".to_string(),
-                strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
-                small_model: q_1_5b.clone(),
                 core_4b_model: core_4b.clone(),
             },
             DualModelBenchmarkCandidate {
                 key: "router_minicpm_2b".to_string(),
-                name: "⑦ [快慢路由] MiniCPM-2B + Tessera-4B".to_string(),
+                name: "⑨ [快慢路由] MiniCPM-2B + Tessera-4B".to_string(),
                 strategy: crate::extractor::DualModelStrategy::ConfidenceRouter,
                 small_model: m_2b.clone(),
                 core_4b_model: core_4b.clone(),
@@ -1196,6 +1222,33 @@ An internal compliance scan identified that a proprietary proprietary high-frequ
                 };
 
                 let (tp, fn_cnt, fp, _p, _r, _f1) = Self::evaluate(&items, &doc.ground_truth, doc.markdown);
+                if fp > 0 {
+                    let mut ext_unique = Vec::new();
+                    for it in &items {
+                        let t = it.text.trim();
+                        if !t.is_empty() && !ext_unique.contains(&t) {
+                            ext_unique.push(t);
+                        }
+                    }
+                    let mut fps = Vec::new();
+                    for ext in ext_unique {
+                        let mut matched = false;
+                        for (_cat, truths) in &doc.ground_truth {
+                            for gt in truths {
+                                let exp = gt.trim();
+                                if *ext == *exp || (exp.len() >= 4 && (exp.contains(ext) || ext.contains(exp))) {
+                                    matched = true;
+                                    break;
+                                }
+                            }
+                            if matched { break; }
+                        }
+                        if !matched {
+                            fps.push(ext);
+                        }
+                    }
+                    eprintln!("\n    [诊断 {} 误报项(FP)]: {:?}", doc.id, fps);
+                }
                 total_tp += tp;
                 total_fn += fn_cnt;
                 total_fp += fp;
@@ -1379,16 +1432,10 @@ mod tests {
     #[test]
     fn test_matrix_candidates_count() {
         let cands = BenchmarkEngine::get_matrix_candidates();
-        assert_eq!(cands.len(), 10, "必须包含 10 组对决矩阵候选");
-        assert!(cands.iter().any(|c| c.key == "baseline_4b"));
-        assert!(cands.iter().any(|c| c.key == "prop_minicpm_1b"));
-        assert!(cands.iter().any(|c| c.key == "prop_qwen_1.5b"));
-        assert!(cands.iter().any(|c| c.key == "prop_minicpm_2b"));
-        assert!(cands.iter().any(|c| c.key == "router_minicpm_1b"));
-        assert!(cands.iter().any(|c| c.key == "router_qwen_1.5b"));
-        assert!(cands.iter().any(|c| c.key == "router_minicpm_2b"));
-        assert!(cands.iter().any(|c| c.key == "span_minicpm_1b"));
-        assert!(cands.iter().any(|c| c.key == "span_qwen_1.5b"));
-        assert!(cands.iter().any(|c| c.key == "span_minicpm_2b"));
+        assert!(cands.len() >= 10, "必须包含足够的对决矩阵候选");
+        assert!(cands.iter().any(|c| c.key == "router_0.8b_q6_minicpm_2b"));
+        assert!(cands.iter().any(|c| c.key == "prop_0.8b_q6_minicpm_2b"));
+        assert!(cands.iter().any(|c| c.key == "router_0.8b_q4_minicpm_2b"));
+        assert!(cands.iter().any(|c| c.key == "prop_0.8b_q4_minicpm_2b"));
     }
 }
