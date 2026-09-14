@@ -288,7 +288,7 @@ fn launch_desktop_gui(
         .with_title_hidden(true)
         .with_titlebar_transparent(true)
         .with_fullsize_content_view(true)
-        .with_traffic_light_inset(LogicalPosition::new(16.0, 15.0));
+        .with_traffic_light_inset(LogicalPosition::new(18.0, 20.0));
 
     // Windows: 无原生系统标题栏与边框菜单，由 Web UI 顶层托管窗口拖拽与右上角控制
     #[cfg(target_os = "windows")]
@@ -328,9 +328,17 @@ fn launch_desktop_gui(
         "#
     );
 
-    let webview = WebViewBuilder::new()
+    #[cfg(target_os = "macos")]
+    use wry::WebViewBuilderExtDarwin;
+
+    let webview_builder = WebViewBuilder::new()
         .with_url(app_url)
-        .with_initialization_script(&init_script)
+        .with_initialization_script(&init_script);
+
+    #[cfg(target_os = "macos")]
+    let webview_builder = webview_builder.with_traffic_light_inset(LogicalPosition::new(18.0, 20.0));
+
+    let webview = webview_builder
         .with_ipc_handler(move |req: wry::http::Request<String>| {
             let msg = req.body().trim();
             match msg {
