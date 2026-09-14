@@ -1318,6 +1318,7 @@
 
 ---
 
+<<<<<<< HEAD
 ## 阶段九十二：纸质文档与表格 OCR 识别原生集成 (PP-OCRv6 + SLANet_plus + 卷帘透视比对) (已完成) · [🔗 对话跳转](conversation://6efdb7c6-eaca-4a22-8acc-97baeea17ede)
 - [x] 92.1 **基础设施与 ONNX 模型按需下载器 (`Cargo.toml`, `src/paths.rs`, `src/model_manager.rs`, `src/main.rs`)**：
   - 集成 Rust `ort 2.x`（ONNX Runtime 原生绑定）、`ndarray`、`image`、`imageproc` 依赖；
@@ -1492,5 +1493,26 @@
   - 导出操作栏增加脱敏模式切换（掩码 / 硬抹除）；
   - 请求后端脱敏导出接口时传递选定的模式参数。
 - [ ] 98.4 **端到端测试与格式导出回归**：
-  - 验证 Markdown / DOCX / XLSX / PPTX / PDF 在硬抹除模式下的导出保真度。
+---
+
+## 阶段九十九：4B 与小微模型快慢协同架构天梯榜评测与离线模型精简 (已完成) · [🔗 对话跳转](conversation://3e7df9a1-379d-4d5b-aa2f-a04ec14a8434)
+- [x] 99.1 **Benchmark 测试集大扩建与 Ground Truth 对齐 (`src/benchmark.rs`)**：
+  - 扩展中文用例至包含长篇多段落、角色混淆、诱饵数字与长定语从句等复杂真实场景；
+  - 新增 10 份英文/跨国真实业务文档（跨国 MSA、HIPAA 医疗隐私、GDPR DPO、AWS 安全事件 RCA、M&A Term Sheet、AML 等）；
+  - 为 20 份文档构建完整中英文字段规则（RuleField）与无歧义标准真实标注（Ground Truth），通过 `test_benchmark_documents_integrity` 严谨回归验证。
+- [x] 99.2 **抽象 `DualModelStrategy` 与本地 Ollama 多模型适配器 (`src/extractor.rs`, `src/benchmark.rs`)**：
+  - 封装通用的本地 Ollama 客户端，无缝调用 `127.0.0.1:11434` 上的本地模型；
+  - 抽象多模型协作策略枚举：`BaselineSingle4B`、`ProposalAndJudge`、`ConfidenceRouter`、`SpanAssigner`。
+- [x] 99.3 **实现协同策略数据流与思维链截断协议 (`src/extractor.rs`)**：
+  - 顶层支持 `"think": false` 零思维链直出；
+  - `clean_json_text` 智能识别并剥离 `</think>` 标签，确保干净 JSON 解析；
+  - 接入小模型宽松海选提案 + 慢模型靶向终审判决二分类。
+- [x] 99.4 **矩阵基准对决与黄金组合实测定型**：
+  - 多轮对决验证跑出最佳黄金组合：
+    * **快前置**：`Qwen3.5-text-0.8B (Q6_K)`（单篇 8.2 秒，海选召回 83.3%，F1 0.909 夺冠）；
+    * **慢终审**：`MiniCPM5-2B (Q4_K_M)`（终审精确率 100.0%，完全平替 4B）。
+- [x] 99.5 **设置面板离线模型预设收敛**：
+  - 精简后端离线模型配置，只保留 `Qwen3.5-text-0.8B-Q6_K`（魔搭源: `icychick/Qwen3.5-text-0.8B-GGUF`）与 `MiniCPM5-2B-Q4_K_M`（魔搭源: `OpenBMB/MiniCPM5-2B-gguf`）；
+  - 单元测试与魔搭 Range 断点续传链路 100% 验证通过。
+
 

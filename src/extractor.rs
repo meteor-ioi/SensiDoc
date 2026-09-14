@@ -43,6 +43,39 @@ pub struct RulePreset {
     pub fields: Vec<RuleField>,
 }
 
+/// 多模型协同提取策略
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DualModelStrategy {
+    /// 现状基线：纯 4B 单模型全量扫描
+    BaselineSingle4B,
+    /// 策略一：宽松海选提案 + 4B 靶向极速终审 (Proposal & Judge)
+    ProposalAndJudge,
+    /// 策略二：动态路由快慢车道 (Confidence Router)
+    ConfidenceRouter,
+    /// 策略三：Span 边界找词 + 4B 属性归因 (Span Assigner)
+    SpanAssigner,
+}
+
+impl DualModelStrategy {
+    pub fn name(&self) -> &'static str {
+        match self {
+            DualModelStrategy::BaselineSingle4B => "基线: 纯4B单模型全量扫描",
+            DualModelStrategy::ProposalAndJudge => "策略一: 宽松海选提案 + 4B靶向终审",
+            DualModelStrategy::ConfidenceRouter => "策略二: 动态路由快慢车道",
+            DualModelStrategy::SpanAssigner => "策略三: 实体跨度找词 + 4B属性归因",
+        }
+    }
+
+    pub fn key(&self) -> &'static str {
+        match self {
+            DualModelStrategy::BaselineSingle4B => "baseline_4b",
+            DualModelStrategy::ProposalAndJudge => "proposal_judge",
+            DualModelStrategy::ConfidenceRouter => "confidence_router",
+            DualModelStrategy::SpanAssigner => "span_assigner",
+        }
+    }
+}
+
 pub struct Extractor;
 
 // 常用高频 PII 正则表达式（极速预编译，严格匹配独立数字串）
@@ -517,17 +550,15 @@ impl Extractor {
         }
     }
 
-    /// 统一解析 LLM 返回的文本内容为实体项列表
-    pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
-        // 如果输出中带有思维链 <think>...</think>，优先提取 </think> 之后的最终结果
+    /// 智能剥离思维链并提取有效的 JSON 片段
+    pub fn clean_json_text(content: &str) -> &str {
         let content_after_think = if let Some(think_end) = content.rfind("</think>") {
             &content[think_end + 8..]
         } else {
             content
         };
 
-        // 智能截取 JSON 片段：优先匹配 [..] 数组，若无则匹配 {..} 对象
-        let cleaned_json = if let (Some(start), Some(end)) = (content_after_think.find('['), content_after_think.rfind(']')) {
+        if let (Some(start), Some(end)) = (content_after_think.find('['), content_after_think.rfind(']')) {
             if end > start {
                 &content_after_think[start..=end]
             } else {
@@ -541,8 +572,12 @@ impl Extractor {
             }
         } else {
             content_after_think
-        };
+        }
+    }
 
+    /// 统一解析 LLM 返回的文本内容为实体项列表
+    pub fn parse_llm_json_response(content: &str) -> Vec<SensitiveItem> {
+        let cleaned_json = Self::clean_json_text(content);
         let mut items = Vec::new();
         if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(cleaned_json) {
             match parsed {
@@ -783,6 +818,457 @@ impl Extractor {
         });
 
         regex_items
+    }
+
+    /// 统一向本地 Ollama 发送 chat 请求并提取文本响应
+    pub async fn query_ollama_chat(
+        ollama_url: &str,
+        model_name: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+        temperature: f32,
+        max_tokens: u32,
+    ) -> Result<String, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(120))
+            .build()
+            .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
+
+        let trimmed = ollama_url.trim_end_matches('/');
+        let url = if trimmed.ends_with("/api/chat") {
+            trimmed.to_string()
+        } else if trimmed.ends_with("/v1") {
+            format!("{}/chat/completions", trimmed)
+        } else {
+            format!("{}/api/chat", trimmed)
+        };
+
+        let request_payload = serde_json::json!({
+            "model": model_name,
+            "messages": [
+                { "role": "system", "content": system_prompt },
+                { "role": "user", "content": user_prompt }
+            ],
+            "stream": false,
+            "think": false,
+            "options": {
+                "temperature": temperature,
+                "num_predict": if max_tokens == 0 { 1024 } else { max_tokens }
+            }
+        });
+
+        let resp = client
+            .post(&url)
+            .json(&request_payload)
+            .send()
+            .await
+            .map_err(|e| format!("请求 Ollama 失败: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Ollama 返回错误 [{status}]: {body}"));
+        }
+
+        let json_body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("解析 Ollama 响应 JSON 失败: {e}"))?;
+
+        let content = if let Some(msg) = json_body.get("message") {
+            msg.get("content").and_then(|v| v.as_str()).unwrap_or("")
+        } else if let Some(choices) = json_body.get("choices").and_then(|c| c.as_array()) {
+            choices.get(0)
+                .and_then(|c| c.get("message"))
+                .and_then(|m| m.get("content"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+        } else {
+            ""
+        };
+
+        Ok(content.to_string())
+    }
+
+    /// 多模型协同提取统一执行入口
+    pub async fn extract_with_dual_model(
+        strategy: DualModelStrategy,
+        ollama_url: &str,
+        small_model: &str,
+        core_4b_model: &str,
+        doc_text: &str,
+        fields: &[RuleField],
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let regex_items = Self::extract_by_regex(doc_text, fields);
+        let ai_items = match strategy {
+            DualModelStrategy::BaselineSingle4B => {
+                Self::extract_baseline_single_4b(ollama_url, core_4b_model, doc_text, fields).await?
+            }
+            DualModelStrategy::ProposalAndJudge => {
+                Self::extract_proposal_and_judge(ollama_url, small_model, core_4b_model, doc_text, fields).await?
+            }
+            DualModelStrategy::ConfidenceRouter => {
+                Self::extract_confidence_router(ollama_url, small_model, core_4b_model, doc_text, fields).await?
+            }
+            DualModelStrategy::SpanAssigner => {
+                Self::extract_span_assigner(ollama_url, small_model, core_4b_model, doc_text, fields).await?
+            }
+        };
+
+        Ok(Self::merge_and_resolve(doc_text, regex_items, ai_items, fields))
+    }
+
+    /// 基线策略：纯 4B 单模型全量扫描
+    pub async fn extract_baseline_single_4b(
+        ollama_url: &str,
+        core_4b_model: &str,
+        doc_text: &str,
+        fields: &[RuleField],
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let chunks = Self::chunk_text_with_overlap(doc_text, 1200, 150);
+        let system_prompt = Self::build_system_prompt(fields, None);
+        let mut ai_items = Vec::new();
+
+        for (_offset, chunk) in chunks {
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                core_4b_model,
+                &system_prompt,
+                &format!("<document>\n{}\n</document>", chunk),
+                0.1,
+                1024,
+            ).await {
+                ai_items.extend(Self::parse_llm_json_response(&raw_resp));
+            }
+        }
+
+        Ok(ai_items)
+    }
+
+    /// 策略一：小微模型宽松海选提案 + 4B 终审二分类 (Proposal & Judge)
+    pub async fn extract_proposal_and_judge(
+        ollama_url: &str,
+        small_model: &str,
+        core_4b_model: &str,
+        doc_text: &str,
+        fields: &[RuleField],
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let chunks = Self::chunk_text_with_overlap(doc_text, 800, 120);
+        let fields_def = Self::format_fields_definition(fields);
+
+        let proposal_system_prompt = format!(
+            r#"# 敏感数据初筛提案引擎
+你是一名数据初筛员。请对照【待提取字段定义】，从文本中找出所有可能符合定义的敏感实体。
+【待提取字段定义】：
+{}
+
+【初筛规则】：
+1. 宽松提取，宁多勿漏。若有疑似词，必须全部提取。
+2. 输出标准 JSON 数组，每个元素包含 field（建议匹配的字段名）、text（原文原词）、sentence（该词所在的上下文原句）：
+[
+  {{"field": "字段名", "text": "原文原词", "sentence": "该词所在的上下文原句"}}
+]
+若未找到任何疑似实体，输出 []。不要输出任何解释或代码块标记。"#,
+            fields_def
+        );
+
+        let mut candidate_proposals = Vec::new();
+        for (_offset, chunk) in chunks {
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                small_model,
+                &proposal_system_prompt,
+                &format!("<document>\n{}\n</document>", chunk),
+                0.1,
+                800,
+            ).await {
+                let parsed_items = Self::parse_llm_json_response(&raw_resp);
+                for it in parsed_items {
+                    if !candidate_proposals.iter().any(|c: &SensitiveItem| c.text == it.text && c.category == it.category) {
+                        candidate_proposals.push(it);
+                    }
+                }
+            }
+        }
+
+        if candidate_proposals.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 步骤二：4B 终审过滤（小上下文聚合校验）
+        let mut candidates_summary = String::new();
+        for (idx, cand) in candidate_proposals.iter().enumerate() {
+            candidates_summary.push_str(&format!(
+                "{}. 候选词: \"{}\" | 建议归属: \"{}\"\n",
+                idx + 1,
+                cand.text,
+                cand.category
+            ));
+        }
+
+        let judge_system_prompt = format!(
+            r#"# 敏感数据终审法官
+请仔细核验以下初筛候选实体，结合参考原文判断其是否真正符合【待提取字段定义】。
+【待提取字段定义】：
+{}
+
+【规则】：
+1. 剔除非敏感项、通用代词、假阳性干扰项。
+2. 仅输出终审确认合规的实体项，格式为 JSON 数组：
+[
+  {{"field": "字段名", "text": "原文原词"}}
+]
+若全部不符合，输出 []。禁止输出多余解释。"#,
+            fields_def
+        );
+
+        let judge_user_prompt = format!(
+            "【待核验候选列表】：\n{}\n\n【参考文档摘要】：\n{}",
+            candidates_summary,
+            if doc_text.len() > 1500 { &doc_text[..1500] } else { doc_text }
+        );
+
+        let mut confirmed_items = Vec::new();
+        if let Ok(raw_resp) = Self::query_ollama_chat(
+            ollama_url,
+            core_4b_model,
+            &judge_system_prompt,
+            &judge_user_prompt,
+            0.0,
+            1024,
+        ).await {
+            confirmed_items = Self::parse_llm_json_response(&raw_resp);
+        }
+
+        // 兜底保障：若 4B 终审输出为空或解析失败，退化保留高置信度提案项
+        if confirmed_items.is_empty() && !candidate_proposals.is_empty() {
+            confirmed_items = candidate_proposals;
+        }
+
+        Ok(confirmed_items)
+    }
+
+    /// 策略二：动态路由快慢车道 (Confidence Router - 精准分流与存疑终审)
+    pub async fn extract_confidence_router(
+        ollama_url: &str,
+        small_model: &str,
+        core_4b_model: &str,
+        doc_text: &str,
+        fields: &[RuleField],
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let chunks = Self::chunk_text_with_overlap(doc_text, 800, 120);
+        let fields_def = Self::format_fields_definition(fields);
+
+        let router_system_prompt = format!(
+            r#"# 敏感数据高精分流审计引擎
+你是一名严谨的数据安全审计专家。请严格对照【待提取字段定义】，从待审计文本中精确提取字段实体，并标注置信度 status：
+- status 为 "CONFIDENT"：仅当实体与【待提取字段定义】中的角色定义完全精确匹配、毫无歧义时标记（例如确属合同当事方的甲方/乙方企业全称、法定代表人姓名、合同总金额等）。
+- status 为 "AMBIGUOUS"：当实体身份存疑、可能属于非目标角色但无法完全排除时标记。
+
+【严苛边界与负向约束（极其重要，违反将被判错）】：
+1. 严禁超范围提取：凡是未在【待提取字段定义】中明确列出的信息类型（如物理地址、第三方见证律所/机构、职位头衔如 Director、公司注册编号、未明确指定为法人的一般人员），即使是敏感词，也一律绝对严禁提取！
+2. 严禁角色张冠李戴：见证方/监管方/第三方机构严禁归入甲方企业或乙方企业；项目执行代表/联系人严禁归入法定代表人。
+3. 提取的 text 必须是原文中的精确连续原词，严禁添加外部标点。
+
+【待提取字段定义】：
+{}
+
+【输出格式】：
+严格输出 JSON 数组，禁止任何解释：
+[
+  {{"field": "字段名", "text": "原文精确原词", "status": "CONFIDENT"}}
+]
+若未找到任何匹配项，输出 []。"#,
+            fields_def
+        );
+
+        let mut confident_items: Vec<SensitiveItem> = Vec::new();
+        let mut ambiguous_candidates: Vec<SensitiveItem> = Vec::new();
+
+        for (_offset, chunk) in chunks {
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                small_model,
+                &router_system_prompt,
+                &format!("<document>\n{}\n</document>", chunk),
+                0.1,
+                800,
+            ).await {
+                // 兼容带思考标签与代码块的 JSON 文本
+                let clean_json = Self::clean_json_text(&raw_resp);
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(clean_json) {
+                    if let Some(arr) = val.as_array() {
+                        for item_val in arr {
+                            if let Some(obj) = item_val.as_object() {
+                                let field = obj.get("field").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                                let text = obj.get("text").and_then(|v| v.as_str()).unwrap_or_default().trim();
+                                let status = obj.get("status").and_then(|v| v.as_str()).unwrap_or("CONFIDENT").to_uppercase();
+
+                                if !field.is_empty() && !text.is_empty() && chunk.contains(text) {
+                                    let item = SensitiveItem {
+                                        id: uuid::Uuid::new_v4().to_string(),
+                                        text: text.to_string(),
+                                        category: field.to_string(),
+                                        priority: "medium".to_string(),
+                                        count: 1,
+                                        positions: Vec::new(),
+                                        source: "ai".to_string(),
+                                    };
+                                    if status.contains("AMBIGUOUS") {
+                                        // 慢车道：存疑项暂不直接采纳，放入待审列表
+                                        ambiguous_candidates.push(item);
+                                    } else {
+                                        // 快车道：高置信项直接收录！
+                                        if !confident_items.iter().any(|c| c.text == item.text && c.category == item.category) {
+                                            confident_items.push(item);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 仅保留未在快车道中收录的存疑项，进行去重
+        let mut dedup_ambiguous = Vec::new();
+        for item in ambiguous_candidates {
+            if !confident_items.iter().any(|c| c.text == item.text && c.category == item.category)
+                && !dedup_ambiguous.iter().any(|d: &SensitiveItem| d.text == item.text && d.category == item.category)
+            {
+                dedup_ambiguous.push(item);
+            }
+        }
+
+        // 慢车道终审：仅对存疑的极少数候选词，唤醒 4B 进行极简是非裁决 (Yes/No)，耗时极低
+        if !dedup_ambiguous.is_empty() {
+            let mut cand_summary = String::new();
+            for (idx, item) in dedup_ambiguous.iter().enumerate() {
+                cand_summary.push_str(&format!("{}. 原词: \"{}\" -> 字段: {}\n", idx + 1, item.text, item.category));
+            }
+
+            let judge_system_prompt = format!(
+                r#"# 敏感实体存疑终审
+请仔细核验以下前置模型标记为【存疑】的候选实体，结合参考原文判断其是否真正符合【待提取字段定义】。
+【待提取字段定义】：
+{}
+
+【规则】：
+1. 坚决剔除通用代称、公开普通条款、法律编号、虚假匹配等假阳性。
+2. 仅输出真正确认为敏感实体的项，严格输出 JSON 数组格式：
+[
+  {{"field": "字段名", "text": "原文原词"}}
+]
+若全部不符合，直接输出 []。禁止多余解释说明。"#,
+                fields_def
+            );
+
+            let judge_user_prompt = format!(
+                "【待裁决存疑候选】：\n{}\n\n【参考文档摘要】：\n{}",
+                cand_summary,
+                if doc_text.len() > 1500 { &doc_text[..1500] } else { doc_text }
+            );
+
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                core_4b_model,
+                &judge_system_prompt,
+                &judge_user_prompt,
+                0.0,
+                512,
+            ).await {
+                let verified = Self::parse_llm_json_response(&raw_resp);
+                for v in verified {
+                    if !confident_items.iter().any(|c| c.text == v.text && c.category == v.category) {
+                        confident_items.push(v);
+                    }
+                }
+            }
+        }
+
+        Ok(confident_items)
+    }
+
+    /// 策略三：Span 边界找词 + 4B 属性归因 (Span Assigner)
+    pub async fn extract_span_assigner(
+        ollama_url: &str,
+        small_model: &str,
+        core_4b_model: &str,
+        doc_text: &str,
+        fields: &[RuleField],
+    ) -> Result<Vec<SensitiveItem>, String> {
+        let chunks = Self::chunk_text_with_overlap(doc_text, 800, 120);
+        let fields_def = Self::format_fields_definition(fields);
+
+        let span_locator_prompt = r#"# 实体跨度提取引擎 (Span Locator)
+请从以下文本中，找出所有专有名词实体（人名、机构公司名、金额数值、银行卡号、证件号、代码代号、网址/IP）。
+无需分类，仅需将所有实体原词作为 JSON 字符串数组提取出来：
+["实体1", "实体2"]
+若未找到输出 []。无多余文字。"#;
+
+        let mut collected_spans = Vec::new();
+        for (_offset, chunk) in chunks {
+            if let Ok(raw_resp) = Self::query_ollama_chat(
+                ollama_url,
+                small_model,
+                span_locator_prompt,
+                &format!("<document>\n{}\n</document>", chunk),
+                0.1,
+                600,
+            ).await {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&raw_resp) {
+                    if let Some(arr) = parsed.as_array() {
+                        for v in arr {
+                            if let Some(s) = v.as_str() {
+                                let trimmed = s.trim();
+                                if !trimmed.is_empty() && doc_text.contains(trimmed) && !collected_spans.contains(&trimmed.to_string()) {
+                                    collected_spans.push(trimmed.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if collected_spans.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // 步骤二：4B 模型做选项连线归因
+        let spans_json = serde_json::to_string(&collected_spans).unwrap_or_else(|_| "[]".to_string());
+        let assigner_system_prompt = format!(
+            r#"# 实体角色归因专家
+【待匹配规则字段】：
+{}
+
+【任务】：
+已知正文中包含以下候选实体：
+{}
+请结合文档上下文，将上述已知实体精确归因到对应的规则字段中。如果不属于任何规则字段，直接舍弃。
+输出格式为标准 JSON 数组：
+[
+  {{"field": "匹配字段名", "text": "实体原词"}}
+]
+若全部不匹配输出 []。无多余文字。"#,
+            fields_def, spans_json
+        );
+
+        let mut assigned_items = Vec::new();
+        let prompt_doc_slice = if doc_text.len() > 1800 { &doc_text[..1800] } else { doc_text };
+        if let Ok(raw_resp) = Self::query_ollama_chat(
+            ollama_url,
+            core_4b_model,
+            &assigner_system_prompt,
+            &format!("<document>\n{}\n</document>", prompt_doc_slice),
+            0.0,
+            1024,
+        ).await {
+            assigned_items = Self::parse_llm_json_response(&raw_resp);
+        }
+
+        Ok(assigned_items)
     }
 }
 
