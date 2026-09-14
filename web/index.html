@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.2.17">
+  <link rel="stylesheet" href="style.css?v=1.3.1">
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -51,7 +51,7 @@
           <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" x2="12" y1="3" y2="15"></line></svg>
           <span>导入文件</span>
         </button>
-        <input type="file" id="fileInput" multiple style="display: none;" accept=".doc,.docx,.pdf,.pptx,.xlsx,.xls,.txt,.md,.csv">
+        <input type="file" id="fileInput" multiple style="display: none;" accept=".doc,.docx,.pdf,.pptx,.xlsx,.xls,.txt,.md,.csv,.png,.jpg,.jpeg,.bmp,.webp">
       </div>
 
       <!-- 方案一：一体化搜索与筛选工具条 -->
@@ -76,6 +76,11 @@
                   <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
                   <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline></svg></span>
                   <span class="filter-item-label">PDF 文档</span>
+                </button>
+                <button type="button" class="filter-menu-item active" data-ext="IMG">
+                  <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
+                  <span class="filter-item-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 8h10"></path><path d="M7 12h10"></path><path d="M7 16h10"></path></svg></span>
+                  <span class="filter-item-label">图片扫描</span>
                 </button>
                 <button type="button" class="filter-menu-item active" data-ext="XLSX">
                   <span class="filter-checkbox"><svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>
@@ -404,15 +409,15 @@
                 <div class="ai-gen-control-bar">
                   <div class="ai-gen-model-picker">
                     <label class="ai-gen-label">模型:</label>
-                    <div class="custom-select-wrapper" id="aiGenRulesModelSelectWrapper" style="width: 140px;">
-                      <button id="aiGenRulesModelSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="选择在线模型" style="height: 26px; padding: 2px 8px; font-size: 11px;">
+                    <div class="custom-select-wrapper" id="aiGenRulesModelSelectWrapper" style="width: 145px;">
+                      <button id="aiGenRulesModelSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="选择模型" style="height: 26px; padding: 2px 8px; font-size: 11px;">
                         <span class="custom-select-label" id="aiGenRulesModelSelectLabel">选择模型...</span>
                         <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
                       </button>
                       <select id="aiGenRulesModelSelect" class="select-field" style="display: none;">
-                        <!-- 动态填充已存在线模型 -->
+                        <!-- 动态填充离线与在线模型 -->
                       </select>
-                      <div class="custom-select-dropdown" id="aiGenRulesModelSelectDropdown" style="font-size: 11.5px; min-width: 140px;">
+                      <div class="custom-select-dropdown" id="aiGenRulesModelSelectDropdown" style="font-size: 11.5px; min-width: 165px;">
                         <div class="custom-select-list" id="aiGenRulesModelSelectList">
                           <!-- 动态渲染 -->
                         </div>
@@ -579,58 +584,87 @@
         <button id="closeModalBtn" class="btn sm" style="position: absolute; right: 0;">关闭</button>
       </div>
 
-      <!-- 板块 1: 离线模型管理 -->
-      <div class="settings-tab-pane active" id="paneSetModel" style="flex: 1; overflow-y: auto; padding-right: 4px;">
-        <!-- 纸质单据与密集表格 OCR 引擎组件卡片 (PP-OCRv6 + SLANet_plus) -->
-        <div class="ocr-settings-card" id="ocrSettingsCard" style="margin-bottom: 16px; padding: 12px 14px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); display: flex; flex-direction: column; gap: 8px;">
-          <div style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><line x1="3" x2="21" y1="9" y2="9"></line><line x1="9" x2="9" y1="21" y2="21"></line></svg>
-              <span style="font-size: 12.5px; font-weight: 600; color: var(--text);">纸质单据与密集表格 OCR 引擎</span>
-              <span class="ocr-status-pill" id="ocrStatusPill" style="font-size: 10.5px; padding: 2px 7px; border-radius: 10px; background: var(--border); color: var(--text-dim); font-weight: 500;">检测中...</span>
+      <!-- 板块 1: 离线模型管理 (方案三：模块化卡片布局) -->
+      <div class="settings-tab-pane active" id="paneSetModel" style="flex: 1; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 14px;">
+        
+        <!-- 卡片 1: 核心引擎: 快慢双模型协同 (系统预设) -->
+        <div class="module-engine-card" id="coreModelCard">
+          <div class="module-engine-header">
+            <div class="module-engine-title-wrap">
+              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+              <span class="module-engine-title">核心快慢协同引擎</span>
+              <span class="tooltip-badge tooltip-bottom" data-tooltip="集成 Qwen-0.8B 极速粗筛与 MiniCPM-2B 靶向终审，端侧双级协同兼顾毫秒速度与高精度。" title="集成 Qwen-0.8B 极速粗筛与 MiniCPM-2B 靶向终审，端侧双级协同兼顾毫秒速度与高精度。">?</span>
+              <span class="badge primary-subtle" style="font-size: 10px; padding: 1px 6px;">系统预设</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <button type="button" id="ocrDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">下载模型套件</button>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="module-status-pill" id="coreModelStatusPill" style="display: none;">检测中...</span>
+              <button type="button" id="downloadCoreSuiteBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">一键下载套件 (~2.1 GB)</button>
+              <button type="button" id="cancelCoreSuiteBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消下载</button>
+              <button type="button" id="unloadCoreSuiteBtn" class="btn sm secondary" style="font-size: 11px; padding: 3px 8px; display: none;" title="释放当前模型显存">释放显存</button>
+            </div>
+          </div>
+
+          <!-- 实时下载进度条 (双模型套件下载中激活) -->
+          <div class="module-progress-container" id="coreDownloadProgressWrap" style="display: none;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
+              <span id="coreProgressLabel">正在从魔搭开源社区拉取核心模型套件...</span>
+              <span id="coreProgressStats">0%</span>
+            </div>
+            <div class="module-progress-bar-bg">
+              <div class="module-progress-bar-fill" id="coreProgressBarFill" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- 子模型清单与参数折叠抽屉 -->
+          <div class="module-submodels-container" id="coreSubmodelsList">
+            <!-- 动态渲染 0.8B 与 2B 的具体就绪状态与参数抽屉 -->
+          </div>
+        </div>
+
+        <!-- 卡片 2: 扩展引擎: 纸质单据与密集表格 OCR (可选增强) -->
+        <div class="module-engine-card" id="ocrSettingsCard">
+          <div class="module-engine-header">
+            <div class="module-engine-title-wrap">
+              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><line x1="3" x2="21" y1="9" y2="9"></line><line x1="9" x2="9" y1="21" y2="21"></line></svg>
+              <span class="module-engine-title">纸质单据与表格 OCR</span>
+              <span class="tooltip-badge tooltip-bottom" data-tooltip="纯本地 PP-OCRv6 + SLANet 表格恢复，用于发票单据、合同扫描件与截图图片。" title="纯本地 PP-OCRv6 + SLANet 表格恢复，用于发票单据、合同扫描件与截图图片。">?</span>
+              <span class="badge" style="background: var(--surface-3); color: var(--text-dim); font-size: 10px; padding: 1px 6px;">可选增强</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="ocr-status-pill module-status-pill" id="ocrStatusPill" style="display: none;">检测中...</span>
+              <button type="button" id="ocrDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">下载模型套件 (~37.2 MB)</button>
               <button type="button" id="ocrCancelBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消下载</button>
               <button type="button" id="ocrUnloadBtn" class="btn sm secondary" style="font-size: 11px; padding: 3px 8px; display: none;" title="立即释放内存（空闲3分钟也会自动释放）">释放内存</button>
               <button type="button" id="ocrDeleteBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">删除模型</button>
             </div>
           </div>
-          <div style="font-size: 11px; color: var(--text-dim); line-height: 1.5;">
-            纯 Rust 原生 ONNX Runtime 嵌入式流水线：融合 <b>PP-OCRv6 轻量极速版</b> (Small Det + Small Rec) 与 <b>SLANet+</b> 无线致密表格拓扑恢复，端侧 FP32 零量化漂移。
-          </div>
           <!-- 实时下载进度条 (下载中激活) -->
-          <div class="ocr-progress-container" id="ocrProgressContainer" style="display: none; flex-direction: column; gap: 4px; margin-top: 4px;">
+          <div class="ocr-progress-container module-progress-container" id="ocrProgressContainer" style="display: none;">
             <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
               <span id="ocrProgressLabel">正在从魔搭开源社区下载 OCR 组件...</span>
               <span id="ocrProgressStats">0%</span>
             </div>
-            <div class="ocr-progress-bar-bg" style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
-              <div class="ocr-progress-bar-fill" id="ocrProgressBarFill" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.2s ease;"></div>
+            <div class="module-progress-bar-bg">
+              <div class="ocr-progress-bar-fill module-progress-bar-fill" id="ocrProgressBarFill" style="width: 0%;"></div>
             </div>
           </div>
         </div>
 
-        <div style="margin-bottom: 16px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-            <div style="font-size: 12px; color: var(--text-dim); font-weight: 500;">
-              本地离线模型管理 (GGUF)：
+        <!-- 卡片 3: 本地与高级工具 -->
+        <div class="module-engine-card advanced-tools-card" id="advancedModelCard">
+          <div class="module-engine-header">
+            <div class="module-engine-title-wrap">
+              <svg class="lucide-icon sm" style="color: var(--text-dim);" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 8 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
+              <span class="module-engine-title" style="font-size: 12.5px; font-weight: 600;">自定义 GGUF 模型</span>
+              <span class="tooltip-badge tooltip-bottom" data-tooltip="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。" title="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。">?</span>
             </div>
-            <button id="importLocalGgufBtn" class="btn sm">+ 选取本地 GGUF 模型</button>
+            <button id="importLocalGgufBtn" class="btn sm" style="font-size: 11px; padding: 3px 8px;">+ 选取本地 GGUF 模型</button>
           </div>
-          <div id="localModelsList" style="margin-bottom: 12px;">
-            <!-- 动态列出已就绪的模型 -->
+          <div id="localModelsList">
+            <!-- 动态列出自定义就绪的模型 -->
           </div>
         </div>
 
-        <div style="border-top: 1px solid var(--border); padding-top: 12px;">
-          <div style="font-size: 12px; color: var(--text-dim); margin-bottom: 8px; font-weight: 500;">
-            魔搭平台下载离线模型：
-          </div>
-          <div id="modelPresetsList">
-            <!-- 动态载入预设模型项 -->
-          </div>
-        </div>
       </div>
 
       <!-- 板块 1.5: 在线模型 (OpenAI 兼容 API 极简配置) -->
@@ -671,53 +705,79 @@
         <!-- 中间表单区域 -->
         <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
           <div>
-            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型名称：</label>
+            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
+              <span>模型名称</span>
+              <span class="tooltip-badge" data-tooltip="自定义显示名称，便于在模型选择列表中快速识别。" title="自定义显示名称，便于在模型选择列表中快速识别。">?</span>
+            </label>
             <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：OpenAI GPT-4o" style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
-            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 服务地址 (Base URL)：</label>
+            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
+              <span>API 服务地址 (Base URL)</span>
+              <span class="tooltip-badge" data-tooltip="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。" title="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。">?</span>
+            </label>
             <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="例如：https://api.openai.com/v1" style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
-            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">API 密钥 (API Key)：</label>
+            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
+              <span>API 密钥 (API Key)</span>
+              <span class="tooltip-badge" data-tooltip="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。" title="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。">?</span>
+            </label>
             <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; box-sizing: border-box;">
           </div>
 
           <div>
-            <label style="display: block; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">模型标识 (Model ID)：</label>
+            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
+              <span>模型标识 (Model ID)</span>
+              <span class="tooltip-badge" data-tooltip="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。" title="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。">?</span>
+            </label>
             <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o" style="width: 100%; box-sizing: border-box;">
           </div>
 
-          <!-- 模型自定义超参数 (方案B：4个数值输入框 + 下方独立思考模式与说明) -->
+          <!-- 模型自定义超参数 -->
           <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
             <div>
-              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">采样温度 (Temp)：</label>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
+                <span>采样温度 (Temp)</span>
+                <span class="tooltip-badge" data-tooltip="控制输出的随机性与创造力。敏感信息审计建议 0.0~0.2 以保证结果稳定严谨。" title="控制输出的随机性与创造力。敏感信息审计建议 0.0~0.2 以保证结果稳定严谨。">?</span>
+              </label>
               <input type="number" id="onlineModelTempInput" class="input-text" min="0" max="2" step="0.05" value="0.1" style="width: 100%; box-sizing: border-box;">
             </div>
             <div>
-              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">候选范围 (Top-K)：</label>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
+                <span>候选范围 (Top-K)</span>
+                <span class="tooltip-badge" data-tooltip="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。" title="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。">?</span>
+              </label>
               <input type="number" id="onlineModelTopKInput" class="input-text" min="1" max="200" step="1" value="50" style="width: 100%; box-sizing: border-box;">
             </div>
             <div>
-              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">重复惩罚 (Repeat)：</label>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
+                <span>重复惩罚 (Repeat)</span>
+                <span class="tooltip-badge align-right" data-tooltip="抑制模型输出重复词句的倾向，默认 1.1。" title="抑制模型输出重复词句的倾向，默认 1.1。">?</span>
+              </label>
               <input type="number" id="onlineModelRepeatPenaltyInput" class="input-text" min="1.0" max="2.0" step="0.05" value="1.1" style="width: 100%; box-sizing: border-box;">
             </div>
             <div>
-              <label style="display: block; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">最大Token (Max)：</label>
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
+                <span>最大Token (Max)</span>
+                <span class="tooltip-badge align-right" data-tooltip="单次推理返回的最大 Token 数量上限。" title="单次推理返回的最大 Token 数量上限。">?</span>
+              </label>
               <input type="number" id="onlineModelMaxTokensInput" class="input-text" min="64" max="16384" step="64" value="2048" style="width: 100%; box-sizing: border-box;">
             </div>
           </div>
 
           <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
             <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 11px; font-weight: 500; color: var(--text-dim);">思考模式 (Think)：</span>
+              <span style="font-size: 11px; font-weight: 500; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px;">
+                <span>思考模式 (Think)</span>
+                <span class="tooltip-badge" data-tooltip="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。" title="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。">?</span>
+              </span>
               <button type="button" id="onlineModelThinkingBtn" class="param-toggle-btn compact" title="点击切换是否开启深度思考推理">
                 <span class="toggle-indicator">[●──]</span>
                 <span class="toggle-text">未开启</span>
               </button>
-              <span style="font-size: 10.5px; color: var(--text-mute);">(针对 DeepSeek-R1 / QwQ 等推理模型)</span>
             </div>
           </div>
         </div>
@@ -1096,7 +1156,88 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.3.0"></script>
+  <!-- 首次运行向导 · 模型准备弹窗 (方案三：极简双选卡片) -->
+  <div class="modal-overlay" id="firstLaunchModal" style="display: none; z-index: 360;">
+    <div class="modal-box first-launch-box" style="width: 540px; max-width: 92%; padding: 22px 24px; box-sizing: border-box;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="first-launch-badge">首次运行向导</span>
+          <h3 style="font-size: 15px; font-weight: 600; margin: 0; color: var(--text);">模型环境准备</h3>
+        </div>
+        <button type="button" id="firstLaunchSkipBtn" class="btn sm" style="font-size: 11px; padding: 2px 8px; color: var(--text-dim);">跳过</button>
+      </div>
+      
+      <p style="font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 0 0 16px 0;">
+        SensiDoc 运行于纯本地离线环境，数据 100% 留在本机。为了获得端侧敏感信息审计与结构化脱敏能力，请选择需要初始化的本地模型模块：
+      </p>
+
+      <!-- 模块勾选卡片列表 -->
+      <div class="first-launch-modules" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
+        <!-- 模块 1: 核心智能审计引擎 (快慢双模型协同) -->
+        <label class="first-launch-module-card selected" id="flCardCore" style="cursor: pointer;">
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <input type="checkbox" id="flCheckCore" checked style="margin-top: 3px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">基础智能审计引擎</span>
+                  <span class="badge primary-subtle" style="font-size: 10px; padding: 1px 6px;">快慢协同 · 预设</span>
+                </div>
+                <span style="font-size: 12px; font-weight: 600; color: var(--text);">~2.1 GB</span>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5;">
+                集成 Qwen3.5-0.8B (极速初筛) + MiniCPM-2B (靶向终审) 双模型协同，开箱即用，高召回零误报。
+              </div>
+            </div>
+          </div>
+        </label>
+
+        <!-- 模块 2: 纸质单据与密集表格 OCR 引擎 -->
+        <label class="first-launch-module-card" id="flCardOcr" style="cursor: pointer;">
+          <div style="display: flex; align-items: flex-start; gap: 10px;">
+            <input type="checkbox" id="flCheckOcr" style="margin-top: 3px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">纸质单据与密集表格 OCR 识别</span>
+                  <span class="badge" style="font-size: 10px; padding: 1px 6px; background: var(--surface-3); color: var(--text-dim);">可选增强</span>
+                </div>
+                <span style="font-size: 12px; font-weight: 600; color: var(--text-dim);">~37.2 MB</span>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5;">
+                为发票单据、合同扫描件及拍照图片提供纯本地光学识别与排版还原（若仅处理电子文档可暂不勾选）。
+              </div>
+            </div>
+          </div>
+        </label>
+      </div>
+
+      <!-- 实时下载进度条 (下载中激活) -->
+      <div id="flProgressArea" style="display: none; flex-direction: column; gap: 6px; margin-bottom: 16px; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border);">
+        <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text);">
+          <span id="flProgressLabel">正在连接 ModelScope 镜像...</span>
+          <span id="flProgressStats">0%</span>
+        </div>
+        <div style="width: 100%; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden;">
+          <div id="flProgressBarFill" style="width: 0%; height: 100%; background: var(--primary); transition: width 0.2s ease;"></div>
+        </div>
+      </div>
+
+      <!-- 底部操作按钮 -->
+      <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--border);">
+        <div style="font-size: 11.5px; color: var(--text-dim);" id="flTotalSizeTip">已选组件: 1 项 (约 2.1 GB)</div>
+        <div style="display: flex; gap: 8px;">
+          <button type="button" id="flCancelBtn" class="btn sm">暂不下载</button>
+          <button type="button" id="flDownloadBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
+            <span>立即下载选中模块</span>
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js?v=1.3.7"></script>
 </body>
 </html>
 

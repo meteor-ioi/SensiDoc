@@ -390,7 +390,7 @@ impl Extractor {
             max_tokens
         };
 
-        let request_payload = serde_json::json!({
+        let mut request_payload = serde_json::json!({
             "messages": [
                 { "role": "system", "content": system_prompt },
                 { "role": "user", "content": user_content }
@@ -400,6 +400,11 @@ impl Extractor {
             "repeat_penalty": repeat_penalty,
             "max_tokens": effective_max_tokens
         });
+
+        // 严格遵循设置面板思考模式：未开启时显式设置 reasoning_budget 为 0，杜绝思维链生成耗尽 tokens
+        if !enable_thinking {
+            request_payload["reasoning_budget"] = serde_json::json!(0);
+        }
 
         let resp = client
             .post(&url)
@@ -417,9 +422,15 @@ impl Extractor {
             .await
             .map_err(|e| format!("解析 LLM 响应 JSON 失败: {e}"))?;
 
-        let content = json_body["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("[]");
+        let msg = &json_body["choices"][0]["message"];
+        let mut content = msg["content"].as_str().unwrap_or("").trim();
+        let reasoning = msg["reasoning_content"].as_str().unwrap_or("").trim();
+        if content.is_empty() && !reasoning.is_empty() {
+            content = reasoning;
+        }
+        if content.is_empty() {
+            content = "[]";
+        }
 
         Ok(Self::parse_llm_json_response(content))
     }
@@ -1269,6 +1280,100 @@ impl Extractor {
         }
 
         Ok(assigned_items)
+    }
+}
+
+/// 快慢协同后置规则白名单与形态拦截器 (方案 A)
+pub struct PostFilterGuard;
+
+impl PostFilterGuard {
+    /// 对小模型初筛收录的实体进行后置规则白名单与形态清洗
+    pub fn sanitize_items(
+        items: Vec<SensitiveItem>,
+        enabled_fields: &[RuleField],
+        full_text: &str,
+    ) -> Vec<SensitiveItem> {
+        let field_names: Vec<&str> = enabled_fields
+            .iter()
+            .filter(|f| f.is_enabled)
+            .map(|f| f.name.as_str())
+            .collect();
+        let mut clean_items = Vec::with_capacity(items.len());
+
+        for item in items {
+            let cat = item.category.trim();
+            let text = item.text.trim();
+
+            if text.is_empty() {
+                continue;
+            }
+
+            // 1. 契约匹配：若用户已指定启用字段，实体分类必须属于当前启用的字段或可模糊归纳
+            if !field_names.is_empty()
+                && !field_names
+                    .iter()
+                    .any(|&f| f.eq_ignore_ascii_case(cat) || cat.contains(f) || f.contains(cat))
+            {
+                continue;
+            }
+
+            // 2. 形态与角色边界校验
+            if !Self::passes_morphological_check(cat, text, full_text) {
+                continue;
+            }
+
+            clean_items.push(item);
+        }
+
+        clean_items
+    }
+
+    /// 细粒度形态与边界校验
+    pub fn passes_morphological_check(category: &str, text: &str, full_text: &str) -> bool {
+        let cat_lower = category.to_lowercase();
+
+        // 规则 1：法定代表人严格校验（排除职务头衔和非法人代表）
+        if cat_lower.contains("法人") || cat_lower.contains("legal representative") {
+            let invalid_titles = [
+                "director", "manager", "执行代表", "项目代表", "经办人", "律师", "联系人", "商务代表",
+            ];
+            let text_lower = text.to_lowercase();
+            if invalid_titles.iter().any(|&t| text_lower.contains(t)) {
+                return false;
+            }
+            // 若人名在原文中紧跟在“项目代表/联系人/商务代表”之后，而非“法定代表人”，予以拦截
+            if let Some(pos) = full_text.find(text) {
+                let prefix_start = pos.saturating_sub(30);
+                let prefix_ctx = &full_text[prefix_start..pos];
+                if (prefix_ctx.contains("执行代表")
+                    || prefix_ctx.contains("项目联系人")
+                    || prefix_ctx.contains("商务代表"))
+                    && !prefix_ctx.contains("法定代表人")
+                {
+                    return false;
+                }
+            }
+        }
+
+        // 规则 2：企业全称校验（排除开户行支行、事务所代管专户）
+        if cat_lower.contains("企业") || cat_lower.contains("公司") || cat_lower.contains("company") {
+            let invalid_org_suffixes = ["支行", "分行", "分理处", "专户代为存管", "律师事务所"];
+            if invalid_org_suffixes.iter().any(|&s| text.ends_with(s) || text.contains(s)) {
+                return false;
+            }
+        }
+
+        // 规则 3：合同金额校验（排除条款编号和年份）
+        if cat_lower.contains("金额") || cat_lower.contains("value") || cat_lower.contains("price") {
+            if text.starts_with("第") && text.ends_with("条") {
+                return false;
+            }
+            if text.ends_with("年") || text.ends_with("月") || text.ends_with("日") {
+                return false;
+            }
+        }
+
+        true
     }
 }
 

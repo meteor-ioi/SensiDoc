@@ -9,7 +9,7 @@ PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd
 cd "$PROJECT_ROOT"
 
 APP_NAME="SensiDoc"
-RAW_VER="${1:-${APP_VERSION:-1.0.2}}"
+RAW_VER="${1:-${APP_VERSION:-1.3.1}}"
 VERSION="${RAW_VER#v}"
 BUNDLE_ID="com.sensidoc.desktop"
 DIST_DIR="$PROJECT_ROOT/dist"

@@ -1016,19 +1016,51 @@ body.resizing-panels {
 }
 
 .file-card-inner {
-  padding: 10px 12px;
+  height: 58px;
+  min-height: 58px;
+  box-sizing: border-box;
+  padding: 0 12px;
   cursor: pointer;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* 第一层：文件名与操作区 */
-.file-card-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* 左侧主体：类型徽标 + 文件名 */
+.file-card-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+/* 文档类型纯图标指示器 (无底纹无边框，极简内敛) */
+.doc-type-badge,
+.doc-type-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  user-select: none;
+  background: transparent !important;
+  border: none !important;
+  padding: 0 !important;
+  color: var(--text-dim, #6b7280);
+}
+
+.doc-type-badge .lucide-icon,
+.doc-type-icon .lucide-icon,
+.doc-type-icon .doc-type-svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+[data-theme="dark"] .doc-type-badge,
+[data-theme="dark"] .doc-type-icon {
+  color: var(--text-mute, #9ca3af);
 }
 
 .file-name {
@@ -1049,8 +1081,39 @@ body.resizing-panels {
 .file-card-actions {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 0;
   flex-shrink: 0;
+}
+
+/* 删除按钮：默认完全收起不占位，状态标签贴齐最右边；悬停时丝滑展开并向左推挤状态标签 */
+.file-item .doc-delete-btn {
+  max-width: 0;
+  width: auto;
+  opacity: 0;
+  margin-left: 0;
+  padding: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transform: scale(0.85);
+  transition: 
+    max-width 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    margin-left 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.18s ease,
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+    color 0.12s ease;
+}
+
+.file-item:hover .doc-delete-btn {
+  max-width: 24px;
+  margin-left: 6px;
+  opacity: 0.65;
+  transform: scale(1);
+  pointer-events: auto;
+}
+
+.file-item .doc-delete-btn:hover {
+  opacity: 1 !important;
+  color: var(--danger) !important;
 }
 
 /* 状态药丸标签（类似“存标签”风格，无小圆点，自带背景色与细边框） */
@@ -3861,23 +3924,38 @@ div.prompt-area-box {
    纸质单据与密集表格 OCR 引擎 (PP-OCRv6 + SLANet+) 及卷帘透视比对视图样式
    ========================================================================== */
 
-/* OCR 设置卡片与状态指示 */
+/* OCR 设置卡片与状态指示 (圆角胶囊与微绿徽标) */
+.ocr-status-pill {
+  font-size: 10.5px;
+  line-height: 1;
+  padding: 2.5px 8px;
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--text-dim);
+  font-weight: 500;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
 .ocr-status-pill.ready {
   background: rgba(16, 185, 129, 0.12) !important;
   color: #10b981 !important;
-  border: 1px solid rgba(16, 185, 129, 0.3) !important;
+  border: 1px solid rgba(16, 185, 129, 0.25) !important;
 }
 
 .ocr-status-pill.downloading {
   background: rgba(59, 130, 246, 0.12) !important;
   color: #3b82f6 !important;
-  border: 1px solid rgba(59, 130, 246, 0.3) !important;
+  border: 1px solid rgba(59, 130, 246, 0.25) !important;
 }
 
 .ocr-status-pill.not-ready {
   background: rgba(245, 158, 11, 0.12) !important;
   color: #f59e0b !important;
-  border: 1px solid rgba(245, 158, 11, 0.3) !important;
+  border: 1px solid rgba(245, 158, 11, 0.25) !important;
 }
 
 /* 方案二：原图全景视图 */
@@ -4045,5 +4123,230 @@ div.prompt-area-box {
   border: 1px solid rgba(59, 130, 246, 0.3);
 }
 
+/* ==========================================================================
+   方案三：极简模块化卡片 (Modular Engine Cards) 与首次运行向导样式
+   ========================================================================== */
 
+.module-engine-card {
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
 
+.module-engine-card:hover {
+  border-color: var(--border-hover, rgba(255, 255, 255, 0.2));
+}
+
+.module-engine-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.module-engine-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.module-engine-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.module-engine-desc {
+  font-size: 11.5px;
+  color: var(--text-dim);
+  line-height: 1.55;
+}
+
+/* 问号悬浮提示气泡 (?) - 浅灰色轻量化设计，尽量不吸引视觉焦点 */
+.tooltip-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(156, 163, 175, 0.35);
+  color: var(--text-mute, #9ca3af);
+  font-size: 9.5px;
+  font-weight: 400;
+  cursor: help;
+  position: relative;
+  user-select: none;
+  line-height: 1;
+  background: transparent;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  opacity: 0.65;
+}
+
+.tooltip-badge:hover {
+  opacity: 1;
+  color: var(--text);
+  border-color: rgba(156, 163, 175, 0.7);
+  background: var(--surface-2);
+}
+
+.tooltip-badge::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.25);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm, 6px);
+  font-size: 11px;
+  font-weight: normal;
+  line-height: 1.5;
+  white-space: normal;
+  width: max-content;
+  max-width: 240px;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  transform: translateY(4px);
+  z-index: 1000;
+}
+
+.tooltip-badge:hover::after {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.tooltip-badge.tooltip-bottom::after {
+  bottom: auto;
+  top: calc(100% + 6px);
+  transform: translateY(-4px);
+}
+
+.tooltip-badge.tooltip-bottom:hover::after {
+  transform: translateY(0);
+}
+
+.tooltip-badge.align-right::after {
+  left: auto;
+  right: 0;
+}
+
+.module-status-pill {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+  background: var(--surface-3);
+  color: var(--text-dim);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.module-status-pill.ready {
+  background: rgba(16, 185, 129, 0.12);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.25);
+}
+
+.module-status-pill.downloading {
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--primary);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.module-status-pill.waiting {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
+.module-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.module-progress-bar-bg {
+  width: 100%;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.module-progress-bar-fill {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.2s ease;
+}
+
+.module-submodels-container {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.submodel-mini-item {
+  padding: 8px 10px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.submodel-mini-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* 首次运行向导卡片 */
+.first-launch-badge {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: rgba(59, 130, 246, 0.12);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.first-launch-module-card {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.first-launch-module-card:hover {
+  border-color: var(--primary);
+  background: var(--surface-3);
+}
+
+.first-launch-module-card.selected {
+  border-color: var(--primary);
+  background: rgba(59, 130, 246, 0.05);
+  box-shadow: 0 0 0 1px var(--primary);
+}

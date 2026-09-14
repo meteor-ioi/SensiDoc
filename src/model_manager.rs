@@ -426,6 +426,15 @@ end try"#;
 
     /// 启动指定的本地模型（杜绝僵尸孤儿进程）
     pub async fn start_model(&self, model_filename: &str) -> Result<(), String> {
+        self.start_model_with_profile(model_filename, None).await
+    }
+
+    /// 支持传入模型专属超参数（温度、采样、思考模式开闭）启动本地 llama-server
+    pub async fn start_model_with_profile(
+        &self,
+        model_filename: &str,
+        profile: Option<&crate::session::OfflineModelProfile>,
+    ) -> Result<(), String> {
         let model_path = self.models_dir.join(model_filename);
         if !model_path.exists() {
             return Err(format!("模型文件不存在: {}", model_path.display()));
@@ -445,11 +454,18 @@ end try"#;
             }
         }
 
+        let enable_thinking = profile.map(|p| p.enable_thinking).unwrap_or(false);
+        let top_k_str = profile.map(|p| p.top_k.to_string()).unwrap_or_else(|| "50".to_string());
+        let repeat_penalty_str = profile.map(|p| p.repeat_penalty.to_string()).unwrap_or_else(|| "1.1".to_string());
+
         info!(
-            "启动 llama-server: 路径={:?}, 模型={:?}, 端口={}",
+            "启动 llama-server: 路径={:?}, 模型={:?}, 端口={}, 思考模式={}, top_k={}, repeat_penalty={}",
             self.llama_bin_path,
             model_path,
-            self.server_port
+            self.server_port,
+            if enable_thinking { "开启" } else { "关闭" },
+            top_k_str,
+            repeat_penalty_str
         );
 
         let mut cmd = Command::new(&self.llama_bin_path);
@@ -464,10 +480,18 @@ end try"#;
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--top-k")
-            .arg("50")
+            .arg(&top_k_str)
             .arg("--repeat-penalty")
-            .arg("1.1")
-            .stdout(Stdio::piped())
+            .arg(&repeat_penalty_str);
+
+        // 严格遵循设置面板思考模式：未开启时显式设置 --reasoning off，彻底杜绝模型擅自激活思维链耗尽 tokens
+        if enable_thinking {
+            cmd.arg("--reasoning").arg("on");
+        } else {
+            cmd.arg("--reasoning").arg("off");
+        }
+
+        cmd.stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
         // macOS 动态链接库环境变量绑定

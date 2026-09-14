@@ -49,6 +49,7 @@ struct ConvertResponse {
     filename: String,
     markdown: String,
     char_count: usize,
+    doc_type: String,
 }
 
 #[derive(Serialize)]
@@ -79,6 +80,8 @@ struct ExtractRequest {
     use_ai: bool,
     #[serde(default)]
     model_type: Option<String>,
+    #[serde(default)]
+    offline_model_name: Option<String>,
     #[serde(default)]
     online_model_id: Option<String>,
     #[serde(default)]
@@ -453,7 +456,7 @@ async fn convert_document(
     let filename_clone = filename.clone();
     let file_bytes_clone = file_bytes.clone();
     let convert_res = tokio::task::spawn_blocking(move || {
-        converter::DocConverter::convert_bytes(&filename_clone, &file_bytes_clone)
+        converter::DocConverter::convert_bytes_detailed(&filename_clone, &file_bytes_clone)
     })
     .await
     .map_err(|e| {
@@ -466,8 +469,8 @@ async fn convert_document(
     })?;
 
     match convert_res {
-        Ok(markdown) => {
-            let doc = state.session_mgr.upsert_document(filename, markdown).await;
+        Ok(res) => {
+            let doc = state.session_mgr.upsert_document_typed(filename, res.markdown, res.doc_type).await;
             // 暂存原始上传二进制文件，支持脱敏引擎原样无损导出
             let upload_path = paths::get_uploads_dir().join(format!("{}.bin", doc.id));
             if let Err(e) = std::fs::write(&upload_path, &file_bytes) {
@@ -478,6 +481,7 @@ async fn convert_document(
                 filename: doc.filename,
                 markdown: doc.markdown,
                 char_count: doc.char_count,
+                doc_type: doc.doc_type,
             }))
         }
         Err(err) => Err((
@@ -881,6 +885,42 @@ async fn extract_sensitive_info(
             }
         } else {
             // 本地离线模型处理
+            let requested_model = payload.offline_model_name.as_deref().unwrap_or("").trim();
+            let is_dual_engine = requested_model == "dual_engine";
+
+            let target_model_file = if is_dual_engine {
+                // 协同引擎模式：优先使用 Qwen3.5 作为快速初筛基座，若未下载则回退 MiniCPM 或首个可用模型
+                let local_models = state.model_mgr.list_local_models();
+                if local_models.iter().any(|m| m == "Qwen3.5-text-0.8B-Q6_K.gguf") {
+                    "Qwen3.5-text-0.8B-Q6_K.gguf".to_string()
+                } else if local_models.iter().any(|m| m == "MiniCPM5-2B-Q4_K_M.gguf") {
+                    "MiniCPM5-2B-Q4_K_M.gguf".to_string()
+                } else {
+                    local_models.first().cloned().unwrap_or_default()
+                }
+            } else if !requested_model.is_empty() {
+                requested_model.to_string()
+            } else {
+                state.model_mgr.get_active_model().await.unwrap_or_default()
+            };
+
+            if !target_model_file.is_empty() {
+                // 确保目标模型正在运行
+                let active = state.model_mgr.get_active_model().await;
+                let is_ready = active.as_deref() == Some(&target_model_file) && state.model_mgr.is_server_ready().await;
+                if !is_ready {
+                    let profile = state.session_mgr.get_offline_model_profile(&target_model_file).await;
+                    if let Err(e) = state.model_mgr.start_model_with_profile(&target_model_file, Some(&profile)).await {
+                        return Err((
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(ErrorResponse {
+                                error: format!("拉起本地离线模型 {target_model_file} 失败: {e}"),
+                            }),
+                        ));
+                    }
+                }
+            }
+
             let port = state.model_mgr.server_port();
             let current_model_name = state.model_mgr.get_active_model().await.unwrap_or_default();
             let offline_profile = state.session_mgr.get_offline_model_profile(&current_model_name).await;
@@ -897,6 +937,11 @@ async fn extract_sensitive_info(
                 ).await {
                     ai_items.extend(items);
                 }
+            }
+
+            // 若为协同引擎模式，挂载方案 A 后置形态白名单拦截器进行终审精筛
+            if is_dual_engine {
+                ai_items = extractor::PostFilterGuard::sanitize_items(ai_items, &payload.fields, &doc.markdown);
             }
         }
     }
@@ -918,7 +963,20 @@ async fn extract_sensitive_info(
                 Some("[在线] 在线大模型".to_string())
             }
         } else {
-            state.model_mgr.get_active_model().await
+            let requested_model = payload.offline_model_name.as_deref().unwrap_or("").trim();
+            if requested_model == "dual_engine" {
+                Some("[协同引擎] 端侧快慢协同引擎".to_string())
+            } else {
+                let active_name = state.model_mgr.get_active_model().await.unwrap_or_else(|| "本地离线模型".to_string());
+                let display = if active_name.contains("Qwen") {
+                    "Qwen3.5-0.8B"
+                } else if active_name.contains("MiniCPM") {
+                    "MiniCPM5-2B"
+                } else {
+                    &active_name
+                };
+                Some(format!("[离线] {}", display))
+            }
         }
     } else {
         Some("正则规则引擎".to_string())
@@ -964,7 +1022,8 @@ async fn start_model(
     Json(payload): Json<StartModelRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let port = state.model_mgr.server_port();
-    match state.model_mgr.start_model(&payload.filename).await {
+    let profile = state.session_mgr.get_offline_model_profile(&payload.filename).await;
+    match state.model_mgr.start_model_with_profile(&payload.filename, Some(&profile)).await {
         Ok(_) => Ok(Json(serde_json::json!({
             "status": "success",
             "message": format!("模型 {} 启动成功并在 {} 端口就绪", payload.filename, port)
@@ -1347,103 +1406,210 @@ async fn ai_generate_rules(
         ));
     }
 
+    let raw_model_id = payload.model_id.as_deref().unwrap_or("").trim();
     let online_models = state.session_mgr.get_online_models().await;
-    let active_id = state.session_mgr.get_active_online_model_id().await;
+    let local_models = state.model_mgr.list_local_models();
 
-    let target_model = if let Some(ref mid) = payload.model_id {
-        online_models.iter().find(|m| &m.id == mid || &m.model_id == mid)
-    } else {
-        None
-    };
+    // 智能识别是否为离线模型 (以 offline: 或 local: 开头，或匹配本地已有模型文件名)
+    let is_offline = raw_model_id.starts_with("offline:")
+        || raw_model_id.starts_with("local:")
+        || (!raw_model_id.starts_with("online:")
+            && !raw_model_id.is_empty()
+            && local_models.iter().any(|m| m == raw_model_id));
 
-    let target_model = target_model.or_else(|| {
-        if let Some(ref aid) = active_id {
-            online_models.iter().find(|m| &m.id == aid)
+    let content = if is_offline {
+        let filename = raw_model_id
+            .trim_start_matches("offline:")
+            .trim_start_matches("local:")
+            .trim();
+
+        let target_file = if filename.is_empty() || filename == "dual_engine" {
+            if let Some(active) = state.model_mgr.get_active_model().await {
+                active
+            } else if let Some(first) = local_models.first() {
+                first.clone()
+            } else {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "未找到任何可用的本地离线模型，请先下载模型".into(),
+                    }),
+                ));
+            }
         } else {
-            online_models.first()
-        }
-    });
+            filename.to_string()
+        };
 
-    let profile = match target_model {
-        Some(m) => m,
-        None => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "未检测到可用的在线 AI 模型。请先在右上角「设置 - 在线 AI 模型」中添加并配置 API Key (如 DeepSeek/OpenAI 等)".into(),
-                }),
-            ));
+        // 确保离线模型已在 llama-server 启动就绪
+        let active_model = state.model_mgr.get_active_model().await;
+        let is_running = active_model.as_deref() == Some(&target_file) && state.model_mgr.is_server_ready().await;
+        if !is_running {
+            let profile = state.session_mgr.get_offline_model_profile(&target_file).await;
+            if let Err(e) = state.model_mgr.start_model_with_profile(&target_file, Some(&profile)).await {
+                return Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("拉起本地离线模型 {target_file} 失败: {e}"),
+                    }),
+                ));
+            }
         }
-    };
 
-    let system_instruction = r#"你是一个专业的数据合规、信息脱敏与隐私保护专家。
+        let port = state.model_mgr.server_port();
+        let url = format!("http://127.0.0.1:{}/v1/chat/completions", port);
+
+        let system_instruction = r#"你是一个专业的数据合规、信息脱敏与隐私保护专家。
 请根据用户提供的业务文档场景与脱敏需求，提炼出最关键的 3 到 8 个敏感信息字段及其规则定义。
 必须直接返回纯 JSON 格式的数组，严禁包含任何 Markdown 格式符号 (如 ```json 或 ```) 或多余解释文字。
 
 JSON 数组中的每个对象结构必须为：
-{
-  "name": "字段名称 (简明扼要，如：患者姓名、集装箱号、银行卡号)",
-  "level": "敏感度等级，只能为 high (高)、medium (中) 或 low (低)",
-  "description": "字段脱敏判定说明或匹配特征"
-}"#;
+[
+  {
+    "name": "字段名称 (简明扼要，如：患者姓名、集装箱号、银行卡号)",
+    "level": "敏感度等级，只能为 high (高)、medium (中) 或 low (低)",
+    "description": "字段脱敏判定说明或匹配特征"
+  }
+]"#;
 
-    let request_payload = serde_json::json!({
-        "model": profile.model_id,
-        "messages": [
-            { "role": "system", "content": system_instruction },
-            { "role": "user", "content": format!("业务场景需求描述：\n{}", prompt) }
-        ],
-        "temperature": 0.2
-    });
+        let request_payload = serde_json::json!({
+            "messages": [
+                { "role": "system", "content": system_instruction },
+                { "role": "user", "content": format!("业务场景需求描述：\n{}", prompt) }
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1024
+        });
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(45))
-        .build()
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("构建网络请求失败: {e}") })))?;
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("构建网络请求失败: {e}") })))?;
 
-    let trimmed_url = profile.base_url.trim_end_matches('/');
-    let url = if trimmed_url.ends_with("/chat/completions") {
-        trimmed_url.to_string()
+        let resp = client.post(&url).json(&request_payload).send().await.map_err(|e| {
+            (StatusCode::BAD_GATEWAY, Json(ErrorResponse { error: format!("连接本地离线模型服务失败: {e}") }))
+        })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse { error: format!("本地离线模型接口返回错误 [{status}]: {body}") }),
+            ));
+        }
+
+        let json_resp: serde_json::Value = resp.json().await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("解析离线模型响应失败: {e}") }))
+        })?;
+
+        json_resp["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string()
     } else {
-        format!("{}/chat/completions", trimmed_url)
+        // 在线模型
+        let clean_online_id = raw_model_id.trim_start_matches("online:").trim();
+        let active_id = state.session_mgr.get_active_online_model_id().await;
+
+        let target_model = if !clean_online_id.is_empty() {
+            online_models.iter().find(|m| m.id == clean_online_id || m.model_id == clean_online_id)
+        } else {
+            None
+        };
+
+        let target_model = target_model.or_else(|| {
+            if let Some(ref aid) = active_id {
+                online_models.iter().find(|m| &m.id == aid)
+            } else {
+                online_models.first()
+            }
+        });
+
+        let profile = match target_model {
+            Some(m) => m,
+            None => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "未检测到可用的在线 AI 模型。请先在右上角「设置 - 在线 AI 模型」中添加并配置 API Key (如 DeepSeek/OpenAI 等)".into(),
+                    }),
+                ));
+            }
+        };
+
+        let system_instruction = r#"你是一个专业的数据合规、信息脱敏与隐私保护专家。
+请根据用户提供的业务文档场景与脱敏需求，提炼出最关键的 3 到 8 个敏感信息字段及其规则定义。
+必须直接返回纯 JSON 格式的数组，严禁包含任何 Markdown 格式符号 (如 ```json 或 ```) 或多余解释文字。
+
+JSON 数组中的每个对象结构必须为：
+[
+  {
+    "name": "字段名称 (简明扼要，如：患者姓名、集装箱号、银行卡号)",
+    "level": "敏感度等级，只能为 high (高)、medium (中) 或 low (低)",
+    "description": "字段脱敏判定说明或匹配特征"
+  }
+]"#;
+
+        let request_payload = serde_json::json!({
+            "model": profile.model_id,
+            "messages": [
+                { "role": "system", "content": system_instruction },
+                { "role": "user", "content": format!("业务场景需求描述：\n{}", prompt) }
+            ],
+            "temperature": 0.2
+        });
+
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(45))
+            .build()
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("构建网络请求失败: {e}") })))?;
+
+        let trimmed_url = profile.base_url.trim_end_matches('/');
+        let url = if trimmed_url.ends_with("/chat/completions") {
+            trimmed_url.to_string()
+        } else {
+            format!("{}/chat/completions", trimmed_url)
+        };
+
+        let mut req = client.post(&url).json(&request_payload);
+        if !profile.api_key.trim().is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", profile.api_key.trim()));
+        }
+
+        let resp = req.send().await.map_err(|e| {
+            (StatusCode::BAD_GATEWAY, Json(ErrorResponse { error: format!("连接在线模型服务失败: {e}") }))
+        })?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err((
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse { error: format!("在线模型接口返回错误 [{status}]: {body}") }),
+            ));
+        }
+
+        let json_resp: serde_json::Value = resp.json().await.map_err(|e| {
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("解析在线模型响应失败: {e}") }))
+        })?;
+
+        json_resp["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .trim()
+            .to_string()
     };
-
-    let mut req = client.post(&url).json(&request_payload);
-    if !profile.api_key.trim().is_empty() {
-        req = req.header("Authorization", format!("Bearer {}", profile.api_key.trim()));
-    }
-
-    let resp = req.send().await.map_err(|e| {
-        (StatusCode::BAD_GATEWAY, Json(ErrorResponse { error: format!("连接在线模型服务失败: {e}") }))
-    })?;
-
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err((
-            StatusCode::BAD_GATEWAY,
-            Json(ErrorResponse { error: format!("在线模型接口返回错误 [{status}]: {body}") }),
-        ));
-    }
-
-    let json_resp: serde_json::Value = resp.json().await.map_err(|e| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("解析在线模型响应失败: {e}") }))
-    })?;
-
-    let content = json_resp["choices"][0]["message"]["content"]
-        .as_str()
-        .unwrap_or("")
-        .trim();
 
     // 智能提取 JSON 数组片段
     let cleaned_json = if let (Some(start), Some(end)) = (content.find('['), content.rfind(']')) {
         if end > start {
             &content[start..=end]
         } else {
-            content
+            &content
         }
     } else {
-        content
+        &content
     };
 
     let fields: Vec<AiGeneratedField> = match serde_json::from_str(cleaned_json) {
@@ -1452,7 +1618,7 @@ JSON 数组中的每个对象结构必须为：
             return Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorResponse {
-                    error: format!("在线模型返回的格式不符合预期 JSON: {e}\n原文: {content}"),
+                    error: format!("模型返回的格式不符合预期 JSON: {e}\n原文: {content}"),
                 }),
             ));
         }

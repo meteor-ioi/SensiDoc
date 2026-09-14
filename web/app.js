@@ -2,6 +2,7 @@
 const FILTER_CATEGORIES = [
   { key: "DOCX", label: "Word 文档", shortLabel: "Word", exts: ["DOCX", "DOC"] },
   { key: "PDF", label: "PDF 文档", shortLabel: "PDF", exts: ["PDF"] },
+  { key: "IMG", label: "图片扫描", shortLabel: "图片", exts: ["PNG", "JPG", "JPEG", "BMP", "WEBP", "TIFF", "TIF"] },
   { key: "XLSX", label: "Excel 表格", shortLabel: "Excel", exts: ["XLSX", "XLS"] },
   { key: "PPTX", label: "PPT 演示", shortLabel: "PPT", exts: ["PPTX", "PPT"] },
   { key: "TXT", label: "纯文本 / MD", shortLabel: "文本", exts: ["TXT", "MD", "MARKDOWN"] },
@@ -14,11 +15,41 @@ function getEffectiveDocExt(filename) {
   const parts = filename.toUpperCase().split(".");
   if (parts.length > 2 && parts[parts.length - 1] === "MD") {
     const secondLast = parts[parts.length - 2];
-    if (["DOCX", "DOC", "PDF", "XLSX", "XLS", "PPTX", "PPT", "TXT", "CSV"].includes(secondLast)) {
+    if (["DOCX", "DOC", "PDF", "XLSX", "XLS", "PPTX", "PPT", "TXT", "CSV", "PNG", "JPG", "JPEG", "BMP", "WEBP", "TIFF", "TIF"].includes(secondLast)) {
       return secondLast;
     }
   }
   return parts[parts.length - 1] || "";
+}
+
+// 判定文档是否为“扫描”类（图片格式或走OCR扫描管道的PDF），否则为“原生”
+function isScanDoc(doc) {
+  if (!doc) return false;
+  const ext = getEffectiveDocExt(doc.filename).toUpperCase();
+  // 1. 所有图片格式：百分之百是扫描/图片 OCR
+  if (["PNG", "JPG", "JPEG", "BMP", "WEBP", "TIFF", "TIF"].includes(ext)) {
+    return true;
+  }
+  // 2. 显式标记为扫描
+  if (doc.doc_type === "scan" || doc.doc_type === "scanned") {
+    return true;
+  }
+  // 3. 显式标记为原生 (仅在非 PDF 场景下信任，或 PDF 未命中扫描特征)
+  // 4. PDF 文档的扫描件判定：
+  if (ext === "PDF") {
+    if (doc.is_scanned || doc.ocr_mode || doc.is_ocr) {
+      return true;
+    }
+    // 检测是否为扫描件 OCR 输出的结构特征（例如 "### 第 1 页" 图像提取分页头、img_ 开头、SLANet 表格 OCR 等）
+    const fnLower = (doc.filename || "").toLowerCase();
+    if (fnLower.startsWith("img_") || fnLower.includes("scan") || fnLower.includes("invoice") || fnLower.includes("chay_da")) {
+      return true;
+    }
+    if (doc.markdown && (doc.markdown.startsWith("### 第 ") || doc.markdown.includes("### 第 1 页") || doc.markdown.includes("### 第 0 页"))) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // 全局应用状态
@@ -198,6 +229,32 @@ const el = {
   ocrPromptProgressBarFill: document.getElementById("ocrPromptProgressBarFill"),
   ocrPromptCancelBtn: document.getElementById("ocrPromptCancelBtn"),
   ocrPromptConfirmBtn: document.getElementById("ocrPromptConfirmBtn"),
+
+  // 方案三：核心引擎与首次运行向导元素
+  coreModelCard: document.getElementById("coreModelCard"),
+  coreModelStatusPill: document.getElementById("coreModelStatusPill"),
+  downloadCoreSuiteBtn: document.getElementById("downloadCoreSuiteBtn"),
+  cancelCoreSuiteBtn: document.getElementById("cancelCoreSuiteBtn"),
+  unloadCoreSuiteBtn: document.getElementById("unloadCoreSuiteBtn"),
+  coreDownloadProgressWrap: document.getElementById("coreDownloadProgressWrap"),
+  coreProgressLabel: document.getElementById("coreProgressLabel"),
+  coreProgressStats: document.getElementById("coreProgressStats"),
+  coreProgressBarFill: document.getElementById("coreProgressBarFill"),
+  coreSubmodelsList: document.getElementById("coreSubmodelsList"),
+  firstLaunchModal: document.getElementById("firstLaunchModal"),
+  firstLaunchSkipBtn: document.getElementById("firstLaunchSkipBtn"),
+  flCardCore: document.getElementById("flCardCore"),
+  flCardOcr: document.getElementById("flCardOcr"),
+  flCheckCore: document.getElementById("flCheckCore"),
+  flCheckOcr: document.getElementById("flCheckOcr"),
+  flProgressArea: document.getElementById("flProgressArea"),
+  flProgressLabel: document.getElementById("flProgressLabel"),
+  flProgressStats: document.getElementById("flProgressStats"),
+  flProgressBarFill: document.getElementById("flProgressBarFill"),
+  flTotalSizeTip: document.getElementById("flTotalSizeTip"),
+  flCancelBtn: document.getElementById("flCancelBtn"),
+  flDownloadBtn: document.getElementById("flDownloadBtn"),
+
   auditCount: document.getElementById("auditCount"),
   auditList: document.getElementById("auditList"),
   exportCsvBtn: document.getElementById("exportCsvBtn"),
@@ -370,6 +427,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   await loadModelPresets();
   await checkOcrStatus();
   initSSEForDownloads();
+  checkFirstLaunchOnboarding();
 });
 
 // 选项卡切换函数
@@ -857,6 +915,7 @@ function initEventListeners() {
     });
   }
   if (el.ocrPromptCancelBtn) el.ocrPromptCancelBtn.addEventListener("click", hideOcrPromptModal);
+  initModularEngineEvents();
 
   // 方案C：工作台 Segmented Tabs 切换
   if (el.tabRulesBtn) el.tabRulesBtn.addEventListener("click", () => switchInspectorTab("rules"));
@@ -1906,18 +1965,27 @@ function renderFileList() {
       statusTitle = `已审计 (共 ${snapCount} 个快照版本)`;
     }
 
-    // 两层卡片结构：第一行文件名与状态标签+删除按钮，第二行添加时间
+    const isScan = isScanDoc(doc);
+    const typeClass = isScan ? "type-scan" : "type-native";
+    const typeText = isScan ? "扫描" : "原生";
+    const typeIconSvg = isScan
+      ? `<svg class="lucide-icon xxs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><path d="M7 8h10"></path><path d="M7 12h10"></path><path d="M7 16h10"></path></svg>`
+      : `<svg class="lucide-icon xxs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><line x1="10" y1="9" x2="8" y2="9"></line></svg>`;
+
+    const cardTooltip = `${escapeHtml(doc.filename)}&#10;类型：${typeText}文档&#10;导入时间：${timeInfo.full}`;
+
+    // 单行居中卡片结构：保持原高度，垂直居中呈现，左侧类型图标+文件名，右侧状态标签+删除按钮
     itemEl.innerHTML = `
-      <div class="file-card-inner" data-id="${doc.id}">
-        <div class="file-card-top">
+      <div class="file-card-inner single-row" data-id="${doc.id}" title="${cardTooltip}">
+        <div class="file-card-main">
+          <span class="doc-type-icon ${typeClass}" title="文档类型: ${typeText}">
+            ${typeIconSvg}
+          </span>
           <span class="file-name" title="${escapeHtml(doc.filename)}">${escapeHtml(doc.filename)}</span>
-          <div class="file-card-actions">
-            <span class="file-status-tag ${statusClass}" title="${statusTitle}">${statusText}</span>
-            <span class="delete-btn doc-delete-btn" title="删除此文档" style="display: inline-flex; align-items: center; flex-shrink: 0;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
-          </div>
         </div>
-        <div class="file-card-bottom">
-          <span class="file-card-time" title="添加时间: ${timeInfo.full}">${timeInfo.display}</span>
+        <div class="file-card-actions">
+          <span class="file-status-tag ${statusClass}" title="${statusTitle}">${statusText}</span>
+          <span class="delete-btn doc-delete-btn" title="删除此文档" style="display: inline-flex; align-items: center; flex-shrink: 0;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></span>
         </div>
       </div>
     `;
@@ -2835,9 +2903,9 @@ function closeAiGenRulesModelDropdown() {
 function syncAiGenRulesModelSelectUi() {
   if (!el.aiGenRulesModelSelect) return;
   const currentVal = el.aiGenRulesModelSelect.value;
-  const opt = Array.from(el.aiGenRulesModelSelect.options).find((o) => o.value === currentVal)
+  const opt = Array.from(el.aiGenRulesModelSelect.querySelectorAll("option")).find((o) => o.value === currentVal)
     || (el.aiGenRulesModelSelect.selectedOptions ? el.aiGenRulesModelSelect.selectedOptions[0] : null);
-  const currentText = opt ? (opt.text || opt.innerText) : (el.aiGenRulesModelSelect.options[0]?.text || "选择在线模型");
+  const currentText = opt ? (opt.getAttribute("data-name") || opt.text || opt.innerText) : (el.aiGenRulesModelSelect.options[0]?.text || "选择模型");
 
   if (el.aiGenRulesModelSelectLabel) {
     el.aiGenRulesModelSelectLabel.textContent = currentText;
@@ -2849,37 +2917,129 @@ function syncAiGenRulesModelSelectUi() {
 
   if (el.aiGenRulesModelSelectList) {
     let itemsHtml = "";
-    Array.from(el.aiGenRulesModelSelect.options).forEach((opt) => {
-      const isSelected = opt.value === currentVal;
-      itemsHtml += `
-        <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(opt.value)}">
-          <span class="custom-select-item-text">${escapeHtml(opt.text)}</span>
-          ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
-        </button>
-      `;
+    const children = Array.from(el.aiGenRulesModelSelect.children);
+    children.forEach((child, index) => {
+      if (child.tagName.toLowerCase() === "optgroup") {
+        if (index > 0) {
+          itemsHtml += `<div class="custom-select-divider"></div>`;
+        }
+        itemsHtml += `<div class="custom-select-group-header">${escapeHtml(child.label || "")}</div>`;
+        Array.from(child.children).forEach((o) => {
+          const isSelected = o.value === currentVal;
+          const text = o.getAttribute("data-name") || o.text;
+          itemsHtml += `
+            <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(o.value)}">
+              <span class="custom-select-item-text">${escapeHtml(text)}</span>
+              ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+            </button>
+          `;
+        });
+      } else if (child.tagName.toLowerCase() === "option") {
+        const isSelected = child.value === currentVal;
+        const text = child.getAttribute("data-name") || child.text;
+        itemsHtml += `
+          <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(child.value)}">
+            <span class="custom-select-item-text">${escapeHtml(text)}</span>
+            ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+          </button>
+        `;
+      }
     });
     el.aiGenRulesModelSelectList.innerHTML = itemsHtml;
   }
 }
 
-function populateAiGenRulesModelSelect() {
+async function populateAiGenRulesModelSelect() {
   if (!el.aiGenRulesModelSelect) return;
-  if (!state.onlineModels || state.onlineModels.length === 0) {
-    el.aiGenRulesModelSelect.innerHTML = `<option value="">(未配在线模型，请去设置)</option>`;
-    el.aiGenRulesModelSelect.disabled = true;
+  const currentSelected = el.aiGenRulesModelSelect.value;
+
+  try {
+    // 1. 获取本地就绪的离线模型
+    let localModels = [];
+    try {
+      const localRes = await fetch("/api/models/local");
+      if (localRes.ok) localModels = await localRes.json();
+    } catch (_) {}
+
+    const availableOfflineModels = new Set(localModels);
+    if (state.modelPresets) {
+      state.modelPresets.filter((m) => m.is_downloaded).forEach((m) => availableOfflineModels.add(m.filename));
+    }
+
+    // 2. 获取已配置的在线大模型
+    if (!state.onlineModels || state.onlineModels.length === 0) {
+      try {
+        const onlineRes = await fetch("/api/settings/online-models");
+        if (onlineRes.ok) state.onlineModels = await onlineRes.json();
+      } catch (_) {}
+    }
+
+    const hasOffline = availableOfflineModels.size > 0;
+    const hasOnline = state.onlineModels && state.onlineModels.length > 0;
+
+    if (!hasOffline && !hasOnline) {
+      el.aiGenRulesModelSelect.innerHTML = `<option value="">无就绪模型 (前往设置添加)</option>`;
+      el.aiGenRulesModelSelect.disabled = true;
+      syncAiGenRulesModelSelectUi();
+      return;
+    }
+
+    el.aiGenRulesModelSelect.disabled = false;
+    let optionsHtml = "";
+
+    // 离线端侧模型分组
+    if (hasOffline) {
+      optionsHtml += `<optgroup label="离线端侧模型">`;
+      availableOfflineModels.forEach((file) => {
+        const displayName = getModelFriendlyName(file);
+        optionsHtml += `<option value="offline:${escapeHtml(file)}" data-name="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
+
+    // 在线云端模型分组
+    if (hasOnline) {
+      optionsHtml += `<optgroup label="在线云端模型 (API)">`;
+      state.onlineModels.forEach((m) => {
+        const key = `online:${m.id}`;
+        const displayName = m.name || m.model_id || "在线模型";
+        optionsHtml += `<option value="${escapeHtml(key)}" data-name="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
+
+    el.aiGenRulesModelSelect.innerHTML = optionsHtml;
+
+    // 默认选中策略：
+    // 1) 维持用户在此抽屉中的选择
+    // 2) 若主栏底部当前选了特定模型 (如 offline:xxx 或 online:xxx)，跟从主栏
+    // 3) 若有当前运行中的离线模型，选当前离线模型
+    // 4) 若有激活的在线模型，选在线模型
+    // 5) 默认选首个就绪的离线模型或在线模型
+    const footerVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+    let targetToSelect = "";
+
+    if (currentSelected && el.aiGenRulesModelSelect.querySelector(`option[value="${currentSelected}"]`)) {
+      targetToSelect = currentSelected;
+    } else if (footerVal && footerVal !== "offline:dual_engine" && el.aiGenRulesModelSelect.querySelector(`option[value="${footerVal}"]`)) {
+      targetToSelect = footerVal;
+    } else if (state.activeModelName && availableOfflineModels.has(state.activeModelName)) {
+      targetToSelect = `offline:${state.activeModelName}`;
+    } else if (state.activeOnlineModelId && state.onlineModels?.some(m => m.id === state.activeOnlineModelId)) {
+      targetToSelect = `online:${state.activeOnlineModelId}`;
+    } else if (hasOffline) {
+      targetToSelect = `offline:${Array.from(availableOfflineModels)[0]}`;
+    } else if (hasOnline) {
+      targetToSelect = `online:${state.onlineModels[0].id}`;
+    }
+
+    if (targetToSelect) {
+      el.aiGenRulesModelSelect.value = targetToSelect;
+    }
     syncAiGenRulesModelSelectUi();
-    return;
+  } catch (e) {
+    console.error("填充AI规则生成模型下拉失败:", e);
   }
-  el.aiGenRulesModelSelect.disabled = false;
-  el.aiGenRulesModelSelect.innerHTML = state.onlineModels
-    .map(
-      (m) =>
-        `<option value="${escapeHtml(m.id)}" ${
-          m.id === state.activeOnlineModelId ? "selected" : ""
-        }>${escapeHtml(m.name)}</option>`
-    )
-    .join("");
-  syncAiGenRulesModelSelectUi();
 }
 
 async function handleAiGenerateRules() {
@@ -3244,11 +3404,26 @@ async function triggerExtraction() {
     return;
   }
 
-  let targetModel = modelIdentifier;
-  if (!targetModel || !availableModels.includes(targetModel)) {
-    targetModel = availableModels[0];
-    if (el.footerModelSelect) {
-      el.footerModelSelect.value = `offline:${targetModel}`;
+  const isDualEngine = (modelIdentifier === "dual_engine");
+  let targetModel = "";
+
+  if (isDualEngine) {
+    // 协同引擎模式：初筛基座优先拉起 Qwen3.5，若无则回退 MiniCPM 或首个可用模型
+    if (availableModels.includes("Qwen3.5-text-0.8B-Q6_K.gguf")) {
+      targetModel = "Qwen3.5-text-0.8B-Q6_K.gguf";
+    } else if (availableModels.includes("MiniCPM5-2B-Q4_K_M.gguf")) {
+      targetModel = "MiniCPM5-2B-Q4_K_M.gguf";
+    } else {
+      targetModel = availableModels[0];
+    }
+  } else {
+    // 独立端侧模型：严格使用用户选中的单个模型
+    targetModel = modelIdentifier;
+    if (!availableModels.includes(targetModel)) {
+      targetModel = availableModels[0];
+      if (el.footerModelSelect) {
+        el.footerModelSelect.value = `offline:${targetModel}`;
+      }
     }
   }
 
@@ -3280,6 +3455,7 @@ async function triggerExtraction() {
         fields: getCleanRulesPayload(),
         use_ai: true,
         model_type: "offline",
+        offline_model_name: isDualEngine ? "dual_engine" : targetModel,
         custom_prompt: state.customPromptTemplate,
       }),
     });
@@ -3679,7 +3855,7 @@ function switchSettingsTab(tabName) {
 
   if (tabName === "model") {
     if (el.tabSetModelBtn) el.tabSetModelBtn.classList.add("active");
-    if (el.paneSetModel) el.paneSetModel.style.display = "block";
+    if (el.paneSetModel) el.paneSetModel.style.display = "flex";
     loadModelPresets();
   } else if (tabName === "online-ai") {
     if (el.tabSetOnlineAiBtn) el.tabSetOnlineAiBtn.classList.add("active");
@@ -4194,12 +4370,29 @@ async function initPromptSettings() {
   await populatePromptTargetModelSelect();
 }
 
+function getModelFriendlyName(modelKey) {
+  if (!modelKey) return "未指定模型";
+  if (modelKey.startsWith("online:")) {
+    const id = modelKey.slice("online:".length);
+    const m = state.onlineModels?.find(x => x.id === id);
+    return m ? (m.name || m.model_id) : "在线模型";
+  }
+  let cleanKey = modelKey;
+  if (cleanKey.startsWith("offline:")) cleanKey = cleanKey.slice("offline:".length);
+  if (cleanKey.startsWith("local:")) cleanKey = cleanKey.slice("local:".length);
+  if (cleanKey === "Qwen3.5-text-0.8B-Q6_K.gguf") return "Qwen3.5-0.8B";
+  if (cleanKey === "MiniCPM5-2B-Q4_K_M.gguf") return "MiniCPM5-2B";
+  if (cleanKey === "dual_engine") return "端侧快慢协同引擎";
+  return cleanKey;
+}
+
 // 动态填充提示词面板中的目标模型下拉列表
 async function populatePromptTargetModelSelect() {
   if (!el.promptTargetModelSelect) return;
   const currentSelected = el.promptTargetModelSelect.value;
 
   try {
+    // 1. 获取离线模型
     const localRes = await fetch("/api/models/local");
     const localModels = localRes.ok ? await localRes.json() : [];
 
@@ -4208,8 +4401,19 @@ async function populatePromptTargetModelSelect() {
       state.modelPresets.filter((m) => m.is_downloaded).forEach((m) => availableModels.add(m.filename));
     }
 
-    if (availableModels.size === 0) {
-      el.promptTargetModelSelect.innerHTML = `<option value="">无就绪模型 (前往离线模型导入)</option>`;
+    // 2. 获取在线模型
+    if (!state.onlineModels || state.onlineModels.length === 0) {
+      try {
+        const onlineRes = await fetch("/api/settings/online-models");
+        if (onlineRes.ok) state.onlineModels = await onlineRes.json();
+      } catch (_) {}
+    }
+
+    const hasOffline = availableModels.size > 0;
+    const hasOnline = state.onlineModels && state.onlineModels.length > 0;
+
+    if (!hasOffline && !hasOnline) {
+      el.promptTargetModelSelect.innerHTML = `<option value="">无就绪模型 (前往设置添加)</option>`;
       el.promptTargetModelSelect.disabled = true;
       if (el.promptModelSizeBadge) el.promptModelSizeBadge.innerText = "未就绪";
       syncPromptTargetModelSelectUi();
@@ -4219,19 +4423,43 @@ async function populatePromptTargetModelSelect() {
     el.promptTargetModelSelect.disabled = false;
 
     let optionsHtml = "";
-    availableModels.forEach((file) => {
-      const isRunning = state.activeModelName === file;
-      optionsHtml += `<option value="${escapeHtml(file)}">${escapeHtml(file)}${isRunning ? " (当前运行中)" : ""}</option>`;
-    });
+
+    // 离线端侧模型分组
+    if (hasOffline) {
+      optionsHtml += `<optgroup label="离线端侧模型">`;
+      availableModels.forEach((file) => {
+        const displayName = getModelFriendlyName(file);
+        optionsHtml += `<option value="${escapeHtml(file)}" data-name="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
+
+    // 在线云端模型分组
+    if (hasOnline) {
+      optionsHtml += `<optgroup label="在线云端模型 (API)">`;
+      state.onlineModels.forEach((m) => {
+        const key = `online:${m.id}`;
+        const displayName = m.name || m.model_id || "在线模型";
+        optionsHtml += `<option value="${escapeHtml(key)}" data-name="${escapeHtml(displayName)}">${escapeHtml(displayName)}</option>`;
+      });
+      optionsHtml += `</optgroup>`;
+    }
 
     el.promptTargetModelSelect.innerHTML = optionsHtml;
 
-    // 默认优先选中当前运行中的模型，或者之前选中的模型，或者第一项
-    let targetToLoad = localModels[0] || Array.from(availableModels)[0];
-    if (state.activeModelName && availableModels.has(state.activeModelName)) {
-      targetToLoad = state.activeModelName;
-    } else if (currentSelected && availableModels.has(currentSelected)) {
+    // 默认优先选中当前运行中/选中的离线或在线模型
+    let targetToLoad = "";
+    const activeOnlineKey = state.activeOnlineModelId ? `online:${state.activeOnlineModelId}` : "";
+    if (currentSelected && (availableModels.has(currentSelected) || (currentSelected.startsWith("online:") && state.onlineModels?.some(m => `online:${m.id}` === currentSelected)))) {
       targetToLoad = currentSelected;
+    } else if (state.activeModelName && availableModels.has(state.activeModelName)) {
+      targetToLoad = state.activeModelName;
+    } else if (activeOnlineKey && state.onlineModels?.some(m => m.id === state.activeOnlineModelId)) {
+      targetToLoad = activeOnlineKey;
+    } else if (hasOffline) {
+      targetToLoad = Array.from(availableModels)[0];
+    } else if (hasOnline) {
+      targetToLoad = `online:${state.onlineModels[0].id}`;
     }
 
     el.promptTargetModelSelect.value = targetToLoad;
@@ -4255,9 +4483,9 @@ function closePromptTargetModelDropdown() {
 function syncPromptTargetModelSelectUi() {
   if (!el.promptTargetModelSelect) return;
   const currentVal = el.promptTargetModelSelect.value;
-  const opt = Array.from(el.promptTargetModelSelect.options).find((o) => o.value === currentVal)
+  const opt = Array.from(el.promptTargetModelSelect.querySelectorAll("option")).find((o) => o.value === currentVal)
     || (el.promptTargetModelSelect.selectedOptions ? el.promptTargetModelSelect.selectedOptions[0] : null);
-  const currentText = opt ? (opt.text || opt.innerText) : (el.promptTargetModelSelect.options[0]?.text || "选择目标模型");
+  const currentText = opt ? (opt.getAttribute("data-name") || opt.text || opt.innerText) : (el.promptTargetModelSelect.options[0]?.text || "选择目标模型");
 
   if (el.promptTargetModelSelectLabel) {
     el.promptTargetModelSelectLabel.textContent = currentText;
@@ -4269,43 +4497,70 @@ function syncPromptTargetModelSelectUi() {
 
   if (el.promptTargetModelSelectList) {
     let itemsHtml = "";
-    Array.from(el.promptTargetModelSelect.options).forEach((opt) => {
-      const isSelected = opt.value === currentVal;
-      itemsHtml += `
-        <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(opt.value)}">
-          <span class="custom-select-item-text">${escapeHtml(opt.text)}</span>
-          ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
-        </button>
-      `;
+    const children = Array.from(el.promptTargetModelSelect.children);
+    children.forEach((child, index) => {
+      if (child.tagName.toLowerCase() === "optgroup") {
+        if (index > 0) {
+          itemsHtml += `<div class="custom-select-divider"></div>`;
+        }
+        itemsHtml += `<div class="custom-select-group-header">${escapeHtml(child.label || "")}</div>`;
+        Array.from(child.children).forEach((o) => {
+          const isSelected = o.value === currentVal;
+          const text = o.getAttribute("data-name") || o.text;
+          itemsHtml += `
+            <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(o.value)}">
+              <span class="custom-select-item-text">${escapeHtml(text)}</span>
+              ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+            </button>
+          `;
+        });
+      } else if (child.tagName.toLowerCase() === "option") {
+        const isSelected = child.value === currentVal;
+        const text = child.getAttribute("data-name") || child.text;
+        itemsHtml += `
+          <button type="button" class="custom-select-item ${isSelected ? "active" : ""}" data-val="${escapeHtml(child.value)}">
+            <span class="custom-select-item-text">${escapeHtml(text)}</span>
+            ${isSelected ? '<svg class="custom-select-check" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ""}
+          </button>
+        `;
+      }
     });
     el.promptTargetModelSelectList.innerHTML = itemsHtml;
   }
 }
 
 // 加载指定模型的专属提示词档案与尺寸智能标签
-async function loadTargetModelPrompt(modelFilename) {
-  if (!modelFilename) return;
+async function loadTargetModelPrompt(modelKey) {
+  if (!modelKey) return;
+
+  const isOnline = modelKey.startsWith("online:");
+  const displayName = getModelFriendlyName(modelKey);
 
   // 依据模型尺寸或名称生成智能推荐标签
   if (el.promptModelSizeBadge) {
-    const lower = modelFilename.toLowerCase();
-    if (lower.includes("qwen") || lower.includes("1.5b")) {
-      el.promptModelSizeBadge.innerText = "1.5B 轻量推荐 (极简单抽)";
-      el.promptModelSizeBadge.className = "badge primary";
-    } else if (lower.includes("lfm") || lower.includes("450m") || lower.includes("350m")) {
-      el.promptModelSizeBadge.innerText = "450M 超轻量加固 (防漂移)";
-      el.promptModelSizeBadge.className = "badge primary";
-    } else if (lower.includes("7b") || lower.includes("8b") || lower.includes("14b")) {
-      el.promptModelSizeBadge.innerText = "通用大模型推荐";
+    if (isOnline) {
+      el.promptModelSizeBadge.innerText = "在线云端大模型 (API)";
       el.promptModelSizeBadge.className = "badge primary";
     } else {
-      el.promptModelSizeBadge.innerText = "预设基准模板";
-      el.promptModelSizeBadge.className = "badge";
+      const lower = modelKey.toLowerCase();
+      if (lower.includes("qwen") || lower.includes("0.8b") || lower.includes("1.5b")) {
+        el.promptModelSizeBadge.innerText = "轻量推荐 (海选初筛)";
+        el.promptModelSizeBadge.className = "badge primary";
+      } else if (lower.includes("minicpm") || lower.includes("2b") || lower.includes("4b")) {
+        el.promptModelSizeBadge.innerText = "端侧旗舰推荐 (靶向终审)";
+        el.promptModelSizeBadge.className = "badge primary";
+      } else if (lower.includes("lfm") || lower.includes("450m") || lower.includes("350m")) {
+        el.promptModelSizeBadge.innerText = "超轻量加固 (防漂移)";
+        el.promptModelSizeBadge.className = "badge primary";
+      } else {
+        el.promptModelSizeBadge.innerText = "通用模型提示词模板";
+        el.promptModelSizeBadge.className = "badge";
+      }
     }
   }
 
   try {
-    const res = await fetch(`/api/models/${encodeURIComponent(modelFilename)}/prompt`);
+    const res = await fetch(`/api/models/${encodeURIComponent(modelKey)}/prompt`);
     if (res.ok) {
       const profile = await res.json();
       if (el.promptTemplateInput) el.promptTemplateInput.value = profile.custom_prompt || PROMPT_BASELINE_V1;
@@ -4319,8 +4574,8 @@ async function loadTargetModelPrompt(modelFilename) {
 
 // 保存当前编辑的提示词为指定模型的专属提示词
 async function saveTargetModelCustomPrompt() {
-  const modelFilename = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : state.activeModelName;
-  if (!modelFilename) {
+  const modelKey = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : (state.activeModelName || (state.activeOnlineModelId ? `online:${state.activeOnlineModelId}` : ""));
+  if (!modelKey) {
     showAlertDialog({ title: "提示", message: "请先在上方选择目标模型！", type: "info" });
     return;
   }
@@ -4336,8 +4591,10 @@ async function saveTargetModelCustomPrompt() {
     return;
   }
 
+  const displayName = getModelFriendlyName(modelKey);
+
   try {
-    const res = await fetch(`/api/models/${encodeURIComponent(modelFilename)}/prompt`, {
+    const res = await fetch(`/api/models/${encodeURIComponent(modelKey)}/prompt`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4347,10 +4604,11 @@ async function saveTargetModelCustomPrompt() {
     });
 
     if (res.ok) {
-      if (state.activeModelName === modelFilename) {
+      const currentSelectedVal = el.footerModelSelect ? el.footerModelSelect.value : "";
+      if (currentSelectedVal === `offline:${modelKey}` || currentSelectedVal === modelKey || (modelKey.startsWith("online:") && currentSelectedVal === modelKey)) {
         state.customPromptTemplate = promptText;
       }
-      showAlertDialog({ title: "保存成功", message: `已成功保存为模型 ${modelFilename} 的专属提示词！`, type: "success" });
+      showAlertDialog({ title: "保存成功", message: `已成功保存为模型「${displayName}」的专属提示词！`, type: "success" });
     } else {
       const err = await res.json();
       showAlertDialog({ title: "保存失败", message: err.error || "未知错误", type: "danger" });
@@ -4362,19 +4620,26 @@ async function saveTargetModelCustomPrompt() {
 
 // 恢复至系统为该模型推荐的默认提示词模板
 async function resetTargetModelDefaultPrompt() {
-  const modelFilename = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : state.activeModelName;
-  if (!modelFilename) return;
+  const modelKey = el.promptTargetModelSelect ? el.promptTargetModelSelect.value : (state.activeModelName || (state.activeOnlineModelId ? `online:${state.activeOnlineModelId}` : ""));
+  if (!modelKey) return;
 
-  const lower = modelFilename.toLowerCase();
+  const isOnline = modelKey.startsWith("online:");
+  const displayName = getModelFriendlyName(modelKey);
   let defaultTemplate = PROMPT_BASELINE_V1;
   let profileName = "V1_默认基准版";
 
-  if (lower.includes("qwen") || lower.includes("1.5b")) {
-    defaultTemplate = PROMPT_V4_ULTRA_COMPACT;
-    profileName = "V4_超轻量极简直接抽取版 (1.5B 推荐)";
-  } else if (lower.includes("lfm") || lower.includes("450m")) {
+  if (isOnline) {
     defaultTemplate = PROMPT_BASELINE_V1;
-    profileName = "V1_默认结构加固版 (450M 推荐)";
+    profileName = "在线云端大模型默认模板";
+  } else {
+    const lower = modelKey.toLowerCase();
+    if (lower.includes("qwen") || lower.includes("0.8b") || lower.includes("1.5b")) {
+      defaultTemplate = PROMPT_V4_ULTRA_COMPACT;
+      profileName = "V4_超轻量极简直接抽取版 (1.5B 推荐)";
+    } else if (lower.includes("minicpm") || lower.includes("2b")) {
+      defaultTemplate = PROMPT_BASELINE_V1;
+      profileName = "终审结构化高精度版 (终审推荐)";
+    }
   }
 
   if (el.promptTemplateInput) el.promptTemplateInput.value = defaultTemplate;
@@ -4383,7 +4648,7 @@ async function resetTargetModelDefaultPrompt() {
 
   // 同步写回后端
   try {
-    await fetch(`/api/models/${encodeURIComponent(modelFilename)}/prompt`, {
+    await fetch(`/api/models/${encodeURIComponent(modelKey)}/prompt`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -4391,7 +4656,7 @@ async function resetTargetModelDefaultPrompt() {
         custom_prompt: defaultTemplate,
       }),
     });
-    showAlertDialog({ title: "已恢复", message: `已成功恢复为模型 ${modelFilename} 的推荐预设模板！`, type: "success" });
+    showAlertDialog({ title: "已恢复", message: `已成功恢复为模型「${displayName}」的推荐预设模板！`, type: "success" });
   } catch (e) {
     console.error("恢复默认提示词失败:", e);
   }
@@ -4433,21 +4698,40 @@ async function populateFooterModelSelect() {
 
     let optionsHtml = "";
 
-    // 离线模型分组
+    const hasQwen = availableOfflineModels.has("Qwen3.5-text-0.8B-Q6_K.gguf");
+    const hasCpm = availableOfflineModels.has("MiniCPM5-2B-Q4_K_M.gguf");
+
+    // 分组 1: 端侧协同模式 (组合引擎)
+    if (hasQwen || hasCpm) {
+      const isDualRunning = (hasCpm && state.activeModelName === "MiniCPM5-2B-Q4_K_M.gguf") ||
+                            (hasQwen && state.activeModelName === "Qwen3.5-text-0.8B-Q6_K.gguf");
+      const comboLabel = "端侧快慢协同引擎";
+      optionsHtml += `<optgroup label="端侧组合模式 (协同引擎)">`;
+      optionsHtml += `<option value="offline:dual_engine" data-name="${escapeHtml(comboLabel)}" data-running="${isDualRunning}">${escapeHtml(comboLabel)}</option>`;
+      optionsHtml += `</optgroup>`;
+    }
+
+    // 分组 2: 独立端侧模型 (单个离线)
     if (availableOfflineModels.size > 0) {
-      optionsHtml += `<optgroup label="离线本地模型 (GGUF)">`;
+      optionsHtml += `<optgroup label="独立端侧模型 (单个离线)">`;
       availableOfflineModels.forEach((file) => {
+        let displayName = file;
+        if (file === "Qwen3.5-text-0.8B-Q6_K.gguf") {
+          displayName = "Qwen3.5-0.8B";
+        } else if (file === "MiniCPM5-2B-Q4_K_M.gguf") {
+          displayName = "MiniCPM5-2B";
+        }
         const isRunning = state.activeModelName === file;
-        optionsHtml += `<option value="offline:${escapeHtml(file)}">${escapeHtml(file)}${isRunning ? " (运行中)" : ""}</option>`;
+        optionsHtml += `<option value="offline:${escapeHtml(file)}" data-name="${escapeHtml(displayName)}" data-running="${isRunning}">${escapeHtml(displayName)}</option>`;
       });
       optionsHtml += `</optgroup>`;
     }
 
-    // 在线模型分组
+    // 分组 3: 在线云端模型 (API)
     if (state.onlineModels && state.onlineModels.length > 0) {
       optionsHtml += `<optgroup label="在线云端模型 (API)">`;
       state.onlineModels.forEach((m) => {
-        optionsHtml += `<option value="online:${escapeHtml(m.id)}">${escapeHtml(m.name)}</option>`;
+        optionsHtml += `<option value="online:${escapeHtml(m.id)}" data-name="${escapeHtml(m.name)}" data-running="false">${escapeHtml(m.name)}</option>`;
       });
       optionsHtml += `</optgroup>`;
     }
@@ -4455,10 +4739,15 @@ async function populateFooterModelSelect() {
     el.footerModelSelect.innerHTML = optionsHtml;
 
     // 选中策略
-    if (state.activeModelName && availableOfflineModels.has(state.activeModelName)) {
-      el.footerModelSelect.value = `offline:${state.activeModelName}`;
-    } else if (currentSelected && el.footerModelSelect.querySelector(`option[value="${currentSelected}"]`)) {
+    if (currentSelected && el.footerModelSelect.querySelector(`option[value="${currentSelected}"]`)) {
       el.footerModelSelect.value = currentSelected;
+    } else if (state.activeModelName && availableOfflineModels.has(state.activeModelName)) {
+      el.footerModelSelect.value = `offline:${state.activeModelName}`;
+    } else if (hasQwen || hasCpm) {
+      el.footerModelSelect.value = "offline:dual_engine";
+    } else if (availableOfflineModels.size > 0) {
+      const first = Array.from(availableOfflineModels)[0];
+      el.footerModelSelect.value = `offline:${first}`;
     } else if (state.activeOnlineModelId && state.onlineModels.some(m => m.id === state.activeOnlineModelId)) {
       el.footerModelSelect.value = `online:${state.activeOnlineModelId}`;
     }
@@ -4479,6 +4768,14 @@ function updateFooterModelStripState() {
     if (footerDot) footerDot.className = "status-indicator-dot online";
     if (footerToggle) {
       footerToggle.checked = true;
+      footerToggle.disabled = false;
+    }
+  } else if (chosenVal === "offline:dual_engine") {
+    const isRunning = state.activeModelName === "MiniCPM5-2B-Q4_K_M.gguf" ||
+                      state.activeModelName === "Qwen3.5-text-0.8B-Q6_K.gguf";
+    if (footerDot) footerDot.className = isRunning ? "status-indicator-dot online" : "status-indicator-dot offline";
+    if (footerToggle) {
+      footerToggle.checked = isRunning;
       footerToggle.disabled = false;
     }
   } else if (chosenVal.startsWith("offline:")) {
@@ -4506,13 +4803,14 @@ function syncFooterModelSelectUi() {
   const selectedVal = el.footerModelSelect.value;
   const opt = Array.from(el.footerModelSelect.querySelectorAll("option")).find((o) => o.value === selectedVal)
     || (el.footerModelSelect.selectedOptions ? el.footerModelSelect.selectedOptions[0] : null);
-  const labelText = opt ? (opt.innerText || opt.text) : (isDisabled ? "无就绪模型" : "选择模型");
+
+  const labelName = opt ? (opt.getAttribute("data-name") || opt.innerText || opt.text) : (isDisabled ? "无就绪模型" : "选择模型");
 
   if (el.footerModelLabel) {
-    el.footerModelLabel.innerText = labelText;
+    el.footerModelLabel.innerText = labelName;
   }
   if (el.footerModelBtn) {
-    el.footerModelBtn.title = `当前模型：${labelText}`;
+    el.footerModelBtn.title = `当前模型：${labelName}`;
   }
 
   if (el.footerModelList) {
@@ -4531,15 +4829,17 @@ function syncFooterModelSelectUi() {
           const opts = Array.from(child.children);
           opts.forEach((opt) => {
             const isSel = opt.value === selectedVal;
-            html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(opt.value)}" title="${escapeHtml(opt.innerText)}">
-              <span class="custom-select-item-label">${escapeHtml(opt.innerText)}</span>
+            const itemName = opt.getAttribute("data-name") || opt.innerText;
+            html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(opt.value)}" title="${escapeHtml(itemName)}">
+              <span class="custom-select-item-label">${escapeHtml(itemName)}</span>
               ${isSel ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
             </button>`;
           });
         } else if (child.tagName.toLowerCase() === "option") {
           const isSel = child.value === selectedVal;
-          html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(child.value)}" title="${escapeHtml(child.innerText)}">
-            <span class="custom-select-item-label">${escapeHtml(child.innerText)}</span>
+          const itemName = child.getAttribute("data-name") || child.innerText;
+          html += `<button type="button" class="custom-select-item ${isSel ? "active" : ""}" data-val="${escapeHtml(child.value)}" title="${escapeHtml(itemName)}">
+            <span class="custom-select-item-label">${escapeHtml(itemName)}</span>
             ${isSel ? `<span class="custom-select-item-check"><svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"></polyline></svg></span>` : ""}
           </button>`;
         }
@@ -4577,6 +4877,16 @@ async function handleFooterModelSelectChange(e) {
         body: JSON.stringify({ active_id: onlineId }),
       });
     } catch (_) {}
+  } else if (chosenVal === "offline:dual_engine") {
+    const targetFile = (state.modelPresets?.some(m => m.filename === "Qwen3.5-text-0.8B-Q6_K.gguf" && m.is_downloaded))
+      ? "Qwen3.5-text-0.8B-Q6_K.gguf"
+      : "MiniCPM5-2B-Q4_K_M.gguf";
+    if (el.footerModelToggle && el.footerModelToggle.checked && state.activeModelName !== targetFile) {
+      if (el.footerModelDot) el.footerModelDot.className = "status-indicator-dot offline";
+      await startLlamaModel(targetFile);
+    } else {
+      updateFooterModelStripState();
+    }
   } else if (chosenVal.startsWith("offline:")) {
     const chosenFile = chosenVal.slice("offline:".length);
     // 如果当前拨杆处于开启状态，且选中的不是当前正在运行的模型，则自动无缝热切换启动
@@ -4598,7 +4908,16 @@ async function handleFooterModelToggle(e) {
     return;
   }
 
-  const chosenFile = chosenVal.startsWith("offline:") ? chosenVal.slice("offline:".length) : chosenVal;
+  let chosenFile = "";
+  if (chosenVal === "offline:dual_engine") {
+    chosenFile = (state.modelPresets?.some(m => m.filename === "Qwen3.5-text-0.8B-Q6_K.gguf" && m.is_downloaded))
+      ? "Qwen3.5-text-0.8B-Q6_K.gguf"
+      : "MiniCPM5-2B-Q4_K_M.gguf";
+  } else if (chosenVal.startsWith("offline:")) {
+    chosenFile = chosenVal.slice("offline:".length);
+  } else {
+    chosenFile = chosenVal;
+  }
   const shouldStart = e.target.checked;
 
   if (shouldStart) {
@@ -5038,30 +5357,44 @@ function renderOfflineParamDrawerHtml(filename) {
     <div class="model-param-drawer ${isOpen ? "open" : ""}" id="param-drawer-${escapeHtml(filename)}">
       <div class="model-param-grid">
         <div class="model-param-cell">
-          <label>采样温度 (Temp)：</label>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <span>采样温度 (Temp)</span>
+            <span class="tooltip-badge" data-tooltip="控制输出的随机性。敏感信息审计建议 0.0~0.2 以保证严谨确定。" title="控制输出的随机性。敏感信息审计建议 0.0~0.2 以保证严谨确定。">?</span>
+          </label>
           <input type="number" class="input-text sm offline-param-temp" data-file="${escapeHtml(filename)}" min="0" max="2" step="0.05" value="${profile.temperature !== undefined ? profile.temperature : 0.1}" style="width: 100%; box-sizing: border-box;">
         </div>
         <div class="model-param-cell">
-          <label>候选范围 (Top-K)：</label>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <span>候选范围 (Top-K)</span>
+            <span class="tooltip-badge" data-tooltip="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。" title="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。">?</span>
+          </label>
           <input type="number" class="input-text sm offline-param-topk" data-file="${escapeHtml(filename)}" min="1" max="200" step="1" value="${profile.top_k !== undefined ? profile.top_k : 50}" style="width: 100%; box-sizing: border-box;">
         </div>
         <div class="model-param-cell">
-          <label>重复惩罚 (Repeat)：</label>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <span>重复惩罚 (Repeat)</span>
+            <span class="tooltip-badge align-right" data-tooltip="抑制模型输出重复词句的倾向，默认 1.1。" title="抑制模型输出重复词句的倾向，默认 1.1。">?</span>
+          </label>
           <input type="number" class="input-text sm offline-param-repeat" data-file="${escapeHtml(filename)}" min="1.0" max="2.0" step="0.05" value="${profile.repeat_penalty !== undefined ? profile.repeat_penalty : 1.1}" style="width: 100%; box-sizing: border-box;">
         </div>
         <div class="model-param-cell">
-          <label>最大Token (Max)：</label>
+          <label style="display: flex; align-items: center; gap: 4px;">
+            <span>最大Token (Max)</span>
+            <span class="tooltip-badge align-right" data-tooltip="单次推理返回的最大 Token 数量上限。" title="单次推理返回的最大 Token 数量上限。">?</span>
+          </label>
           <input type="number" class="input-text sm offline-param-maxtokens" data-file="${escapeHtml(filename)}" min="64" max="16384" step="64" value="${maxTokens}" style="width: 100%; box-sizing: border-box;">
         </div>
       </div>
       <div class="model-param-footer">
         <div class="model-param-footer-left">
-          <span style="font-size: 11px; font-weight: 500;">思考模式：</span>
+          <span style="font-size: 11px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px;">
+            <span>思考模式 (Think)</span>
+            <span class="tooltip-badge" data-tooltip="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在请求中启用思维链推理。" title="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在请求中启用思维链推理。">?</span>
+          </span>
           <button type="button" class="param-toggle-btn compact offline-param-thinking ${isThinking ? "active" : ""}" data-file="${escapeHtml(filename)}" title="点击切换是否开启 CoT 思维链深度思考推理">
             <span class="toggle-indicator">${isThinking ? "[──●]" : "[●──]"}</span>
             <span class="toggle-text">${isThinking ? "已开启" : "未开启"}</span>
           </button>
-          <span class="model-param-tip">(针对推理模型)</span>
         </div>
         <div style="display: flex; align-items: center; gap: 8px;">
           <div class="model-param-status-text" id="param-status-${escapeHtml(filename)}">参数已绑定该模型</div>
@@ -5176,7 +5509,7 @@ async function loadModelPresets() {
       const localModels = await localRes.json();
       if (el.localModelsList) {
         if (localModels.length === 0) {
-          el.localModelsList.innerHTML = `<div style="font-size: 11px; color: var(--text-mute); padding: 4px 0;">models/ 目录下暂无本地模型，请点击上方「选取本地 GGUF 模型」添加</div>`;
+          el.localModelsList.innerHTML = `<div style="font-size: 11px; color: var(--text-mute); padding: 4px 0;">暂无自定义模型 (支持从磁盘直接导入第三方 GGUF 模型)</div>`;
         } else {
           el.localModelsList.innerHTML = localModels
             .map((m) => {
@@ -5233,85 +5566,284 @@ async function loadModelPresets() {
   }
 }
 
-// 渲染模型列表
+// 方案三：核心双模型协同套件下载队列
+let suiteDownloadQueue = [];
+
+// 启动核心双模型协同套件下载
+async function startCoreSuiteDownload() {
+  const qwen = state.modelPresets?.find(m => m.id === "qwen3.5-text-0.8b-q6_k");
+  const cpm = state.modelPresets?.find(m => m.id === "minicpm5-2b-q4_k_m");
+
+  suiteDownloadQueue = [];
+  if (!qwen || !qwen.is_downloaded) suiteDownloadQueue.push("qwen3.5-text-0.8b-q6_k");
+  if (!cpm || !cpm.is_downloaded) suiteDownloadQueue.push("minicpm5-2b-q4_k_m");
+
+  if (suiteDownloadQueue.length === 0) {
+    showToast("核心快慢双模型套件已全部就绪！", "info");
+    return;
+  }
+
+  if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "flex";
+  if (el.coreProgressLabel) el.coreProgressLabel.innerText = "正在连接 ModelScope 镜像拉取组件...";
+  if (el.coreProgressBarFill) el.coreProgressBarFill.style.width = "0%";
+
+  renderModelPresets();
+  const firstId = suiteDownloadQueue[0];
+  await startDownload(firstId);
+}
+
+// 取消核心双模型套件下载
+async function cancelCoreSuiteDownload() {
+  suiteDownloadQueue = [];
+  const promises = [];
+  if (state.downloadingModels?.has("qwen3.5-text-0.8b-q6_k")) {
+    promises.push(cancelDownload("qwen3.5-text-0.8b-q6_k"));
+  }
+  if (state.downloadingModels?.has("minicpm5-2b-q4_k_m")) {
+    promises.push(cancelDownload("minicpm5-2b-q4_k_m"));
+  }
+  await Promise.all(promises);
+  if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "none";
+  renderModelPresets();
+}
+
+// 首次运行向导相关逻辑 (方案三)
+function checkFirstLaunchOnboarding() {
+  const dismissed = localStorage.getItem("sensidoc_onboarding_shown");
+  if (dismissed === "true") return;
+
+  const qwen = state.modelPresets?.find(m => m.id === "qwen3.5-text-0.8b-q6_k");
+  const cpm = state.modelPresets?.find(m => m.id === "minicpm5-2b-q4_k_m");
+  const allReady = qwen?.is_downloaded && cpm?.is_downloaded;
+
+  if (!allReady) {
+    showFirstLaunchModal();
+  }
+}
+
+function showFirstLaunchModal() {
+  if (el.firstLaunchModal) {
+    el.firstLaunchModal.style.display = "flex";
+    el.firstLaunchModal.classList.add("open");
+    updateFirstLaunchSummary();
+  }
+}
+
+function hideFirstLaunchModal() {
+  if (el.firstLaunchModal) {
+    el.firstLaunchModal.classList.remove("open");
+    el.firstLaunchModal.style.display = "none";
+  }
+}
+
+function updateFirstLaunchSummary() {
+  const hasCore = el.flCheckCore?.checked;
+  const hasOcr = el.flCheckOcr?.checked;
+
+  if (el.flCardCore) el.flCardCore.classList.toggle("selected", !!hasCore);
+  if (el.flCardOcr) el.flCardOcr.classList.toggle("selected", !!hasOcr);
+
+  let text = "";
+  let totalCount = (hasCore ? 1 : 0) + (hasOcr ? 1 : 0);
+  if (hasCore && hasOcr) {
+    text = "已选组件: 2 项 (约 2.14 GB)";
+  } else if (hasCore) {
+    text = "已选组件: 1 项 (约 2.1 GB)";
+  } else if (hasOcr) {
+    text = "已选组件: 1 项 (约 37.2 MB)";
+  } else {
+    text = "已选组件: 0 项 (请至少选择一项)";
+  }
+
+  if (el.flTotalSizeTip) el.flTotalSizeTip.innerText = text;
+  if (el.flDownloadBtn) el.flDownloadBtn.disabled = totalCount === 0;
+}
+
+async function handleFirstLaunchDownload() {
+  const hasCore = el.flCheckCore?.checked;
+  const hasOcr = el.flCheckOcr?.checked;
+  if (!hasCore && !hasOcr) return;
+
+  localStorage.setItem("sensidoc_onboarding_shown", "true");
+
+  if (el.flProgressArea) el.flProgressArea.style.display = "flex";
+  if (el.flDownloadBtn) el.flDownloadBtn.disabled = true;
+  if (el.flCancelBtn) el.flCancelBtn.disabled = true;
+  if (el.flCheckCore) el.flCheckCore.disabled = true;
+  if (el.flCheckOcr) el.flCheckOcr.disabled = true;
+
+  if (hasOcr) {
+    startOcrDownload();
+  }
+  if (hasCore) {
+    startCoreSuiteDownload();
+  }
+}
+
+// 绑定方案三模块化卡片与首次向导的事件
+function initModularEngineEvents() {
+  if (el.downloadCoreSuiteBtn) el.downloadCoreSuiteBtn.addEventListener("click", startCoreSuiteDownload);
+  if (el.cancelCoreSuiteBtn) el.cancelCoreSuiteBtn.addEventListener("click", cancelCoreSuiteDownload);
+  if (el.unloadCoreSuiteBtn) el.unloadCoreSuiteBtn.addEventListener("click", stopLlamaModel);
+
+  // 首次运行向导交互事件
+  if (el.firstLaunchSkipBtn) {
+    el.firstLaunchSkipBtn.addEventListener("click", () => {
+      localStorage.setItem("sensidoc_onboarding_shown", "true");
+      hideFirstLaunchModal();
+    });
+  }
+  if (el.flCancelBtn) {
+    el.flCancelBtn.addEventListener("click", () => {
+      localStorage.setItem("sensidoc_onboarding_shown", "true");
+      hideFirstLaunchModal();
+    });
+  }
+
+  if (el.flCardCore && el.flCheckCore) {
+    el.flCardCore.addEventListener("click", (e) => {
+      if (e.target !== el.flCheckCore) {
+        el.flCheckCore.checked = !el.flCheckCore.checked;
+      }
+      updateFirstLaunchSummary();
+    });
+    el.flCheckCore.addEventListener("change", updateFirstLaunchSummary);
+  }
+
+  if (el.flCardOcr && el.flCheckOcr) {
+    el.flCardOcr.addEventListener("click", (e) => {
+      if (e.target !== el.flCheckOcr) {
+        el.flCheckOcr.checked = !el.flCheckOcr.checked;
+      }
+      updateFirstLaunchSummary();
+    });
+    el.flCheckOcr.addEventListener("change", updateFirstLaunchSummary);
+  }
+
+  if (el.flDownloadBtn) {
+    el.flDownloadBtn.addEventListener("click", handleFirstLaunchDownload);
+  }
+}
+
+// 方案三：渲染模块化模型卡片 (核心快慢协同套件 + 子模型参数抽屉)
 function renderModelPresets() {
-  if (!el.modelPresetsList) return;
-  el.modelPresetsList.innerHTML = "";
+  if (!state.modelPresets) return;
 
-  state.modelPresets.forEach((m) => {
-    const item = document.createElement("div");
-    item.className = "model-preset-item";
-    item.id = `preset-box-${m.id}`;
+  const qwen = state.modelPresets.find(m => m.id === "qwen3.5-text-0.8b-q6_k");
+  const cpm = state.modelPresets.find(m => m.id === "minicpm5-2b-q4_k_m");
 
-    const isActive = state.activeModelName === m.filename || m.is_active;
-    const isStarting = state.startingModel === m.filename;
-    const isDownloading = m.is_downloading || (state.downloadingModels && state.downloadingModels.has(m.id));
-    const isDrawerOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(m.filename);
+  const qwenDownloaded = qwen && qwen.is_downloaded;
+  const cpmDownloaded = cpm && cpm.is_downloaded;
+  const allDownloaded = qwenDownloaded && cpmDownloaded;
+  const isDownloading = (qwen && (qwen.is_downloading || state.downloadingModels?.has(qwen.id))) ||
+                        (cpm && (cpm.is_downloading || state.downloadingModels?.has(cpm.id)));
+  const isRunning = (qwen && (state.activeModelName === qwen.filename || qwen.is_active)) ||
+                    (cpm && (state.activeModelName === cpm.filename || cpm.is_active));
 
-    item.innerHTML = `
-      <div class="model-preset-main-row">
-        <div style="flex: 1; min-width: 0;">
-          <div class="model-info-title">${escapeHtml(m.name)} <span style="font-size: 11px; font-weight: normal; color: var(--text-dim);">(${escapeHtml(m.size_desc)})</span></div>
-          <div class="model-info-desc">${escapeHtml(m.description)}</div>
-          <div class="progress-bar-wrap" id="prog-wrap-${m.id}" style="${isDownloading ? "display: block;" : ""}">
-            <div class="progress-bar-fill" id="prog-fill-${m.id}"></div>
-          </div>
-          <div id="prog-text-${m.id}" style="font-size: 10px; color: var(--text-mute); margin-top: 4px; display: ${isDownloading ? "block;" : "none;"}"></div>
-        </div>
-        <div class="model-action-wrap" style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-          ${
-            m.is_downloaded
-              ? `
-                <button type="button" class="btn sm toggle-params-btn ${isDrawerOpen ? "active" : ""}" data-file="${escapeHtml(m.filename)}" title="展开/收起推理参数配置" style="display: inline-flex; align-items: center; gap: 4px; padding: 4px 8px; font-size: 11px;">
-                  <svg class="lucide-icon xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
+  // 1. 更新卡片 1 核心引擎状态药丸与操作按钮
+  if (el.coreModelStatusPill) {
+    if (allDownloaded) {
+      el.coreModelStatusPill.style.display = "inline-flex";
+      el.coreModelStatusPill.className = "module-status-pill ready";
+      el.coreModelStatusPill.innerText = isRunning ? "● 运行中" : "● 已就绪";
+    } else if (isDownloading) {
+      el.coreModelStatusPill.style.display = "inline-flex";
+      el.coreModelStatusPill.className = "module-status-pill downloading";
+      el.coreModelStatusPill.innerText = "↓ 下载中...";
+    } else {
+      el.coreModelStatusPill.style.display = "none";
+    }
+  }
+
+  if (el.downloadCoreSuiteBtn) {
+    el.downloadCoreSuiteBtn.style.display = (!allDownloaded && !isDownloading) ? "inline-flex" : "none";
+    if (!allDownloaded && !isDownloading) {
+      if (!qwenDownloaded && !cpmDownloaded) {
+        el.downloadCoreSuiteBtn.innerText = "一键下载协同套件 (~2.1 GB)";
+      } else if (!cpmDownloaded) {
+        el.downloadCoreSuiteBtn.innerText = "下载终审模型 (~1.5 GB)";
+      } else if (!qwenDownloaded) {
+        el.downloadCoreSuiteBtn.innerText = "下载初筛模型 (~601 MB)";
+      }
+    }
+  }
+  if (el.cancelCoreSuiteBtn) {
+    el.cancelCoreSuiteBtn.style.display = isDownloading ? "inline-flex" : "none";
+  }
+  if (el.unloadCoreSuiteBtn) {
+    el.unloadCoreSuiteBtn.style.display = isRunning ? "inline-flex" : "none";
+  }
+
+  // 2. 渲染卡片 1 内的子模型列表与超参数抽屉
+  if (el.coreSubmodelsList) {
+    const submodels = [
+      {
+        preset: qwen,
+        roleTitle: "海选初筛 (Fast)",
+        modelName: "Qwen3.5-0.8B",
+        sizeDesc: "~601 MB",
+        defaultFilename: "Qwen3.5-text-0.8B-Q6_K.gguf",
+        defaultId: "qwen3.5-text-0.8b-q6_k"
+      },
+      {
+        preset: cpm,
+        roleTitle: "靶向终审 (Slow)",
+        modelName: "MiniCPM5-2B",
+        sizeDesc: "~1.5 GB",
+        defaultFilename: "MiniCPM5-2B-Q4_K_M.gguf",
+        defaultId: "minicpm5-2b-q4_k_m"
+      }
+    ];
+
+    el.coreSubmodelsList.innerHTML = submodels.map(sub => {
+      const m = sub.preset;
+      const filename = m ? m.filename : sub.defaultFilename;
+      const isSubDownloaded = m ? m.is_downloaded : false;
+      const isSubDownloading = (m && m.is_downloading) || (state.downloadingModels && state.downloadingModels.has(sub.defaultId));
+      const isDrawerOpen = state.expandedModelDrawers && state.expandedModelDrawers.has(filename);
+
+      return `
+        <div class="submodel-mini-item" id="submodel-card-${escapeHtml(sub.defaultId)}">
+          <div class="submodel-mini-header">
+            <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
+              <span style="font-size: 12px; font-weight: 600; color: var(--text);">${escapeHtml(sub.roleTitle)}</span>
+              <span style="font-size: 11.5px; color: var(--text-dim); font-family: var(--font-mono, monospace);">${escapeHtml(sub.modelName)}</span>
+              <span style="font-size: 11px; color: var(--text-mute);">(${escapeHtml(sub.sizeDesc)})</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+              ${isSubDownloaded ? `
+                <button type="button" class="btn sm toggle-params-btn ${isDrawerOpen ? "active" : ""}" data-file="${escapeHtml(filename)}" title="展开/收起推理参数配置" style="font-size: 11px; padding: 2.5px 7px;">
                   <span>参数</span>
-                  <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
                 </button>
-                ${
-                  isActive
-                    ? `<button class="btn sm stop-model-btn" data-file="${escapeHtml(m.filename)}" style="border-color: var(--danger); color: var(--danger);" title="点击停止当前模型运行">关闭运行</button>`
-                    : isStarting
-                    ? `<button class="btn primary sm loading" disabled style="display: inline-flex; align-items: center; gap: 5px;"><svg class="lucide-icon spin xs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"></path></svg> 载入中...</button>`
-                    : `<button class="btn primary sm start-model-btn" data-file="${escapeHtml(m.filename)}">启动</button>`
-                }
-              `
-              : isDownloading
-              ? `<button class="btn sm cancel-download-btn" data-id="${m.id}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08);" title="点击取消下载并清除本地缓存">取消</button>`
-              : `<button class="btn sm download-model-btn" data-id="${m.id}">下载</button>`
-          }
+                <span class="module-status-pill ready" style="font-size: 11px; padding: 2.5px 8px;">● 已就绪</span>
+              ` : isSubDownloading ? `
+                <span class="module-status-pill downloading" style="font-size: 11px; padding: 2.5px 8px;">↓ 下载中</span>
+                <button type="button" class="btn sm cancel-submodel-btn" data-id="${escapeHtml(sub.defaultId)}" style="border-color: var(--danger); color: var(--danger); background: rgba(239, 68, 68, 0.08); font-size: 11px; padding: 2px 7px;" title="点击取消下载">取消</button>
+              ` : `
+                <button type="button" class="btn sm primary download-submodel-btn" data-id="${escapeHtml(sub.defaultId)}" style="font-size: 11px; padding: 2.5px 8px;" title="下载此模型">下载</button>
+              `}
+            </div>
+          </div>
+          ${isSubDownloaded ? renderOfflineParamDrawerHtml(filename) : ""}
         </div>
-      </div>
-      ${m.is_downloaded ? renderOfflineParamDrawerHtml(m.filename) : ""}
-    `;
+      `;
+    }).join("");
 
-    // 绑定下载
-    const dlBtn = item.querySelector(".download-model-btn");
-    if (dlBtn) {
-      dlBtn.addEventListener("click", () => startDownload(m.id));
-    }
+    bindOfflineParamDrawerEvents(el.coreSubmodelsList);
 
-    // 绑定取消下载
-    const cancelBtn = item.querySelector(".cancel-download-btn");
-    if (cancelBtn) {
-      cancelBtn.addEventListener("click", () => cancelDownload(m.id));
-    }
+    el.coreSubmodelsList.querySelectorAll(".download-submodel-btn").forEach(btn => {
+      btn.addEventListener("click", () => startDownload(btn.getAttribute("data-id")));
+    });
+    el.coreSubmodelsList.querySelectorAll(".cancel-submodel-btn").forEach(btn => {
+      btn.addEventListener("click", () => cancelDownload(btn.getAttribute("data-id")));
+    });
+  }
 
-    // 绑定启动
-    const startBtn = item.querySelector(".start-model-btn");
-    if (startBtn) {
-      startBtn.addEventListener("click", () => startLlamaModel(m.filename));
-    }
-
-    // 绑定停止
-    const stopBtn = item.querySelector(".stop-model-btn");
-    if (stopBtn) {
-      stopBtn.addEventListener("click", () => stopLlamaModel());
-    }
-
-    el.modelPresetsList.appendChild(item);
-  });
-
-  bindOfflineParamDrawerEvents(el.modelPresetsList);
+  // 兼容老布局元素 (若存在)
+  if (el.modelPresetsList) {
+    el.modelPresetsList.innerHTML = "";
+  }
 }
 
 // 停止模型运行
@@ -5407,6 +5939,9 @@ function updatePresetCardDownloadState(modelId, isDownloading) {
   } else {
     state.downloadingModels.delete(modelId);
   }
+
+  // 同步刷新协同套件与子模型卡片按钮
+  renderModelPresets();
 
   const presetBox = document.getElementById(`preset-box-${modelId}`);
   if (!presetBox) return;
@@ -5536,7 +6071,7 @@ function initSSEForDownloads() {
           el.ocrProgressStats.innerText = `${data.percent.toFixed(1)}% (${dlMb}MB / ${totalMb}MB · ${data.speed_mb.toFixed(1)} MB/s)`;
         }
         if (el.ocrStatusPill) {
-          el.ocrStatusPill.className = "ocr-status-pill downloading";
+          el.ocrStatusPill.className = "ocr-status-pill module-status-pill downloading";
           el.ocrStatusPill.innerText = `↓ 下载中 ${data.percent.toFixed(0)}%`;
         }
 
@@ -5574,6 +6109,8 @@ function initSSEForDownloads() {
     const fill = document.getElementById(`prog-fill-${data.model_id}`);
     const text = document.getElementById(`prog-text-${data.model_id}`);
 
+    const isCoreModel = data.model_id === "qwen3.5-text-0.8b-q6_k" || data.model_id === "minicpm5-2b-q4_k_m";
+
     if (data.status === "downloading") {
       // 只要处于下载阶段，持续确保按钮是红色的“取消”按钮
       const presetBox = document.getElementById(`preset-box-${data.model_id}`);
@@ -5595,8 +6132,46 @@ function initSSEForDownloads() {
         const mbTotal = (data.total_bytes / (1024 * 1024)).toFixed(1);
         text.innerText = `下载进度: ${data.percent.toFixed(1)}% (${mbDl}MB / ${mbTotal}MB) · ${data.speed_mb.toFixed(1)} MB/s`;
       }
+
+      // 方案三：同步核心引擎卡片进度
+      if (isCoreModel) {
+        if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "flex";
+        if (el.coreProgressBarFill) el.coreProgressBarFill.style.width = `${data.percent.toFixed(1)}%`;
+        const mbDl = (data.downloaded_bytes / (1024 * 1024)).toFixed(1);
+        const mbTotal = (data.total_bytes / (1024 * 1024)).toFixed(1);
+        if (el.coreProgressStats) {
+          el.coreProgressStats.innerText = `${data.percent.toFixed(1)}% (${mbDl}MB / ${mbTotal}MB · ${data.speed_mb.toFixed(1)} MB/s)`;
+        }
+        if (el.coreProgressLabel) {
+          const name = data.model_id.includes("0.8b") ? "Qwen3.5-0.8B (极速海选)" : "MiniCPM5-2B (靶向终审)";
+          el.coreProgressLabel.innerText = `正在下载核心组件: ${name}...`;
+        }
+        if (el.coreModelStatusPill) {
+          el.coreModelStatusPill.className = "module-status-pill downloading";
+          el.coreModelStatusPill.innerText = `↓ 下载中 ${data.percent.toFixed(0)}%`;
+        }
+        if (el.downloadCoreSuiteBtn) el.downloadCoreSuiteBtn.style.display = "none";
+        if (el.cancelCoreSuiteBtn) el.cancelCoreSuiteBtn.style.display = "inline-flex";
+
+        // 同步首次向导中的进度条
+        if (el.firstLaunchModal && el.firstLaunchModal.style.display !== "none") {
+          if (el.flProgressArea) el.flProgressArea.style.display = "flex";
+          if (el.flProgressBarFill) el.flProgressBarFill.style.width = `${data.percent.toFixed(1)}%`;
+          if (el.flProgressStats) {
+            el.flProgressStats.innerText = `${data.percent.toFixed(1)}% (${mbDl}MB / ${mbTotal}MB · ${data.speed_mb.toFixed(1)} MB/s)`;
+          }
+          if (el.flProgressLabel) {
+            const name = data.model_id.includes("0.8b") ? "Qwen3.5-0.8B (初筛)" : "MiniCPM5-2B (终审)";
+            el.flProgressLabel.innerText = `正在下载核心套件: ${name}...`;
+          }
+        }
+      }
     } else if (data.status === "canceled") {
       updatePresetCardDownloadState(data.model_id, false);
+      if (isCoreModel) {
+        suiteDownloadQueue = [];
+        if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "none";
+      }
       await loadModelPresets();
       const afterText = document.getElementById(`prog-text-${data.model_id}`);
       if (afterText) {
@@ -5612,14 +6187,44 @@ function initSSEForDownloads() {
       if (wrap) wrap.style.display = "block";
       if (fill) fill.style.width = "100%";
       if (text) text.innerText = "下载完成，校验成功！";
+
+      if (isCoreModel) {
+        suiteDownloadQueue = suiteDownloadQueue.filter(id => id !== data.model_id);
+        if (suiteDownloadQueue.length > 0) {
+          const nextId = suiteDownloadQueue[0];
+          setTimeout(() => {
+            startDownload(nextId);
+          }, 500);
+        } else {
+          if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "none";
+          showToast("核心快慢双模型套件已全部下载就绪！", "success");
+          if (el.firstLaunchModal && el.firstLaunchModal.style.display !== "none") {
+            if (el.flProgressLabel) el.flProgressLabel.innerText = "全部选中模块准备就绪！";
+            setTimeout(() => {
+              hideFirstLaunchModal();
+            }, 1200);
+          }
+        }
+      }
+
       setTimeout(async () => {
         await loadModelPresets();
       }, 1000);
     } else if (data.status === "failed") {
       updatePresetCardDownloadState(data.model_id, false);
+      if (isCoreModel) {
+        suiteDownloadQueue = [];
+        if (el.coreDownloadProgressWrap) el.coreDownloadProgressWrap.style.display = "none";
+      }
       if (text) {
         text.style.display = "block";
         text.innerText = `下载失败: ${data.error || "网络中断"}`;
+      }
+      if (el.firstLaunchModal && el.firstLaunchModal.style.display !== "none") {
+        if (el.flDownloadBtn) el.flDownloadBtn.disabled = false;
+        if (el.flCancelBtn) el.flCancelBtn.disabled = false;
+        if (el.flCheckCore) el.flCheckCore.disabled = false;
+        if (el.flCheckOcr) el.flCheckOcr.disabled = false;
       }
       setTimeout(async () => {
         await loadModelPresets();
@@ -5818,12 +6423,13 @@ async function checkOcrStatus() {
     if (!el.ocrStatusPill) return;
 
     if (isReady) {
-      el.ocrStatusPill.className = "ocr-status-pill ready";
+      el.ocrStatusPill.style.display = "inline-flex";
+      el.ocrStatusPill.className = "ocr-status-pill module-status-pill ready";
       if (isLoaded) {
-        el.ocrStatusPill.innerText = "● 运行中 (空闲3分钟自动释放)";
+        el.ocrStatusPill.innerText = "● 运行中";
         if (el.ocrUnloadBtn) el.ocrUnloadBtn.style.display = "inline-flex";
       } else {
-        el.ocrStatusPill.innerText = "● 已就绪 (未占内存·按需加载)";
+        el.ocrStatusPill.innerText = "● 已就绪";
         if (el.ocrUnloadBtn) el.ocrUnloadBtn.style.display = "none";
       }
       if (el.ocrDownloadBtn) el.ocrDownloadBtn.style.display = "none";
@@ -5831,8 +6437,8 @@ async function checkOcrStatus() {
       if (el.ocrDeleteBtn) el.ocrDeleteBtn.style.display = "inline-flex";
       if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "none";
     } else {
-      el.ocrStatusPill.className = "ocr-status-pill not-ready";
-      el.ocrStatusPill.innerText = `○ 未就绪 (${expectedSizeStr})`;
+      // 方案 A：未就绪时隐藏药丸，右侧仅保留下载按钮
+      el.ocrStatusPill.style.display = "none";
       if (el.ocrDownloadBtn) {
         el.ocrDownloadBtn.innerText = `下载模型套件 (${expectedSizeStr})`;
         el.ocrDownloadBtn.style.display = "inline-flex";
@@ -5864,7 +6470,7 @@ async function startOcrDownload() {
     if (el.ocrCancelBtn) el.ocrCancelBtn.style.display = "inline-flex";
     if (el.ocrProgressContainer) el.ocrProgressContainer.style.display = "flex";
     if (el.ocrStatusPill) {
-      el.ocrStatusPill.className = "ocr-status-pill downloading";
+      el.ocrStatusPill.className = "ocr-status-pill module-status-pill downloading";
       el.ocrStatusPill.innerText = "↓ 正在下载...";
     }
 

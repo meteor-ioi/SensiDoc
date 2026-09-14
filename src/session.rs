@@ -33,10 +33,16 @@ pub struct DocumentItem {
     pub created_at: DateTime<Utc>,
     pub snapshots: Vec<ExtractionSnapshot>,
     pub active_snapshot_id: Option<String>,
+    #[serde(default = "default_doc_type")]
+    pub doc_type: String,
 }
 
 fn default_created_at() -> DateTime<Utc> {
     Utc::now()
+}
+
+fn default_doc_type() -> String {
+    "native".to_string()
 }
 
 /// 在线 AI 模型 (OpenAI 兼容 API) 配置档案
@@ -440,8 +446,8 @@ impl SessionManager {
         profiles.clone()
     }
 
-    /// 添加或更新文档
-    pub async fn upsert_document(&self, filename: String, markdown: String) -> DocumentItem {
+    /// 添加或更新文档 (带文档类型 "scan" 或 "native")
+    pub async fn upsert_document_typed(&self, filename: String, markdown: String, doc_type: String) -> DocumentItem {
         let id = uuid::Uuid::new_v4().to_string();
         let char_count = markdown.chars().count();
         let doc = DocumentItem {
@@ -452,6 +458,7 @@ impl SessionManager {
             created_at: Utc::now(),
             snapshots: Vec::new(),
             active_snapshot_id: None,
+            doc_type,
         };
 
         {
@@ -461,6 +468,11 @@ impl SessionManager {
 
         self.save_to_disk().await;
         doc
+    }
+
+    /// 添加或更新文档 (默认类型为 native)
+    pub async fn upsert_document(&self, filename: String, markdown: String) -> DocumentItem {
+        self.upsert_document_typed(filename, markdown, "native".to_string()).await
     }
 
     /// 查找同名文档或创建新文档 (若已存在则更新正文与时间并复用，方便 CLI 与界面历史连续追加快照)
@@ -490,6 +502,7 @@ impl SessionManager {
             created_at: Utc::now(),
             snapshots: Vec::new(),
             active_snapshot_id: None,
+            doc_type: "native".to_string(),
         };
 
         map.insert(id, doc.clone());
