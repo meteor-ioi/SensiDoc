@@ -1,3 +1,5 @@
+#![cfg_attr(all(not(debug_assertions), target_os = "windows"), windows_subsystem = "windows")]
+
 mod benchmark;
 mod cli;
 mod converter;
@@ -250,8 +252,10 @@ fn launch_desktop_gui(
     model_mgr: Arc<ModelManager>,
     app_url: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(target_os = "macos")]
+    use tao::dpi::LogicalPosition;
     use tao::{
-        dpi::{LogicalPosition, LogicalSize},
+        dpi::LogicalSize,
         event::{Event, StartCause, WindowEvent},
         event_loop::{ControlFlow, EventLoopBuilder},
         window::WindowBuilder,

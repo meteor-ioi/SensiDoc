@@ -74,17 +74,29 @@ jobs:
           path: dist/*.dmg
 
   build-windows:
-    name: Build Windows Installer
+    name: Build Windows Installer (${{ matrix.arch }})
     runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-pc-windows-msvc
+            arch: x86_64
+          - target: aarch64-pc-windows-msvc
+            arch: arm64
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Determine Version
         id: get_version
@@ -102,6 +114,7 @@ jobs:
           echo "TAG_NAME=v${VER}" >> $GITHUB_OUTPUT
 
       - name: Run Tests
+        if: matrix.arch == 'x86_64'
         run: cargo test --verbose
 
       - name: Cache OCR Models
@@ -122,12 +135,12 @@ jobs:
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.VERSION }}"
-          ./scripts/build_win_installer.ps1 -Version $ver
+          ./scripts/build_win_installer.ps1 -Version $ver -Target "${{ matrix.target }}" -Arch "${{ matrix.arch }}"
 
       - name: Upload Windows Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-windows
+          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-windows-${{ matrix.arch }}
           path: |
             dist/*-setup.exe
             dist/*.zip
