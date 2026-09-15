@@ -4,7 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.3.2">
+  <link rel="stylesheet" href="style.css?v=1.3.3">
+  <style>
+    /* 选中文档列表项与提取结果卡片：与模型框完全一致的 1px 细线边框，彻底剥离外层阴影与轮廓 */
+    .file-item.active,
+    .audit-card.active {
+      border-color: var(--text) !important;
+      box-shadow: none !important;
+      outline: none !important;
+    }
+    /* AI生成功能模块暂行隐藏，待后续交互设计定型后重新开放 */
+    #aiGenRulesToggleBtn,
+    #aiGenRulesDrawer {
+      display: none !important;
+    }
+  </style>
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
   <script src="marked.min.js"></script>
 </head>
@@ -202,11 +216,12 @@
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
               <span>渲染</span>
             </button>
-            <button id="viewCurtainBtn" class="view-mode-btn ocr-only-btn" title="卷帘透视模式：拖拽滑轨比对原图与提取表格" style="display: none; align-items: center; gap: 4px;">
+            <!-- 卷帘比对与原图按钮暂时隐藏，后续优化重构后重新放开 -->
+            <button id="viewCurtainBtn" class="view-mode-btn ocr-only-btn" title="卷帘透视模式：拖拽滑轨比对原图与提取表格" style="display: none !important; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="3" x2="12" y2="21"></line><path d="m8 8-4 4 4 4"></path><path d="m16 16 4-4-4-4"></path></svg>
               <span>卷帘比对</span>
             </button>
-            <button id="viewRawImgBtn" class="view-mode-btn ocr-only-btn" title="查看原始高清单据图片" style="display: none; align-items: center; gap: 4px;">
+            <button id="viewRawImgBtn" class="view-mode-btn ocr-only-btn" title="查看原始高清单据图片" style="display: none !important; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"></rect><circle cx="9" cy="9" r="2"></circle><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"></path></svg>
               <span>原图</span>
             </button>
@@ -374,7 +389,8 @@
                 <span id="ruleTotalCount" style="display: none;">0</span>
               </span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
+                <!-- AI生成按钮暂时隐藏，留待后续全新交互设计重构 -->
+                <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: none !important; align-items: center; gap: 4px;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
                   <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
                   <span>AI生成</span>
                 </button>
@@ -397,8 +413,8 @@
               </div>
             </div>
 
-            <!-- AI 智能生成提取策略两段式展开抽屉卡片 -->
-            <div id="aiGenRulesDrawer" class="ai-gen-drawer" style="display: none;">
+            <!-- AI 智能生成提取策略两段式展开抽屉卡片 (暂时隐藏，留待后续交互设计重构) -->
+            <div id="aiGenRulesDrawer" class="ai-gen-drawer" style="display: none !important;">
               <div class="ai-gen-drawer-inner">
                 <div class="ai-gen-section-header">
                   <span class="ai-gen-title">业务需求描述 (Prompt)</span>

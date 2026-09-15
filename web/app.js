@@ -495,9 +495,10 @@ function isImageDoc(filename) {
 
 function updateViewModeForDocument(doc) {
   const isImg = isImageDoc(doc ? doc.filename : "");
+  // 暂时隐藏卷帘比对与原图按钮（保留渲染与源码模式，后续优化重构后重新放开）
   const ocrBtns = document.querySelectorAll(".ocr-only-btn");
   ocrBtns.forEach((btn) => {
-    btn.style.display = isImg ? "inline-flex" : "none";
+    btn.style.display = "none";
   });
 
   if (isImg && doc) {
@@ -506,8 +507,8 @@ function updateViewModeForDocument(doc) {
     if (el.curtainOriginalImg) el.curtainOriginalImg.src = imgUrl;
   }
 
-  // 若从图片切到普通文档，且当前处于卷帘或原图模式，自动回退到渲染模式
-  if (!isImg && (state.previewMode === "curtain" || state.previewMode === "raw")) {
+  // 卷帘与原图按钮已隐藏，若当前处于这两个模式则自动回退到渲染模式
+  if (state.previewMode === "curtain" || state.previewMode === "raw") {
     switchPreviewMode("rendered");
   } else {
     switchPreviewMode(state.previewMode || "rendered");

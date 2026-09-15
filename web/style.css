@@ -1012,7 +1012,7 @@ body.resizing-panels {
 .file-item.active {
   border-color: var(--text);
   background: var(--surface-active);
-  box-shadow: 0 0 0 1px var(--text);
+  box-shadow: none;
 }
 
 .file-card-inner {
@@ -2593,7 +2593,7 @@ mark.sensi-mark.sensi-selected[data-risk="medium"] {
 .audit-card.active {
   border-color: var(--text);
   background: var(--surface-active);
-  box-shadow: 0 0 0 1px var(--text);
+  box-shadow: none;
 }
 
 .card-top {
