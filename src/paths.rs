@@ -92,14 +92,21 @@ pub fn get_web_dir() -> PathBuf {
     PathBuf::from("web")
 }
 
-/// 获取 llama-server 二进制执行路径
+/// 获取 llama-server 二进制执行路径 (跨平台且支持双架构多目录智能探测)
 pub fn get_llama_bin_path() -> PathBuf {
+    let bin_name = if cfg!(windows) {
+        "llama-server.exe"
+    } else {
+        "llama-server"
+    };
+
+    // 1. macOS App Bundle 资源环境探测
     if let Some(res) = get_bundle_resources_dir() {
-        let bin_in_bundle = res.join("bin").join("llama-server");
+        let bin_in_bundle = res.join("bin").join(bin_name);
         if bin_in_bundle.exists() {
             return bin_in_bundle;
         }
-        let macos_bin = res.parent().map(|c| c.join("MacOS").join("llama-server"));
+        let macos_bin = res.parent().map(|c| c.join("MacOS").join(bin_name));
         if let Some(mb) = macos_bin {
             if mb.exists() {
                 return mb;
@@ -107,22 +114,53 @@ pub fn get_llama_bin_path() -> PathBuf {
         }
     }
 
-    let local_bin = PathBuf::from("bin/llama-server");
-    if local_bin.exists() {
-        return local_bin;
-    }
-
+    // 2. 生产环境：基于当前可执行文件所在目录相对查找 (针对 Windows 安装目录 / 绿色便携解压目录)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let rel_bin = dir.join("bin").join("llama-server");
+            // 如 {app}/bin/llama-server.exe
+            let rel_bin = dir.join("bin").join(bin_name);
             if rel_bin.exists() {
                 return rel_bin;
+            }
+            // 如 {app}/llama-server.exe
+            let same_dir_bin = dir.join(bin_name);
+            if same_dir_bin.exists() {
+                return same_dir_bin;
             }
         }
     }
 
-    PathBuf::from("bin/llama-server")
+    // 3. 开发环境与源码根目录探测：优先探测与当前平台和架构匹配的专用子目录
+    #[cfg(all(windows, target_arch = "x86_64"))]
+    let arch_dir = "windows-x86_64";
+    #[cfg(all(windows, target_arch = "aarch64"))]
+    let arch_dir = "windows-arm64";
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    let arch_dir = "macos-arm64";
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    let arch_dir = "macos-x86_64";
+    #[cfg(not(any(
+        all(windows, target_arch = "x86_64"),
+        all(windows, target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64")
+    )))]
+    let arch_dir = "default";
+
+    let arch_bin = PathBuf::from("bin").join(arch_dir).join(bin_name);
+    if arch_bin.exists() {
+        return arch_bin;
+    }
+
+    // 4. 探测项目根目录常规 bin 目录 (兼容现有开发环境下的 bin/llama-server)
+    let local_bin = PathBuf::from("bin").join(bin_name);
+    if local_bin.exists() {
+        return local_bin;
+    }
+
+    local_bin
 }
+
 
 /// 获取动态链接库目录 (lib/)
 pub fn get_lib_dir() -> PathBuf {
@@ -212,7 +250,7 @@ pub fn get_ocr_models_dir() -> PathBuf {
 }
 
 pub const OCR_DET_FILENAME: &str = "PP-OCRv6_det_small.onnx";
-pub const OCR_REC_FILENAME: &str = "PP-OCRv6_rec_small.onnx";
+pub const OCR_REC_FILENAME: &str = "PP-OCRv6_rec_medium.onnx";
 pub const OCR_TABLE_FILENAME: &str = "slanet-plus.onnx";
 pub const OCR_DICT_FILENAME: &str = "ppocrv6_dict.txt";
 
@@ -221,18 +259,18 @@ pub fn get_ocr_det_path() -> PathBuf {
     get_ocr_models_dir().join(OCR_DET_FILENAME)
 }
 
-/// 获取文本字符识别模型路径 (优先更轻量的 small，若本地仅有历史 medium 则平滑兼容回退)
+/// 获取文本字符识别模型路径 (优先更高精度的 medium，若本地仅有 small 则平滑兼容回退)
 pub fn get_ocr_rec_path() -> PathBuf {
     let base = get_ocr_models_dir();
-    let small = base.join(OCR_REC_FILENAME);
-    if small.exists() {
-        return small;
-    }
-    let medium = base.join("PP-OCRv6_rec_medium.onnx");
+    let medium = base.join(OCR_REC_FILENAME);
     if medium.exists() {
         return medium;
     }
-    small
+    let small = base.join("PP-OCRv6_rec_small.onnx");
+    if small.exists() {
+        return small;
+    }
+    medium
 }
 
 /// 获取表格结构预测模型路径

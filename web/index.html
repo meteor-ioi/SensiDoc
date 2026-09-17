@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>SensiDoc - 信息审计与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.3.3">
+  <title>SensiDoc - 敏感信息提取与脱敏工具</title>
+  <link rel="stylesheet" href="style.css?v=1.6.5">
   <style>
     /* 选中文档列表项与提取结果卡片：与模型框完全一致的 1px 细线边框，彻底剥离外层阴影与轮廓 */
     .file-item.active,
@@ -12,11 +12,6 @@
       border-color: var(--text) !important;
       box-shadow: none !important;
       outline: none !important;
-    }
-    /* AI生成功能模块暂行隐藏，待后续交互设计定型后重新开放 */
-    #aiGenRulesToggleBtn,
-    #aiGenRulesDrawer {
-      display: none !important;
     }
   </style>
   <!-- 轻量离线 Markdown 渲染器 (完全本地化) -->
@@ -210,11 +205,15 @@
       <!-- 极简文档工具栏 (左侧预览/源码拨杆、中间标题严格居中、右侧正文字体缩放) -->
       <div class="stage-toolbar">
         <div class="stage-toolbar-left">
-          <!-- 左右拨杆开关：渲染视图 vs 卷帘透视比对 vs 原图视图 vs 源码模式 -->
+          <!-- 左右拨杆开关：渲染视图 vs 脱敏预览 vs 卷帘透视比对 vs 原图视图 vs 源码模式 -->
           <div class="view-mode-switch" id="viewModeSwitch">
             <button id="viewRenderedBtn" class="view-mode-btn active" title="结构渲染视图 (支持敏感词高亮标注)" style="display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"></path><circle cx="12" cy="12" r="3"></circle></svg>
               <span>渲染</span>
+            </button>
+            <button id="viewDesensBtn" class="view-mode-btn" title="脱敏预览视图 (支持星号掩码/字符硬抹除即时切换)" style="display: inline-flex; align-items: center; gap: 4px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+              <span>脱敏</span>
             </button>
             <!-- 卷帘比对与原图按钮暂时隐藏，后续优化重构后重新放开 -->
             <button id="viewCurtainBtn" class="view-mode-btn ocr-only-btn" title="卷帘透视模式：拖拽滑轨比对原图与提取表格" style="display: none !important; align-items: center; gap: 4px;">
@@ -231,9 +230,8 @@
             </button>
           </div>
         </div>
-        <div class="stage-toolbar-center">
-          <span id="docMeta" class="doc-meta-title">请在左侧选择或投放文档</span>
-        </div>
+        <!-- 中间面板冗余长文件名标题隐藏，空间让渡给核心功能胶囊 (保留隐藏节点确保旧代码安全兼容) -->
+        <span id="docMeta" style="display: none !important;"></span>
         <div class="stage-toolbar-right">
           <!-- 历史快照版本控制时光机 (常驻顶部标题栏右侧，点击下拉展开历史清单) -->
           <div class="snapshot-picker-wrapper" id="snapshotPickerWrapper">
@@ -253,19 +251,87 @@
               </div>
             </div>
           </div>
-          <!-- 紧随其后的“提取规则”按钮 (点击审查当前快照的系统提示词) -->
-          <button id="viewSnapshotRulesBtn" class="btn sm" title="查看当前快照使用的系统提示词与规则定义" style="height: 26px; padding: 0 8px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;" disabled>
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-            <span>提取规则</span>
+          <!-- 紧随其后的“相关信息”按钮 (点击查看当前快照统计指标、执行模型、流式日志与提取规则) -->
+          <button id="viewSnapshotRulesBtn" class="btn sm" title="查看当前快照的相关信息、统计指标与执行详情" style="height: 26px; padding: 0 8px; font-size: 11.5px; display: inline-flex; align-items: center; gap: 4px;" disabled>
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+            <span>相关信息</span>
           </button>
         </div>
       </div>
 
       <!-- Markdown 渲染与高亮标注区 (充裕阅读视界) -->
       <section class="preview-container">
+        <!-- 扫描识别专属浮动控制悬浮胶囊 (方案一：Floating Island，仅在扫描件/图片时呈现，支持折叠与展开) -->
+        <div class="ocr-floating-toolbar" id="ocrFloatingToolbar" style="display: none;">
+          <!-- 展开态容器 -->
+          <div class="ocr-floating-expanded" id="ocrFloatingExpanded">
+            <div class="ocr-tier-switch" id="ocrTierSwitch">
+              <button id="tierBaseOcrBtn" class="view-mode-btn active" title="基础 OCR：传统端侧 PP-OCRv6 + SLANet_plus 极速表格恢复" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5" fill="currentColor"></circle></svg>
+                <span>基础OCR</span>
+              </button>
+              <button id="tierFastVlmBtn" class="view-mode-btn" title="快速 VLM 复核：仅对低置信度区块进行自适应上下文局部智能纠错" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+                <span>快速VLM</span>
+                <span id="tierFastVlmBadge" class="tier-badge" style="display: none;">0</span>
+              </button>
+              <!-- 快速 VLM 专属置信度阈值下拉项 (紧随快速VLM，出现在全量VLM之前) -->
+              <div class="custom-select-wrapper ocr-confidence-wrapper" id="ocrConfidenceWrapper" style="display: none;" title="选择快速复核针对的置信度上限">
+                <button type="button" class="ocr-confidence-btn" id="ocrConfidenceBtn" aria-haspopup="true" aria-expanded="false" title="选择快速复核针对的置信度上限">
+                  <span class="ocr-confidence-label" id="ocrConfidenceLabel">85%</span>
+                  <span class="custom-select-arrow ocr-confidence-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24" style="width: 10px; height: 10px;"><path d="m6 9 6 6 6-6"></path></svg></span>
+                </button>
+                <select id="ocrConfidenceSelect" class="ocr-confidence-select" style="display: none;">
+                  <option value="0.95">置信度 &lt; 95%</option>
+                  <option value="0.90">置信度 &lt; 90%</option>
+                  <option value="0.85" selected>置信度 &lt; 85%</option>
+                  <option value="0.80">置信度 &lt; 80%</option>
+                  <option value="0.70">置信度 &lt; 70%</option>
+                  <option value="0.60">置信度 &lt; 60%</option>
+                  <option value="0.50">置信度 &lt; 50%</option>
+                  <option value="0.40">置信度 &lt; 40%</option>
+                </select>
+                <div class="custom-select-dropdown ocr-confidence-dropdown" id="ocrConfidenceDropdown">
+                  <div class="custom-select-list" id="ocrConfidenceList">
+                    <!-- 动态渲染自定义选项 -->
+                  </div>
+                </div>
+              </div>
+              <button id="tierFullVlmBtn" class="view-mode-btn" title="全量 VLM 复核：端到端视觉语言大模型全图重构 (高保真排版)" style="display: inline-flex; align-items: center; gap: 4px;">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12 2a5 5 0 0 1 5 5v1a4 4 0 0 1 3 3.86v3.28a4 4 0 0 1-3 3.86V20a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2v-3a4 4 0 0 1-3-3.86v-3.28A4 4 0 0 1 7 8V7a5 5 0 0 1 5-5Z"></path><circle cx="9.5" cy="11.5" r=".5" fill="currentColor"></circle><circle cx="14.5" cy="11.5" r=".5" fill="currentColor"></circle></svg>
+                <span>全量VLM</span>
+              </button>
+            </div>
+            <!-- 独立识别动作按钮 -->
+            <button id="ocrRunActionBtn" class="ocr-action-btn" title="执行当前所选档位的单据识别或复核">
+              <span class="ocr-action-btn-icon" id="ocrRunIconWrap">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3" fill="currentColor"></polygon></svg>
+              </span>
+              <span id="ocrRunText">识别</span>
+            </button>
+            <!-- 收起折叠按钮 -->
+            <button id="ocrCollapseToggleBtn" class="ocr-collapse-btn" title="收起扫描工具栏">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="18 15 12 9 6 15"></polyline></svg>
+            </button>
+          </div>
+
+          <!-- 收起态 Mini 胶囊 -->
+          <button class="ocr-floating-collapsed" id="ocrFloatingCollapsed" style="display: none;" title="点击展开扫描工具栏">
+            <span class="ocr-collapsed-icon" id="ocrCollapsedIcon">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
+            </span>
+            <span class="ocr-collapsed-label" id="ocrCollapsedLabel">扫描档位: 基础OCR</span>
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24" style="margin-left: 2px; opacity: 0.6;"><polyline points="6 9 12 15 18 9"></polyline></svg>
+          </button>
+        </div>
         <!-- 结构化渲染视图 -->
         <div class="markdown-body" id="markdownPreview">
           <p style="color: var(--text-mute);">投放或选择文档后，在此处实时预览 Markdown 渲染画面及敏感词高亮。</p>
+        </div>
+
+        <!-- 脱敏渲染视图 -->
+        <div class="markdown-body" id="markdownDesensPreview" style="display: none;">
+          <p style="color: var(--text-mute);">投放或选择文档后，在此处实时预览脱敏打码后的文档画面。</p>
         </div>
 
         <!-- 方案二：原图全景视图 -->
@@ -303,35 +369,12 @@
 
         <!-- 源码视图 -->
         <textarea class="markdown-source" id="markdownSource" readonly spellcheck="false" style="display: none;" placeholder="投放或选择文档后，在此处查看 Markdown 原始内容..."></textarea>
-        <!-- 底部状态信息栏：左侧展示纯净内容预览统计 (字符数、命中数)，中间绝对居中展示快照执行模型名称，右侧放回字号缩放控制组 -->
-        <div class="preview-footer-bar">
-          <div class="preview-footer-left">
-            <span id="previewStatsChars" class="preview-stat-item">0 字符</span>
-            <span class="preview-stat-divider">·</span>
-            <span id="previewStatsHits" class="preview-stat-item">0 处标记</span>
-          </div>
-          <!-- 中间居中：快照执行提取的模型标识 -->
-          <div class="preview-footer-center" id="previewStatsModelWrapper">
-            <span class="preview-model-badge" id="previewStatsModelBadge" title="本次历史快照执行提取的模型">
-              <span class="model-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg></span>
-              <span id="previewStatsModelText">执行模型: -</span>
-            </span>
-          </div>
-          <div class="preview-footer-right">
-            <!-- 文本缩放控制组 (常驻底栏右侧) -->
-            <div class="zoom-control-group">
-              <button id="zoomOutBtn" class="zoom-btn" title="缩小正文字体 (A-)">A-</button>
-              <span id="zoomLevelDisplay" class="zoom-level-text">100%</span>
-              <button id="zoomInBtn" class="zoom-btn" title="放大正文字体 (A+)">A+</button>
-              <button id="zoomResetBtn" class="zoom-btn" title="重置字号" style="font-size: 10px; padding: 2px 6px;">重置</button>
-            </div>
-          </div>
-        </div>
+
       </section>
     </main>
 
     <!-- 右侧可拖拽调整大小手柄 -->
-    <div class="panel-resizer" id="resizerRight" title="拖动调整审计面板宽度"></div>
+    <div class="panel-resizer" id="resizerRight" title="拖动调整提取面板宽度"></div>
 
     <!-- 右栏：统一智能审计主控台 (Unified Inspector Panel) -->
     <aside class="inspector-panel">
@@ -356,60 +399,81 @@
           <div class="form-row">
             <div class="pane-section-title">
               <span style="display: inline-flex; align-items: center; gap: 5px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="M9 21V9"></path></svg>
-                <span>场景预设模板</span>
+                <svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><path d="M3 9h18"></path><path d="M9 21V9"></path></svg>
+                <span>预设模板</span>
               </span>
-              <div style="display: flex; align-items: center; gap: 8px;">
-                <button id="deleteTemplateBtn" class="btn-text-link" style="color: #dc2626; display: none;" title="删除当前选中的自定义模板">删除此模板</button>
-                <button id="saveTemplateBtn" class="btn-text-link" title="将当前规则组合保存为新模板">另存新模板</button>
-              </div>
-            </div>
-            <div class="custom-select-wrapper" id="presetSelectWrapper">
-              <button id="presetSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="当前模板：无模板">
-                <span class="custom-select-label" id="presetSelectLabel">无模板</span>
-                <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+              <button type="button" id="tagPoolToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="展开/收起常用标签库 (点击快速添加到当前规则)">
+                <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                <span>标签库</span>
               </button>
-              <select id="presetSelect" class="preset-select" style="display: none;">
-                <!-- 动态填充 -->
-              </select>
-              <div class="custom-select-dropdown" id="presetSelectDropdown">
-                <div class="custom-select-list" id="presetSelectList">
+            </div>
+            <div class="preset-control-group">
+              <div class="custom-select-wrapper" id="presetSelectWrapper">
+                <button id="presetSelectBtn" class="custom-select-btn" type="button" aria-haspopup="true" aria-expanded="false" title="当前模板：无模板">
+                  <span class="custom-select-label" id="presetSelectLabel">无模板</span>
+                  <span class="custom-select-arrow"><svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></svg></span>
+                </button>
+                <select id="presetSelect" class="preset-select" style="display: none;">
+                  <!-- 动态填充 -->
+                </select>
+                <div class="custom-select-dropdown" id="presetSelectDropdown">
+                  <div class="custom-select-list" id="presetSelectList">
+                    <!-- 动态填充 -->
+                  </div>
+                </div>
+              </div>
+              <button type="button" id="saveTemplateBtn" class="preset-action-btn" title="将当前规则组合另存为新模板">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+              </button>
+            </div>
+
+            <!-- 常用标签库折叠抽屉卡片 (默认收起，置于预设模板下方) -->
+            <div id="tagPoolDrawer" class="tag-pool-drawer" style="display: none;">
+              <div class="tag-pool-drawer-inner">
+                <div class="tag-pool-header">
+                  <span class="tag-pool-title">
+                    <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
+                    <span>常用标签库 (点击快速注入)</span>
+                  </span>
+                  <span class="delete-btn tag-pool-close-btn" id="tagPoolCloseBtn" title="收起标签库" style="display: inline-flex; align-items: center;"><svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg></span>
+                </div>
+                <div class="tag-pool" id="tagPool">
                   <!-- 动态填充 -->
                 </div>
               </div>
             </div>
           </div>
+          <div class="rules-pane-divider"></div>
 
           <!-- 规则卡片列表 (自适应充满容器，无冗余空白) -->
           <div class="form-row" style="flex: 1; display: flex; flex-direction: column; overflow: hidden;">
             <div class="pane-section-title">
               <span style="display: inline-flex; align-items: center; gap: 5px;">
-                <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
                 <span>规则列表</span>
                 <span id="ruleTotalCount" style="display: none;">0</span>
               </span>
               <div style="display: flex; align-items: center; gap: 6px;">
-                <!-- AI生成按钮暂时隐藏，留待后续全新交互设计重构 -->
-                <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: none !important; align-items: center; gap: 4px;" title="使用在线大模型根据业务描述智能生成专属抽取规则">
-                  <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path><path d="M5 3v4"></path><path d="M19 17v4"></path><path d="M3 5h4"></path><path d="M17 19h4"></path></svg>
+                <button type="button" id="aiGenRulesToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="使用大模型根据业务描述智能生成抽取规则">
+                  <svg class="lucide-icon sm ai-sparkle-icon" viewBox="0 0 24 24">
+                    <defs>
+                      <linearGradient id="aiSparkleGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+                        <stop offset="0%" stop-color="#8b5cf6" />
+                        <stop offset="100%" stop-color="#3b82f6" />
+                      </linearGradient>
+                    </defs>
+                    <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"></path>
+                    <path d="M5 3v4"></path>
+                    <path d="M19 17v4"></path>
+                    <path d="M3 5h4"></path>
+                    <path d="M17 19h4"></path>
+                  </svg>
                   <span>AI生成</span>
                 </button>
-                <button type="button" id="tagPoolToggleBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="展开/收起常用标签库 (点击快速添加到当前规则)">
-                  <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"></path><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"></circle></svg>
-                  <span>标签库</span>
+                <button type="button" id="addFieldBtn" class="btn sm" style="display: inline-flex; align-items: center; gap: 4px;" title="点击添加新规则字段">
+                  <svg class="lucide-icon sm" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                  <span>添加新规则</span>
                 </button>
-              </div>
-            </div>
-
-            <!-- 常用标签库折叠抽屉卡片 (默认收起) -->
-            <div id="tagPoolDrawer" class="tag-pool-drawer" style="display: none;">
-              <div class="tag-pool-drawer-inner">
-                <div class="tag-pool-header">
-                  <span class="tag-pool-title">点击添加到规则列表</span>
-                </div>
-                <div class="tag-pool" id="tagPool">
-                  <!-- 动态填充 -->
-                </div>
               </div>
             </div>
 
@@ -466,11 +530,7 @@
                 </div>
               </div>
             </div>
-            <!-- 点击添加自定义规则 (置于规则列表顶部) -->
-            <button type="button" id="addFieldBtn" class="add-rule-top-btn" title="点击添加新规则字段">
-              <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-              <span>点击添加自定义规则</span>
-            </button>
+
 
             <div class="rule-card-list" id="ruleCardList">
               <!-- 动态填充规则卡片 -->
@@ -514,61 +574,119 @@
           <div style="display: flex; align-items: center; gap: 6px;">
             <span class="audit-title" style="font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><line x1="12" x2="12" y1="8" y2="12"></line><line x1="12" x2="12.01" y1="16" y2="16"></line></svg>
-              <span>命中清单</span>
+              <span>命中列表</span>
             </span>
           </div>
-          <div>
-            <button id="viewRawJsonBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="查看本次提取的原始 JSON 数据">
-              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-              <span>原始 JSON</span>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button id="copyAuditJsonBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="复制所有字段提取结果文本清单">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+              <span>复制</span>
             </button>
+            <button id="viewRawJsonBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="查看本次提取的 JSON 数据">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+              <span>JSON</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 实时流式响应动态条与可折叠终端抽屉 -->
+        <div class="stream-status-bar" id="streamStatusBar" style="display: none;">
+          <div class="stream-ticker-bar" id="streamTickerBar">
+            <div class="stream-ticker-main">
+              <span class="stream-ticker-dot" id="streamTickerDot"></span>
+              <span class="stream-ticker-model-badge" id="streamTickerModelBadge">推理中</span>
+              <span class="stream-ticker-text" id="streamTickerText" title="正在初始化推理引擎...">正在初始化推理引擎...</span>
+            </div>
+            <div class="stream-ticker-actions">
+              <button class="stream-toggle-btn" id="streamToggleDrawerBtn" type="button" title="展开/收起完整推理终端输出">
+                <span id="streamToggleDrawerText">展开终端</span>
+                <svg id="streamToggleDrawerIcon" class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+            </div>
+          </div>
+          <!-- 可折叠暗黑终端抽屉 -->
+          <div class="stream-terminal-drawer" id="streamTerminalDrawer">
+            <div class="stream-terminal-header">
+              <span class="terminal-title">实时推理控制台 (Streaming Tokens)</span>
+              <button class="stream-terminal-copy-btn" id="streamCopyTerminalBtn" type="button" title="复制完整流式输出">
+                <svg class="lucide-icon xxs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+                <span>复制</span>
+              </button>
+            </div>
+            <pre class="stream-terminal-body" id="streamTerminalPre"></pre>
           </div>
         </div>
 
         <div class="audit-list" id="auditList" style="flex: 1; overflow-y: auto; padding: 10px 12px;">
           <p style="color: var(--text-mute); font-size: 12px; text-align: center; margin-top: 30px;">
-            暂无提取记录，点击「立即执行」开始审计
+            暂无提取记录，点击「立即执行」开始提取
           </p>
         </div>
 
         <div class="inspector-footer">
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: relative;">
-            <button id="exportCsvBtn" class="btn" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 5px;" title="导出当前敏感词清单为 CSV 表格">
-              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
-              <span>导出清单 (CSV)</span>
-            </button>
+            <!-- 左侧：提取导出下拉折叠列表 (未脱敏的清单与结构化报告) -->
+            <div class="export-dropdown-wrapper extract-export" id="extractExportDropdownWrapper" style="width: 100%; position: relative;">
+              <button id="extractExportBtn" class="btn" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="导出提取的敏感词清单与全量提取数据">
+                <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
+                <span>提取导出 ▼</span>
+              </button>
+              <div class="export-dropdown-menu" id="extractExportDropdownMenu">
+                <button class="export-menu-item" id="exportCsvBtn">
+                  <span class="export-menu-icon" style="color: var(--accent);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="8" y1="13" x2="16" y2="13"></line><line x1="8" y1="17" x2="16" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg></span>
+                  <span class="export-item-title">导出清单 (CSV)</span>
+                  <span class="tooltip-badge align-right" onclick="event.stopPropagation()" data-tooltip="导出当前敏感词清单为 CSV 表格" title="导出当前敏感词清单为 CSV 表格">?</span>
+                </button>
+
+                <div class="export-menu-divider"></div>
+
+                <button class="export-menu-item" id="exportJsonMenuBtn">
+                  <span class="export-menu-icon" style="color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></span>
+                  <span class="export-item-title">导出全量提取 JSON</span>
+                  <span class="tooltip-badge align-right" onclick="event.stopPropagation()" data-tooltip="包含已检出与未检出的结构化完整闭环提取报告 (.json)" title="包含已检出与未检出的结构化完整闭环提取报告 (.json)">?</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- 右侧：脱敏导出下拉折叠列表 (脱敏后的文档) -->
             <div class="export-dropdown-wrapper" id="exportDropdownWrapper" style="width: 100%; position: relative;">
               <button id="exportDesensBtn" class="btn primary" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="导出脱敏后的文档">
                 <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
                 <span>脱敏导出 ▼</span>
               </button>
               <div class="export-dropdown-menu" id="exportDropdownMenu">
+                <!-- 顶部脱敏策略切换条 -->
+                <div class="export-strategy-header">
+                  <span class="export-strategy-label">脱敏策略</span>
+                  <div class="export-strategy-toggle" role="group" aria-label="脱敏打码策略切换">
+                    <button type="button" class="export-toggle-btn active" id="exportToggleMaskingBtn" title="星号掩码：将检测到的敏感字符替换为等长星号 *">掩码</button>
+                    <button type="button" class="export-toggle-btn" id="exportToggleRedactionBtn" title="硬抹除：原格式文档采用物理涂黑块完全覆盖，文本采用全黑条">硬抹除</button>
+                  </div>
+                </div>
+
+                <!-- 导出选项列表 (描述统一收敛于问号圆圈中) -->
                 <button class="export-menu-item" id="exportNativeDocBtn">
-                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--accent);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg></span>
-                  <div class="export-item-text">
-                    <span class="export-item-title">导出原格式文档</span>
-                    <span class="export-item-desc">保留原文件格式与排版 (.docx/.pdf/.xlsx/.txt等)</span>
-                  </div>
+                  <span class="export-menu-icon" style="color: var(--accent);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path></svg></span>
+                  <span class="export-item-title">导出原格式文档</span>
+                  <span class="tooltip-badge align-right" onclick="event.stopPropagation()" data-tooltip="保留原文件格式与物理排版（支持 .docx/.pdf/.xlsx/图片等）" title="保留原文件格式与物理排版（支持 .docx/.pdf/.xlsx/图片等）">?</span>
                 </button>
+
                 <div class="export-menu-divider"></div>
+
                 <button class="export-menu-item" id="exportMarkdownDocBtn">
-                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M4 22h16a2 2 0 0 0 2-2V7.5L14.5 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"></path><polyline points="8 15 12 11 16 15"></polyline></svg></span>
-                  <div class="export-item-text">
-                    <span class="export-item-title">导出脱敏 Markdown</span>
-                    <span class="export-item-desc">轻量脱敏纯文本 (.md)</span>
-                  </div>
-                </button>
-                <div class="export-menu-divider"></div>
-                <button class="export-menu-item" id="exportJsonMenuBtn">
-                  <span class="export-menu-icon" style="display: inline-flex; align-items: center; color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg></span>
-                  <div class="export-item-text">
-                    <span class="export-item-title">导出全量审计 JSON</span>
-                    <span class="export-item-desc">已检出与未检出完整闭环数据 (.json)</span>
-                  </div>
+                  <span class="export-menu-icon" style="color: var(--text-dim);"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M4 22h16a2 2 0 0 0 2-2V7.5L14.5 2H4a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"></path><polyline points="8 15 12 11 16 15"></polyline></svg></span>
+                  <span class="export-item-title">导出脱敏 Markdown</span>
+                  <span class="tooltip-badge align-right" onclick="event.stopPropagation()" data-tooltip="轻量脱敏纯文本 (.md)，适合下游大模型处理与文本索引" title="轻量脱敏纯文本 (.md)，适合下游大模型处理与文本索引">?</span>
                 </button>
               </div>
             </div>
           </div>
+
+          <!-- 返回提取规则面板快捷按钮 -->
+          <button type="button" id="backToRulesBtn" class="btn" title="返回调整待提取的规则与字段">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg>
+            <span>返回提取规则面板</span>
+          </button>
         </div>
       </div>
     </aside>
@@ -600,60 +718,146 @@
         <button id="closeModalBtn" class="btn sm" style="position: absolute; right: 0;">关闭</button>
       </div>
 
-      <!-- 板块 1: 离线模型管理 (方案三：模块化卡片布局) -->
+      <!-- 板块 1: 离线模型管理 (方案一：独立模型卡片与依赖树) -->
       <div class="settings-tab-pane active" id="paneSetModel" style="flex: 1; overflow-y: auto; padding-right: 4px; display: flex; flex-direction: column; gap: 14px;">
         
-        <!-- 卡片 1: 核心引擎: 快慢双模型协同 (系统预设) -->
-        <div class="module-engine-card" id="coreModelCard">
+        <!-- 卡片 1: 独立模型: Qwen3.5-0.8B (含视觉塔依赖) -->
+        <div class="module-engine-card" id="qwenModelCard">
           <div class="module-engine-header">
-            <div class="module-engine-title-wrap">
+            <div class="module-engine-title-wrap" data-toggle-collapse="qwenModelCard" title="点击折叠或展开模型详情">
+              <svg class="lucide-icon xs collapse-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <span class="engine-status-dot offline" id="qwenStatusDot" title="状态: 未运行"></span>
               <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
-              <span class="module-engine-title">核心快慢协同引擎</span>
-              <span class="tooltip-badge tooltip-bottom" data-tooltip="集成 Qwen-0.8B 极速粗筛与 MiniCPM-2B 靶向终审，端侧双级协同兼顾毫秒速度与高精度。" title="集成 Qwen-0.8B 极速粗筛与 MiniCPM-2B 靶向终审，端侧双级协同兼顾毫秒速度与高精度。">?</span>
-              <span class="badge primary-subtle" style="font-size: 10px; padding: 1px 6px;">系统预设</span>
+              <span class="module-engine-title">Qwen3.5-0.8B (端侧极速响应 & 视觉重构)</span>
+              <span class="tooltip-badge tooltip-bottom" onclick="event.stopPropagation()" data-tooltip="端侧极速主力模型。优势在于毫秒级快速响应与极低显存占用，并挂载视觉塔端到端识别扫描单据与复杂跨列表格。" title="端侧极速主力模型。优势在于毫秒级快速响应与极低显存占用，并挂载视觉塔端到端识别扫描单据与复杂跨列表格。">?</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="module-status-pill" id="coreModelStatusPill" style="display: none;">检测中...</span>
-              <button type="button" id="downloadCoreSuiteBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">一键下载套件 (~2.1 GB)</button>
-              <button type="button" id="cancelCoreSuiteBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消下载</button>
-              <button type="button" id="unloadCoreSuiteBtn" class="btn sm secondary" style="font-size: 11px; padding: 3px 8px; display: none;" title="释放当前模型显存">释放显存</button>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="module-status-pill" id="qwenStatusPill" style="display: none !important;"></span>
+              <button type="button" id="qwenParamsBtn" class="btn sm toggle-params-btn" data-file="Qwen3.5-0.8B-Q4_K_M.gguf" style="display: none; font-size: 11px; padding: 3px 8px;" title="调整推理参数">
+                <span>参数</span>
+                <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button type="button" id="qwenStartBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">启动</button>
+              <button type="button" id="qwenStopBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">停止</button>
+              <button type="button" id="qwenDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">下载 (~720 MB)</button>
+              <button type="button" id="qwenCancelBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消</button>
+              <button type="button" id="qwenDeleteBtn" class="btn sm ghost-danger-btn" style="font-size: 11px; padding: 3px 6px; display: none;" title="删除本地模型权重">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>删除</span>
+              </button>
             </div>
           </div>
 
-          <!-- 实时下载进度条 (双模型套件下载中激活) -->
-          <div class="module-progress-container" id="coreDownloadProgressWrap" style="display: none;">
+          <!-- 实时下载进度条 -->
+          <div class="module-progress-container" id="prog-wrap-qwen3.5-0.8b-q4_k_m" style="display: none;">
             <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
-              <span id="coreProgressLabel">正在从魔搭开源社区拉取核心模型套件...</span>
-              <span id="coreProgressStats">0%</span>
+              <span id="prog-text-qwen3.5-0.8b-q4_k_m">准备从魔搭开源社区下载 Qwen3.5-0.8B 及视觉塔...</span>
             </div>
             <div class="module-progress-bar-bg">
-              <div class="module-progress-bar-fill" id="coreProgressBarFill" style="width: 0%;"></div>
+              <div class="module-progress-bar-fill" id="prog-fill-qwen3.5-0.8b-q4_k_m" style="width: 0%;"></div>
             </div>
           </div>
 
-          <!-- 子模型清单与参数折叠抽屉 -->
-          <div class="module-submodels-container" id="coreSubmodelsList">
-            <!-- 动态渲染 0.8B 与 2B 的具体就绪状态与参数抽屉 -->
+          <!-- 依赖树 -->
+          <div class="model-dep-tree" id="qwenDepTree">
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">├── </span>
+                <span class="model-dep-label">主模型: </span>
+                <span class="model-dep-sub">Qwen3.5-0.8B-Q4_K_M.gguf (~508 MB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="qwenMainStatusTag">检测中...</span>
+            </div>
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">└── </span>
+                <span class="model-dep-label">视觉塔: </span>
+                <span class="model-dep-sub">mmproj-BF16.gguf (~198 MB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="qwenMmprojStatusTag">检测中...</span>
+            </div>
           </div>
+
+          <!-- 推理超参数抽屉 -->
+          <div id="qwenDrawerWrap"></div>
         </div>
 
-        <!-- 卡片 2: 扩展引擎: 纸质单据与密集表格 OCR (可选增强) -->
-        <div class="module-engine-card" id="ocrSettingsCard">
+        <!-- 卡片 2: 独立模型: MiniCPM5-2B (靶向终审) -->
+        <div class="module-engine-card" id="cpmModelCard">
           <div class="module-engine-header">
-            <div class="module-engine-title-wrap">
-              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><line x1="3" x2="21" y1="9" y2="9"></line><line x1="9" x2="9" y1="21" y2="21"></line></svg>
-              <span class="module-engine-title">纸质单据与表格 OCR</span>
-              <span class="tooltip-badge tooltip-bottom" data-tooltip="纯本地 PP-OCRv6 + SLANet 表格恢复，用于发票单据、合同扫描件与截图图片。" title="纯本地 PP-OCRv6 + SLANet 表格恢复，用于发票单据、合同扫描件与截图图片。">?</span>
-              <span class="badge" style="background: var(--surface-3); color: var(--text-dim); font-size: 10px; padding: 1px 6px;">可选增强</span>
+            <div class="module-engine-title-wrap" data-toggle-collapse="cpmModelCard" title="点击折叠或展开模型详情">
+              <svg class="lucide-icon xs collapse-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <span class="engine-status-dot offline" id="cpmStatusDot" title="状态: 未运行"></span>
+              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="2"></circle></svg>
+              <span class="module-engine-title">MiniCPM5-2B (稳定型引擎 & 深度提取)</span>
+              <span class="tooltip-badge tooltip-bottom" onclick="event.stopPropagation()" data-tooltip="端侧高能主力模型。具备更强的上下文语义理解与长文跨度召回能力，提取结果更全面、格式输出更稳定。" title="端侧高能主力模型。具备更强的上下文语义理解与长文跨度召回能力，提取结果更全面、格式输出更稳定。">?</span>
             </div>
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span class="ocr-status-pill module-status-pill" id="ocrStatusPill" style="display: none;">检测中...</span>
-              <button type="button" id="ocrDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">下载模型套件 (~37.2 MB)</button>
-              <button type="button" id="ocrCancelBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消下载</button>
-              <button type="button" id="ocrUnloadBtn" class="btn sm secondary" style="font-size: 11px; padding: 3px 8px; display: none;" title="立即释放内存（空闲3分钟也会自动释放）">释放内存</button>
-              <button type="button" id="ocrDeleteBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">删除模型</button>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="module-status-pill" id="cpmStatusPill" style="display: none !important;"></span>
+              <button type="button" id="cpmParamsBtn" class="btn sm toggle-params-btn" data-file="MiniCPM5-2B-Q4_K_M.gguf" style="display: none; font-size: 11px; padding: 3px 8px;" title="调整推理参数">
+                <span>参数</span>
+                <svg class="lucide-icon xs chevron-icon" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </button>
+              <button type="button" id="cpmStartBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">启动</button>
+              <button type="button" id="cpmStopBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">停止</button>
+              <button type="button" id="cpmDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">下载 (~1.5 GB)</button>
+              <button type="button" id="cpmCancelBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消</button>
+              <button type="button" id="cpmDeleteBtn" class="btn sm ghost-danger-btn" style="font-size: 11px; padding: 3px 6px; display: none;" title="删除本地模型权重">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>删除</span>
+              </button>
             </div>
           </div>
+
+          <!-- 实时下载进度条 -->
+          <div class="module-progress-container" id="prog-wrap-minicpm5-2b-q4_k_m" style="display: none;">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
+              <span id="prog-text-minicpm5-2b-q4_k_m">准备从魔搭开源社区下载 MiniCPM5-2B...</span>
+            </div>
+            <div class="module-progress-bar-bg">
+              <div class="module-progress-bar-fill" id="prog-fill-minicpm5-2b-q4_k_m" style="width: 0%;"></div>
+            </div>
+          </div>
+
+          <!-- 规格信息树 -->
+          <div class="model-dep-tree" id="cpmDepTree">
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">└── </span>
+                <span class="model-dep-label">主模型: </span>
+                <span class="model-dep-sub">MiniCPM5-2B-Q4_K_M.gguf (~1.5 GB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="cpmMainStatusTag">检测中...</span>
+            </div>
+          </div>
+
+          <!-- 推理超参数抽屉 -->
+          <div id="cpmDrawerWrap"></div>
+        </div>
+
+        <!-- 卡片 3: 扩展引擎: 纸质单据与密集表格 OCR 套件 (可选增强) -->
+        <div class="module-engine-card" id="ocrSettingsCard">
+          <div class="module-engine-header">
+            <div class="module-engine-title-wrap" data-toggle-collapse="ocrSettingsCard" title="点击折叠或展开组件清单">
+              <svg class="lucide-icon xs collapse-chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              <span class="engine-status-dot offline" id="ocrStatusDot" title="状态: 未运行"></span>
+              <svg class="lucide-icon sm" style="color: var(--primary);" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2"></rect><line x1="3" x2="21" y1="9" y2="9"></line><line x1="9" x2="9" y1="21" y2="21"></line></svg>
+              <span class="module-engine-title">PPOCR-v6 (高性能离线OCR套件)</span>
+              <span class="tooltip-badge tooltip-bottom" onclick="event.stopPropagation()" data-tooltip="纯本地文本检测识别与表格坐标还原引擎，为扫描件与合同图片提供底层 OCR 支撑与密集表格行列对齐还原。" title="纯本地文本检测识别与表格坐标还原引擎，为扫描件与合同图片提供底层 OCR 支撑与密集表格行列对齐还原。">?</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span class="module-status-pill" id="ocrStatusPill" style="display: none !important;"></span>
+              <button type="button" id="ocrStartBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">启动</button>
+              <button type="button" id="ocrStopBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">停止</button>
+              <button type="button" id="ocrDownloadBtn" class="btn sm primary" style="font-size: 11px; padding: 3px 8px; display: none;">一键下载套件 (~94.4 MB)</button>
+              <button type="button" id="ocrCancelBtn" class="btn sm danger" style="font-size: 11px; padding: 3px 8px; display: none;">取消下载</button>
+              <button type="button" id="ocrDeleteBtn" class="btn sm ghost-danger-btn" style="font-size: 11px; padding: 3px 6px; display: none;" title="删除本地模型权重">
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                <span>删除</span>
+              </button>
+            </div>
+          </div>
+
           <!-- 实时下载进度条 (下载中激活) -->
           <div class="ocr-progress-container module-progress-container" id="ocrProgressContainer" style="display: none;">
             <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-dim);">
@@ -664,15 +868,51 @@
               <div class="ocr-progress-bar-fill module-progress-bar-fill" id="ocrProgressBarFill" style="width: 0%;"></div>
             </div>
           </div>
+
+          <!-- OCR 子组件清单树 -->
+          <div class="model-dep-tree" id="ocrComponentsList">
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">├── </span>
+                <span class="model-dep-label">文本检测: </span>
+                <span class="model-dep-sub">PP-OCRv6_det_small.onnx (9.9 MB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="ocrDetStatusTag">检测中...</span>
+            </div>
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">├── </span>
+                <span class="model-dep-label">文本识别: </span>
+                <span class="model-dep-sub">PP-OCRv6_rec_medium.onnx (76.6 MB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="ocrRecStatusTag">检测中...</span>
+            </div>
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">├── </span>
+                <span class="model-dep-label">表格还原: </span>
+                <span class="model-dep-sub">slanet-plus.onnx (7.8 MB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="ocrTableStatusTag">检测中...</span>
+            </div>
+            <div class="model-dep-row">
+              <div>
+                <span class="model-dep-branch">└── </span>
+                <span class="model-dep-label">识别字典: </span>
+                <span class="model-dep-sub">ppocrv6_dict.txt (75 KB)</span>
+              </div>
+              <span class="dep-status-tag pending" id="ocrDictStatusTag">检测中...</span>
+            </div>
+          </div>
         </div>
 
-        <!-- 卡片 3: 本地与高级工具 -->
+        <!-- 卡片 4: 本地与高级工具: 自定义 GGUF 模型 -->
         <div class="module-engine-card advanced-tools-card" id="advancedModelCard">
           <div class="module-engine-header">
             <div class="module-engine-title-wrap">
               <svg class="lucide-icon sm" style="color: var(--text-dim);" viewBox="0 0 24 24"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 8 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"></path></svg>
               <span class="module-engine-title" style="font-size: 12.5px; font-weight: 600;">自定义 GGUF 模型</span>
-              <span class="tooltip-badge tooltip-bottom" data-tooltip="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。" title="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。">?</span>
+              <span class="tooltip-badge tooltip-bottom" data-tooltip="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。上方系统预设及从属视觉塔已自动隐藏。" title="支持从本地磁盘导入其他第三方 GGUF 格式离线模型进行独立测试或扩展运行。上方系统预设及从属视觉塔已自动隐藏。">?</span>
             </div>
             <button id="importLocalGgufBtn" class="btn sm" style="font-size: 11px; padding: 3px 8px;">+ 选取本地 GGUF 模型</button>
           </div>
@@ -684,9 +924,9 @@
       </div>
 
       <!-- 板块 1.5: 在线模型 (OpenAI 兼容 API 极简配置) -->
-      <div class="settings-tab-pane" id="paneSetOnlineAi" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 10px;">
+      <div class="settings-tab-pane" id="paneSetOnlineAi" style="display: none; flex: 1; min-height: 0; flex-direction: column; gap: 8px; overflow-x: hidden;">
         <!-- 顶部：模型配置选择与管理栏 -->
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); flex-shrink: 0; width: 100%; box-sizing: border-box;">
           <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
             <label style="font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"></path></svg>
@@ -707,93 +947,103 @@
             </div>
           </div>
           <div style="display: flex; gap: 6px; flex-shrink: 0;">
-            <button type="button" id="newOnlineModelBtn" class="btn sm" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px;" title="新建一个在线模型配置">
+            <button type="button" id="newOnlineModelBtn" class="btn sm" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="新建一个在线模型配置">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
               <span>新建</span>
             </button>
-            <button type="button" id="deleteOnlineModelBtn" class="btn sm danger" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 3px;" title="删除当前在线模型配置">
+            <button type="button" id="deleteOnlineModelBtn" class="ghost-danger-btn sm" style="padding: 4px 8px; font-size: 11px; display: inline-flex; align-items: center; gap: 4px;" title="删除当前在线模型配置">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               <span>删除</span>
             </button>
           </div>
         </div>
 
-        <!-- 中间表单区域 -->
-        <div style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; overflow-y: auto;">
-          <div>
-            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
-              <span>模型名称</span>
-              <span class="tooltip-badge" data-tooltip="自定义显示名称，便于在模型选择列表中快速识别。" title="自定义显示名称，便于在模型选择列表中快速识别。">?</span>
-            </label>
-            <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：OpenAI GPT-4o" style="width: 100%; box-sizing: border-box;">
-          </div>
-
-          <div>
-            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
-              <span>API 服务地址 (Base URL)</span>
-              <span class="tooltip-badge" data-tooltip="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。" title="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。">?</span>
-            </label>
-            <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="例如：https://api.openai.com/v1" style="width: 100%; box-sizing: border-box;">
-          </div>
-
-          <div>
-            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
-              <span>API 密钥 (API Key)</span>
-              <span class="tooltip-badge" data-tooltip="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。" title="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。">?</span>
-            </label>
-            <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; box-sizing: border-box;">
-          </div>
-
-          <div>
-            <label style="display: flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 500; color: var(--text); margin-bottom: 4px;">
-              <span>模型标识 (Model ID)</span>
-              <span class="tooltip-badge" data-tooltip="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。" title="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。">?</span>
-            </label>
-            <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o" style="width: 100%; box-sizing: border-box;">
-          </div>
-
-          <!-- 模型自定义超参数 -->
-          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-            <div>
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
-                <span>采样温度 (Temp)</span>
-                <span class="tooltip-badge" data-tooltip="控制输出的随机性与创造力。敏感信息审计建议 0.0~0.2 以保证结果稳定严谨。" title="控制输出的随机性与创造力。敏感信息审计建议 0.0~0.2 以保证结果稳定严谨。">?</span>
-              </label>
-              <input type="number" id="onlineModelTempInput" class="input-text" min="0" max="2" step="0.05" value="0.1" style="width: 100%; box-sizing: border-box;">
+        <!-- 中间工作区：大灰底卡片包裹双子卡片 (仅垂直平滑滚动，严禁水平溢出) -->
+        <div class="prompt-box-card" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 10px; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; background: var(--surface-2); overflow-y: auto; overflow-x: hidden; width: 100%; box-sizing: border-box;">
+          <!-- 子卡片 1：基础连接凭据 -->
+          <div style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; width: 100%; box-sizing: border-box; min-width: 0;">
+            <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 2px;">
+              <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M21 2l-2 2m-1-1l-3 3m2 2l-3 3m0 0l-4-4a5.5 5.5 0 1 0-7.78 7.78l7.78-7.78Z"></path></svg>
+              <span style="font-size: 11.5px; font-weight: 600; color: var(--text);">基础连接凭据</span>
             </div>
-            <div>
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
-                <span>候选范围 (Top-K)</span>
-                <span class="tooltip-badge" data-tooltip="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。" title="每步生成仅从概率最高的前 K 个 Token 中采样，默认 50。">?</span>
-              </label>
-              <input type="number" id="onlineModelTopKInput" class="input-text" min="1" max="200" step="1" value="50" style="width: 100%; box-sizing: border-box;">
+            <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; width: 100%; box-sizing: border-box;">
+              <div style="min-width: 0;">
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 3px;">
+                  <span>配置名称</span>
+                  <span class="tooltip-badge" data-tooltip="自定义显示名称，便于在模型选择列表中快速识别。" title="自定义显示名称，便于在模型选择列表中快速识别。">?</span>
+                </label>
+                <input type="text" id="onlineModelNameInput" class="input-text" placeholder="例如：OpenAI GPT-4o" style="width: 100%; max-width: 100%; box-sizing: border-box; height: 28px; font-size: 11.5px;">
+              </div>
+              <div style="min-width: 0;">
+                <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 3px;">
+                  <span>模型标识 (Model ID)</span>
+                  <span class="tooltip-badge" data-tooltip="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。" title="服务商指定的模型具体标识，向 API 接口请求时以此为准，如 gpt-4o、deepseek-chat 等。">?</span>
+                </label>
+                <input type="text" id="onlineModelIdInput" class="input-text" placeholder="例如：gpt-4o" style="width: 100%; max-width: 100%; box-sizing: border-box; height: 28px; font-size: 11.5px;">
+              </div>
             </div>
-            <div>
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
-                <span>重复惩罚 (Repeat)</span>
-                <span class="tooltip-badge align-right" data-tooltip="抑制模型输出重复词句的倾向，默认 1.1。" title="抑制模型输出重复词句的倾向，默认 1.1。">?</span>
+            <div style="min-width: 0; width: 100%;">
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 3px;">
+                <span>API 服务地址 (Base URL)</span>
+                <span class="tooltip-badge" data-tooltip="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。" title="兼容 OpenAI 规范的 API 接口根地址，如 https://api.openai.com/v1 或第三方服务商代理地址。">?</span>
               </label>
-              <input type="number" id="onlineModelRepeatPenaltyInput" class="input-text" min="1.0" max="2.0" step="0.05" value="1.1" style="width: 100%; box-sizing: border-box;">
+              <input type="text" id="onlineModelBaseUrlInput" class="input-text" placeholder="例如：https://api.openai.com/v1" style="width: 100%; max-width: 100%; box-sizing: border-box; height: 28px; font-size: 11.5px;">
             </div>
-            <div>
-              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-bottom: 4px;">
-                <span>最大Token (Max)</span>
-                <span class="tooltip-badge align-right" data-tooltip="单次推理返回的最大 Token 数量上限。" title="单次推理返回的最大 Token 数量上限。">?</span>
+            <div style="min-width: 0; width: 100%;">
+              <label style="display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 500; color: var(--text); margin-bottom: 3px;">
+                <span>API 密钥 (API Key)</span>
+                <span class="tooltip-badge" data-tooltip="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。" title="请求鉴权密钥 (以 sk- 开头)，仅加密保存在本地配置文件中，绝不经由第三方服务器上传。">?</span>
               </label>
-              <input type="number" id="onlineModelMaxTokensInput" class="input-text" min="64" max="16384" step="64" value="2048" style="width: 100%; box-sizing: border-box;">
+              <input type="password" id="onlineModelApiKeyInput" class="input-text" placeholder="sk-..." style="width: 100%; max-width: 100%; box-sizing: border-box; height: 28px; font-size: 11.5px;">
             </div>
           </div>
 
-          <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 4px;">
-            <div style="display: flex; align-items: center; gap: 8px;">
-              <span style="font-size: 11px; font-weight: 500; color: var(--text-dim); display: inline-flex; align-items: center; gap: 4px;">
-                <span>思考模式 (Think)</span>
-                <span class="tooltip-badge" data-tooltip="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。" title="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。">?</span>
-              </span>
-              <button type="button" id="onlineModelThinkingBtn" class="param-toggle-btn compact" title="点击切换是否开启深度思考推理">
-                <span class="toggle-indicator">[●──]</span>
-                <span class="toggle-text">未开启</span>
-              </button>
+          <!-- 子卡片 2：推理控制与思考模式 (默认折叠) -->
+          <div id="onlineModelParamsCard" style="background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; transition: all 0.2s ease; width: 100%; box-sizing: border-box; min-width: 0;">
+            <!-- 折叠切换头部 -->
+            <div id="toggleOnlineParamsBtn" style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;" title="点击展开/折叠推理控制与思考模式参数">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <svg class="lucide-icon xs collapse-chevron" id="onlineParamsChevron" viewBox="0 0 24 24" style="transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); color: var(--text-mute); transform: rotate(-90deg);"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="4" x2="20" y1="21" y2="21"></line><line x1="4" x2="20" y1="3" y2="3"></line><line x1="4" x2="20" y1="12" y2="12"></line><line x1="8" x2="8" y1="8" y2="16"></line><line x1="16" x2="16" y1="8" y2="16"></line></svg>
+                <span style="font-size: 11.5px; font-weight: 600; color: var(--text);">推理控制与思考模式</span>
+                <span style="font-size: 10.5px; color: var(--text-mute); margin-left: 2px;">(可选高级参数)</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 4px;">
+                <span id="onlineParamsToggleLabel" style="font-size: 10.5px; color: var(--text-mute);">展开</span>
+              </div>
+            </div>
+
+            <!-- 折叠主体：仅保留采样温度、最大Token和思考开关，单行精简展示 (默认折叠) -->
+            <div id="onlineModelParamsBody" style="display: none; border-top: 1px solid var(--border); padding-top: 8px; width: 100%; box-sizing: border-box; min-width: 0;">
+              <div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 12px; align-items: end; width: 100%; box-sizing: border-box;">
+                <!-- 1. 采样温度 -->
+                <div style="min-width: 0;">
+                  <label style="display: flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 3px;">
+                    <span>温度 (Temp)</span>
+                    <span class="tooltip-badge" data-tooltip="控制输出的随机性与严谨度。敏感信息提取建议 0.0~0.2，通用建议 0.7。" title="控制输出的随机性与严谨度。敏感信息提取建议 0.0~0.2，通用建议 0.7。">?</span>
+                  </label>
+                  <input type="number" id="onlineModelTempInput" class="input-text" min="0" max="2" step="0.05" value="0.7" style="width: 100%; max-width: 100%; box-sizing: border-box; height: 26px; font-size: 11px; padding: 2px 6px;">
+                </div>
+                <!-- 2. 最大Token -->
+                <div style="min-width: 0;">
+                  <label style="display: flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 3px;">
+                    <span>最大Token (Max)</span>
+                    <span class="tooltip-badge align-right" data-tooltip="单次推理返回的最大 Token 数量上限，默认 4096。" title="单次推理返回的最大 Token 数量上限，默认 4096。">?</span>
+                  </label>
+                  <input type="number" id="onlineModelMaxTokensInput" class="input-text" min="64" max="16384" step="64" value="4096" style="width: 100%; max-width: 100%; box-sizing: border-box; height: 26px; font-size: 11px; padding: 2px 6px;">
+                </div>
+                <!-- 3. 思考开关 -->
+                <div style="min-width: 0; display: flex; flex-direction: column; justify-content: flex-end;">
+                  <label style="display: flex; align-items: center; gap: 3px; font-size: 10.5px; font-weight: 500; color: var(--text-dim); margin-bottom: 3px;">
+                    <span>思考开关 (Think)</span>
+                    <span class="tooltip-badge align-right" onclick="event.stopPropagation()" data-tooltip="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。" title="针对 DeepSeek-R1 / QwQ 等具备推理能力的大模型，开启后将在 API 请求中启用思维链推理。">?</span>
+                  </label>
+                  <button type="button" id="onlineModelThinkingBtn" class="param-toggle-btn compact" style="height: 26px; box-sizing: border-box;" title="点击切换是否开启深度思考推理">
+                    <span class="toggle-indicator">[●──]</span>
+                    <span class="toggle-text">未开启</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -922,7 +1172,7 @@
           <div class="appearance-setting-card">
             <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
               <div>
-                <div style="font-size: 12.5px; font-weight: 600; color: var(--text);">全局 UI 界面缩放比例</div>
+                <div style="font-size: 12.5px; font-weight: 600; color: var(--text);">界面缩放比例</div>
                 <div style="font-size: 11px; color: var(--text-mute); margin-top: 1px;">按需调大界面元素与字号，保持全响应式布局自适应</div>
               </div>
               <div class="ui-scale-badge" id="uiScaleDisplayBadge">100%</div>
@@ -954,55 +1204,135 @@
               </div>
             </div>
           </div>
+
+          <!-- 功能 3: 脱敏打码策略设置 (星号掩码 vs 字符硬抹除) -->
+          <div class="appearance-setting-card">
+            <div style="margin-bottom: 8px;">
+              <div style="font-size: 12.5px; font-weight: 600; color: var(--text);">脱敏打码策略</div>
+              <div style="font-size: 11px; color: var(--text-mute); margin-top: 1px;">设定文档脱敏预览与导出时的打码策略（星号掩码所有文本换成*完全脱敏；字符硬抹除全量等长抹黑）</div>
+            </div>
+            <div class="theme-options-grid" style="grid-template-columns: 1fr 1fr;">
+              <button type="button" class="theme-choice-btn active" data-mask-style="masking" id="maskStyleBtnMasking" title="星号掩码：所有敏感字符全量替换为等长星号 (如 *** / ***********)">
+                <span class="theme-choice-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg></span>
+                <span class="theme-choice-title">星号掩码 (***)</span>
+              </button>
+              <button type="button" class="theme-choice-btn" data-mask-style="redaction" id="maskStyleBtnRedaction" title="字符硬抹除：所有敏感字符全量替换为等长黑块 (如 ███ / ███████████)">
+                <span class="theme-choice-icon"><svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="14" height="14" x="5" y="5" rx="1" fill="currentColor"></rect></svg></span>
+                <span class="theme-choice-title">字符硬抹除 (███)</span>
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- 当前快照提取规则与系统提示词查看模态框 -->
+  <!-- 当前快照“相关信息”深度审查与排查模态框 -->
   <div class="modal-overlay" id="snapshotRulesModal">
-    <div class="modal-box" style="width: 660px; max-width: 95%; max-height: 520px; display: flex; flex-direction: column; box-sizing: border-box;">
+    <div class="modal-box" style="width: 760px; max-width: 95%; height: 600px; max-height: 88vh; display: flex; flex-direction: column; box-sizing: border-box; padding: 18px 20px;">
+      <!-- 模态框顶部：标题、快照版本与操作 -->
       <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between;">
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
-          <span style="font-size: 13.5px; font-weight: 600; color: var(--text);">快照提取规则与提示词审查</span>
-          <span id="snapModalBadge" class="file-chip" style="font-size: 11px;">#1版</span>
+        <div style="display: flex; align-items: center; gap: 8px; overflow: hidden;">
+          <svg class="lucide-icon sm" viewBox="0 0 24 24" style="color: var(--primary); flex-shrink: 0;"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+          <span style="font-size: 14px; font-weight: 600; color: var(--text);">快照相关信息</span>
+          <span id="snapModalBadge" class="file-chip" style="font-size: 11px; flex-shrink: 0;">#1版</span>
+          <span id="snapModalDocName" class="file-chip" style="font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-mute); background: var(--surface-2);" title="关联文档">-</span>
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button id="copySnapPromptBtn" class="btn sm" style="font-size: 11px; display: inline-flex; align-items: center; gap: 4px;">
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
-            <span>复制提示词</span>
-          </button>
-          <button id="closeSnapRulesModalBtn" class="btn sm" style="font-size: 11px;">关闭</button>
+        <div style="display: flex; gap: 8px; flex-shrink: 0;">
+          <button id="closeSnapRulesModalBtn" class="btn sm" style="font-size: 11px; padding: 4px 10px;">关闭</button>
         </div>
       </div>
-      <div style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; padding-right: 4px;">
-        <!-- 快照元信息条 -->
-        <div style="display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); border: 1px solid var(--border); font-size: 11.5px;">
-          <div><span style="color: var(--text-mute);">执行模型：</span><span id="snapModalModel" style="color: var(--text); font-weight: 500;">-</span></div>
-          <div><span style="color: var(--text-mute);">场景模板：</span><span id="snapModalTemplate" style="color: var(--text); font-weight: 500;">-</span></div>
-          <div><span style="color: var(--text-mute);">记录时间：</span><span id="snapModalTime" style="color: var(--text);">-</span></div>
-          <div><span style="color: var(--text-mute);">耗时 / 命中：</span><span id="snapModalHits" style="color: var(--text);">0ms / 0处</span></div>
+
+      <!-- 核心指标与执行环境看板 (拆分为清晰独立的 5 栏网格) -->
+      <div class="snap-info-metrics-grid" style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
+        <div class="snap-metric-card">
+          <div class="snap-metric-label">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><rect width="16" height="16" x="4" y="4" rx="2"></rect><rect width="6" height="6" x="9" y="9" rx="1"></rect><path d="M15 2v2"></path><path d="M15 20v2"></path><path d="M2 15h2"></path><path d="M2 9h2"></path><path d="M20 15h2"></path><path d="M20 9h2"></path><path d="M9 2v2"></path><path d="M9 20v2"></path></svg>
+            <span>执行模型</span>
+          </div>
+          <div id="snapModalModel" class="snap-metric-val" title="-">-</div>
         </div>
 
-        <!-- 系统提示词展示区 -->
-        <div>
-          <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
-            <span>本次快照使用的完整系统提示词 (System Prompt)：</span>
+        <div class="snap-metric-card">
+          <div class="snap-metric-label">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line></svg>
+            <span>文档规模</span>
           </div>
-          <pre id="snapModalPromptBlock" style="max-height: 220px; overflow: auto; background: var(--surface-2); padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text); line-height: 1.55; white-space: pre-wrap; word-break: break-word;"></pre>
+          <div id="snapModalChars" class="snap-metric-val">0 字符</div>
         </div>
 
-        <!-- 启用的字段定义清单 -->
-        <div>
-          <div style="font-size: 12px; font-weight: 600; color: var(--text); margin-bottom: 6px; display: flex; align-items: center; gap: 5px;">
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"></line><line x1="8" x2="21" y1="12" y2="12"></line><line x1="8" x2="21" y1="18" y2="18"></line><line x1="3" x2="3.01" y1="6" y2="6"></line><line x1="3" x2="3.01" y1="12" y2="12"></line><line x1="3" x2="3.01" y1="18" y2="18"></line></svg>
-            <span>启用的提取字段定义清单 (<span id="snapModalFieldsCount">0</span> 个)：</span>
+        <div class="snap-metric-card">
+          <div class="snap-metric-label">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
+            <span>实体检出</span>
           </div>
-          <div id="snapModalFieldsList" style="display: flex; flex-direction: column; gap: 6px;">
-            <!-- 动态生成 -->
+          <div id="snapModalHits" class="snap-metric-val">0 字段 / 0 处</div>
+        </div>
+
+        <div class="snap-metric-card">
+          <div class="snap-metric-label">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 14 14"></polyline></svg>
+            <span>执行耗时</span>
           </div>
+          <div id="snapModalElapsed" class="snap-metric-val">0.0s</div>
+        </div>
+
+        <div class="snap-metric-card">
+          <div class="snap-metric-label">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="4" rx="2" ry="2"></rect><line x1="16" x2="16" y1="2" y2="6"></line><line x1="8" x2="8" y1="2" y2="6"></line><line x1="3" x2="21" y1="10" y2="10"></line></svg>
+            <span>记录时间</span>
+          </div>
+          <div id="snapModalTime" class="snap-metric-val">-</div>
+        </div>
+      </div>
+
+      <!-- 分段切换器 (圆角矩形药丸包裹槽容器) -->
+      <div class="snap-info-tabs" id="snapInfoTabs">
+        <button class="snap-tab-btn active" id="snapTabLogBtn" type="button">
+          <svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" x2="20" y1="19" y2="19"></line></svg>
+          <span>执行日志 (Streaming Logs)</span>
+        </button>
+        <button class="snap-tab-btn" id="snapTabPromptBtn" type="button">
+          <svg class="lucide-icon xxs" viewBox="0 0 24 24"><polyline points="16 18 22 12 16 6"></polyline><polyline points="8 6 2 12 8 18"></polyline></svg>
+          <span>系统提示词 (Prompt)</span>
+        </button>
+        <button class="snap-tab-btn" id="snapTabRulesBtn" type="button">
+          <svg class="lucide-icon xxs" viewBox="0 0 24 24"><line x1="8" x2="21" y1="6" y2="6"></line><line x1="8" x2="21" y1="12" y2="12"></line><line x1="8" x2="21" y1="18" y2="18"></line><line x1="3" x2="3.01" y1="6" y2="6"></line><line x1="3" x2="3.01" y1="12" y2="12"></line><line x1="3" x2="3.01" y1="18" y2="18"></line></svg>
+          <span>生效规则字段 (<span id="snapModalFieldsCount">0</span>)</span>
+        </button>
+      </div>
+
+      <!-- Tab 1: 执行日志 (Streaming Logs 推理轨迹与文本输出) -->
+      <div id="snapPaneLog" class="snap-tab-pane active" style="flex: 1; min-height: 0; display: flex; flex-direction: column;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-shrink: 0;">
+          <span style="font-size: 11.5px; color: var(--text-mute);" id="snapModalLogMeta">流式生成的完整推理与提取文本日志：</span>
+          <button id="copySnapLogBtn" class="btn sm" type="button" style="font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+            <span>复制日志</span>
+          </button>
+        </div>
+        <pre id="snapModalLogBlock" style="flex: 1; min-height: 0; overflow: auto; background: #0c0d0e; color: #38bdf8; border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; white-space: pre-wrap; word-break: break-word; margin: 0;"></pre>
+      </div>
+
+      <!-- Tab 2: 系统提示词 (System Prompt) -->
+      <div id="snapPanePrompt" class="snap-tab-pane" style="flex: 1; min-height: 0; display: none; flex-direction: column;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; flex-shrink: 0;">
+          <span style="font-size: 11.5px; color: var(--text-mute);">本次快照使用的完整系统提示词 (System Prompt)：</span>
+          <button id="copySnapPromptBtn" class="btn sm" type="button" style="font-size: 11px; padding: 2px 8px; display: inline-flex; align-items: center; gap: 4px;">
+            <svg class="lucide-icon xxs" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
+            <span>复制提示词</span>
+          </button>
+        </div>
+        <pre id="snapModalPromptBlock" style="flex: 1; min-height: 0; overflow: auto; background: var(--surface-2); padding: 12px; border-radius: var(--radius-sm); border: 1px solid var(--border); font-family: var(--font-mono); font-size: 11px; color: var(--text); line-height: 1.55; white-space: pre-wrap; word-break: break-word; margin: 0;"></pre>
+      </div>
+
+      <!-- Tab 3: 生效规则字段定义 -->
+      <div id="snapPaneRules" class="snap-tab-pane" style="flex: 1; min-height: 0; display: none; flex-direction: column;">
+        <div style="font-size: 11.5px; color: var(--text-mute); margin-bottom: 6px; flex-shrink: 0;">
+          本次快照生效的字段定义清单：
+        </div>
+        <div id="snapModalFieldsList" style="flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+          <!-- 动态生成 -->
         </div>
       </div>
     </div>
@@ -1153,7 +1483,7 @@
         </div>
       </div>
       <p style="font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-bottom: 16px;">
-        检测到您导入了图片单据。SensiDoc 采用端侧原生纯 Rust + ONNX Runtime 方案（PP-OCRv6 + SLANet_plus），体积仅 <b id="ocrModalExpectedSizeTag">~39 MB</b>，免 Python 依赖、零外网上传。是否立即从魔搭开源社区一键下载套件并自动完成文档识别？
+        检测到您导入了图片单据。SensiDoc 采用端侧原生纯 Rust + ONNX Runtime 方案（PP-OCRv6 + SLANet_plus），体积仅 <b id="ocrModalExpectedSizeTag">~94 MB</b>，免 Python 依赖、零外网上传。是否立即从魔搭开源社区一键下载套件并自动完成文档识别？
       </p>
       <!-- 弹窗内嵌入式进度条 -->
       <div id="ocrPromptProgress" style="display: none; flex-direction: column; gap: 4px; margin-bottom: 16px;">
@@ -1172,56 +1502,61 @@
     </div>
   </div>
 
-  <!-- 首次运行向导 · 模型准备弹窗 (方案三：极简双选卡片) -->
+  <!-- 首次运行向导 · 模型准备弹窗 (方案 A: 高信噪比垂直流) -->
   <div class="modal-overlay" id="firstLaunchModal" style="display: none; z-index: 360;">
-    <div class="modal-box first-launch-box" style="width: 540px; max-width: 92%; padding: 22px 24px; box-sizing: border-box;">
+    <div class="modal-box first-launch-box" style="width: 560px; max-width: 92%; padding: 22px 24px; box-sizing: border-box;">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span class="first-launch-badge">首次运行向导</span>
-          <h3 style="font-size: 15px; font-weight: 600; margin: 0; color: var(--text);">模型环境准备</h3>
+          <h3 style="font-size: 15px; font-weight: 600; margin: 0; color: var(--text);">首次环境初始化</h3>
         </div>
         <button type="button" id="firstLaunchSkipBtn" class="btn sm" style="font-size: 11px; padding: 2px 8px; color: var(--text-dim);">跳过</button>
       </div>
       
       <p style="font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 0 0 16px 0;">
-        SensiDoc 运行于纯本地离线环境，数据 100% 留在本机。为了获得端侧敏感信息审计与结构化脱敏能力，请选择需要初始化的本地模型模块：
+        纯本地离线运行 · 数据 100% 留在本机。请选择初始化的本地组件：
       </p>
 
       <!-- 模块勾选卡片列表 -->
       <div class="first-launch-modules" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px;">
-        <!-- 模块 1: 核心智能审计引擎 (快慢双模型协同) -->
+        <!-- 模块 1: 核心审计引擎 (Qwen3.5-0.8B) -->
         <label class="first-launch-module-card selected" id="flCardCore" style="cursor: pointer;">
           <div style="display: flex; align-items: flex-start; gap: 10px;">
             <input type="checkbox" id="flCheckCore" checked style="margin-top: 3px;">
             <div style="flex: 1; min-width: 0;">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">基础智能审计引擎</span>
-                  <span class="badge primary-subtle" style="font-size: 10px; padding: 1px 6px;">快慢协同 · 预设</span>
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">核心提取引擎</span>
+                  <span class="badge primary-subtle" style="font-size: 10px; padding: 1px 6px;">推荐</span>
+                  <span class="badge" style="font-size: 10px; padding: 1px 6px; background: var(--surface-3); color: var(--text-dim);">文本脱敏 + 图像多模态重构</span>
                 </div>
-                <span style="font-size: 12px; font-weight: 600; color: var(--text);">~2.1 GB</span>
+                <span style="font-size: 12px; font-weight: 600; color: var(--text);">~706 MB</span>
               </div>
-              <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5;">
-                集成 Qwen3.5-0.8B (极速初筛) + MiniCPM-2B (靶向终审) 双模型协同，开箱即用，高召回零误报。
+              <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 6px;">
+                极速文本敏感词识别，原生支持拍照单据/截图片段高保真图文排版。
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-mute); font-family: var(--font-mono); background: var(--surface-2); padding: 5px 8px; border-radius: var(--radius-sm); line-height: 1.4; border: 1px solid var(--border-subtle, rgba(0,0,0,0.04));">
+                <div>├── 主模型: Qwen3.5-0.8B-Q4_K_M.gguf (~508 MB)</div>
+                <div>└── 视觉塔: mmproj-BF16.gguf (~198 MB)</div>
               </div>
             </div>
           </div>
         </label>
 
-        <!-- 模块 2: 纸质单据与密集表格 OCR 引擎 -->
+        <!-- 模块 2: PPOCR-v6 (高性能离线OCR套件) -->
         <label class="first-launch-module-card" id="flCardOcr" style="cursor: pointer;">
           <div style="display: flex; align-items: flex-start; gap: 10px;">
             <input type="checkbox" id="flCheckOcr" style="margin-top: 3px;">
             <div style="flex: 1; min-width: 0;">
               <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px;">
                 <div style="display: flex; align-items: center; gap: 6px;">
-                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">纸质单据与密集表格 OCR 识别</span>
-                  <span class="badge" style="font-size: 10px; padding: 1px 6px; background: var(--surface-3); color: var(--text-dim);">可选增强</span>
+                  <span style="font-size: 13px; font-weight: 600; color: var(--text);">PPOCR-v6 (高性能离线OCR套件)</span>
+                  <span class="badge" style="font-size: 10px; padding: 1px 6px; background: var(--surface-3); color: var(--text-dim);">纸质单据 / 扫描件</span>
                 </div>
-                <span style="font-size: 12px; font-weight: 600; color: var(--text-dim);">~37.2 MB</span>
+                <span style="font-size: 12px; font-weight: 600; color: var(--text-dim);">~94.4 MB</span>
               </div>
               <div style="font-size: 11.5px; color: var(--text-dim); line-height: 1.5;">
-                为发票单据、合同扫描件及拍照图片提供纯本地光学识别与排版还原（若仅处理电子文档可暂不勾选）。
+                专用于纸质扫描件、复杂发票与高密表格坐标还原。
               </div>
             </div>
           </div>
@@ -1241,7 +1576,7 @@
 
       <!-- 底部操作按钮 -->
       <div style="display: flex; align-items: center; justify-content: space-between; padding-top: 12px; border-top: 1px solid var(--border);">
-        <div style="font-size: 11.5px; color: var(--text-dim);" id="flTotalSizeTip">已选组件: 1 项 (约 2.1 GB)</div>
+        <div style="font-size: 11.5px; color: var(--text-dim);" id="flTotalSizeTip">合计大小: 706 MB</div>
         <div style="display: flex; gap: 8px;">
           <button type="button" id="flCancelBtn" class="btn sm">暂不下载</button>
           <button type="button" id="flDownloadBtn" class="btn primary sm" style="display: inline-flex; align-items: center; gap: 4px;">
@@ -1253,7 +1588,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=1.3.7"></script>
+  <script src="app.js?v=1.5.1"></script>
 </body>
 </html>
 

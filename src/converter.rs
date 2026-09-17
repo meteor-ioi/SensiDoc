@@ -2,10 +2,44 @@ use anydoc::{self, Format};
 use std::path::Path;
 
 /// 转换结果及文档类型
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ConvertResult {
     pub markdown: String,
     pub doc_type: String, // "scan" 或 "native"
+    pub low_confidence_count: usize,
+    pub raw_boxes: Vec<crate::ocr::OcrBoxItem>,
+    pub image_width: Option<u32>,
+    pub image_height: Option<u32>,
+}
+
+impl ConvertResult {
+    pub fn native(markdown: String) -> Self {
+        Self {
+            markdown,
+            doc_type: "native".to_string(),
+            low_confidence_count: 0,
+            raw_boxes: Vec::new(),
+            image_width: None,
+            image_height: None,
+        }
+    }
+
+    pub fn scan(
+        markdown: String,
+        low_confidence_count: usize,
+        raw_boxes: Vec<crate::ocr::OcrBoxItem>,
+        image_width: Option<u32>,
+        image_height: Option<u32>,
+    ) -> Self {
+        Self {
+            markdown,
+            doc_type: "scan".to_string(),
+            low_confidence_count,
+            raw_boxes,
+            image_width,
+            image_height,
+        }
+    }
 }
 
 /// 支持的文档转 Markdown 引擎
@@ -46,10 +80,7 @@ impl DocConverter {
         // 1. 针对纯文本与 Markdown 的极速直通分支
         if ext == "txt" || ext == "md" || ext == "markdown" {
             let (cow, _, _) = encoding_rs::UTF_8.decode(bytes);
-            return Ok(ConvertResult {
-                markdown: cow.into_owned(),
-                doc_type: "native".to_string(),
-            });
+            return Ok(ConvertResult::native(cow.into_owned()));
         }
 
         // 2. 针对图像格式，拦截并路由至原生 OCR 引擎
@@ -59,10 +90,14 @@ impl DocConverter {
             }
 
             let ocr_res = crate::ocr::OcrEngine::recognize_bytes(bytes)?;
-            return Ok(ConvertResult {
-                markdown: ocr_res.markdown,
-                doc_type: "scan".to_string(),
-            });
+            let low_confidence_count = ocr_res.low_confidence_count();
+            return Ok(ConvertResult::scan(
+                ocr_res.markdown,
+                low_confidence_count,
+                ocr_res.raw_boxes,
+                Some(ocr_res.image_width),
+                Some(ocr_res.image_height),
+            ));
         }
 
         // 3. 针对 PDF 文档：优先提取文本层，扫描版自动回退至原生 OCR 引擎
@@ -74,10 +109,7 @@ impl DocConverter {
 
             match anydoc_res {
                 Ok(ref text) if text.trim().chars().count() >= 30 => {
-                    return Ok(ConvertResult {
-                        markdown: text.clone(),
-                        doc_type: "native".to_string(),
-                    });
+                    return Ok(ConvertResult::native(text.clone()));
                 }
                 ref err_or_short => {
                     // 判断是否具备扫描件特征（文本过短或 anydoc 明确报错提示 Scanned/OCR）
@@ -100,18 +132,12 @@ impl DocConverter {
                     if crate::paths::is_ocr_ready() {
                         match Self::extract_scanned_pdf(bytes) {
                             Ok(scanned_md) if scanned_md.trim().chars().count() >= 10 => {
-                                return Ok(ConvertResult {
-                                    markdown: scanned_md,
-                                    doc_type: "scan".to_string(),
-                                });
+                                return Ok(ConvertResult::scan(scanned_md, 0, Vec::new(), None, None));
                             }
                             Ok(_) | Err(_) => {
                                 // 若未能提取到有效图像，回退到原有 anydoc 结果或报错
                                 if let Ok(ref text) = anydoc_res {
-                                    return Ok(ConvertResult {
-                                        markdown: text.clone(),
-                                        doc_type: "native".to_string(),
-                                    });
+                                    return Ok(ConvertResult::native(text.clone()));
                                 } else {
                                     return Err(format!("PDF 扫描件图片提取或 OCR 识别失败: {filename}"));
                                 }
@@ -121,10 +147,7 @@ impl DocConverter {
 
                     // 兜底回退
                     if let Ok(text) = anydoc_res {
-                        return Ok(ConvertResult {
-                            markdown: text,
-                            doc_type: "native".to_string(),
-                        });
+                        return Ok(ConvertResult::native(text));
                     } else {
                         return Err(format!("PDF 文档解析失败: {filename}"));
                     }
@@ -138,26 +161,17 @@ impl DocConverter {
 
         match detected_format {
             Some(format) => anydoc::to_markdown_bytes(bytes, format)
-                .map(|md| ConvertResult {
-                    markdown: md,
-                    doc_type: "native".to_string(),
-                })
+                .map(ConvertResult::native)
                 .map_err(|e| format!("文档转换解析失败: {e}")),
             None => {
                 // 尝试由 anydoc 自动探测
                 anydoc::to_markdown_bytes(bytes, None)
-                    .map(|md| ConvertResult {
-                        markdown: md,
-                        doc_type: "native".to_string(),
-                    })
+                    .map(ConvertResult::native)
                     .or_else(|_| {
                         // 若不是已知格式，最后尝试作为纯文本 UTF-8 处理
                         if std::str::from_utf8(bytes).is_ok() {
                             let (cow, _, _) = encoding_rs::UTF_8.decode(bytes);
-                            Ok(ConvertResult {
-                                markdown: cow.into_owned(),
-                                doc_type: "native".to_string(),
-                            })
+                            Ok(ConvertResult::native(cow.into_owned()))
                         } else {
                             Err(format!("不支持的文件格式或内容无法解析: {filename}"))
                         }
@@ -273,9 +287,21 @@ impl DocConverter {
             .unwrap_or("document");
         Self::convert_bytes(filename, &bytes)
     }
+
+    /// 从本地文件路径读取并转换为详细结果 (含文档类型与 OCR 原始候选框信息)
+    pub fn convert_file_detailed(path: impl AsRef<Path>) -> Result<ConvertResult, String> {
+        let path_ref = path.as_ref();
+        let bytes = std::fs::read(path_ref)
+            .map_err(|e| format!("读取文件失败 ({}): {e}", path_ref.display()))?;
+        let filename = path_ref
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("document");
+        Self::convert_bytes_detailed(filename, &bytes)
+    }
 }
 
-fn deref_obj<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> Option<&'a lopdf::Object> {
+pub(crate) fn deref_obj<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> Option<&'a lopdf::Object> {
     match obj {
         lopdf::Object::Reference(id) => doc.get_object(*id).ok(),
         _ => Some(obj),
@@ -283,7 +309,7 @@ fn deref_obj<'a>(doc: &'a lopdf::Document, obj: &'a lopdf::Object) -> Option<&'a
 }
 
 /// 解析 PDF 页面旋转角度 (包含沿 Parent 链继承的 /Rotate 属性)
-fn get_page_rotation(doc: &lopdf::Document, page_dict: &lopdf::Dictionary) -> i64 {
+pub(crate) fn get_page_rotation(doc: &lopdf::Document, page_dict: &lopdf::Dictionary) -> i64 {
     if let Some(rot) = page_dict.get(b"Rotate").ok().and_then(|r| deref_obj(doc, r)).and_then(|r| r.as_i64().ok()) {
         return rot;
     }

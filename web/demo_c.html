@@ -36,25 +36,25 @@
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: hsl(0 0% 4%);
-        --surface: hsl(0 0% 4%);
-        --surface-2: hsl(0 0% 7%);
-        --surface-hover: hsl(0 0% 11%);
-        --surface-active: hsl(0 0% 14%);
-        --border: hsl(0 0% 16%);
-        --border-strong: hsl(0 0% 28%);
-        --text: hsl(0 0% 93%);
-        --text-dim: hsl(0 0% 63%);
-        --text-mute: hsl(0 0% 45%);
-        --accent: hsl(0 0% 93%);
-        --accent-text: hsl(0 0% 6%);
+        --bg: hsl(240 2% 12%);
+        --surface: hsl(240 2% 13%);
+        --surface-2: hsl(240 2% 18%);
+        --surface-hover: hsl(240 2% 23%);
+        --surface-active: hsl(240 2% 28%);
+        --border: hsl(240 2% 22%);
+        --border-strong: hsl(240 2% 32%);
+        --text: hsl(0 0% 91%);
+        --text-dim: hsl(240 2% 67%);
+        --text-mute: hsl(240 2% 48%);
+        --accent: hsl(0 0% 92%);
+        --accent-text: hsl(240 2% 12%);
         --danger: #f87171;
-        --danger-soft: rgba(248, 113, 113, 0.15);
+        --danger-soft: rgba(248, 113, 113, 0.14);
         --warning: #fbbf24;
-        --warning-soft: rgba(251, 191, 36, 0.15);
-        --success: #4ade80;
-        --success-soft: rgba(74, 222, 128, 0.15);
-        --link: hsl(210 100% 66%);
+        --warning-soft: rgba(251, 191, 36, 0.14);
+        --success: #07c160;
+        --success-soft: rgba(7, 193, 96, 0.14);
+        --link: hsl(212 90% 64%);
       }
     }
 
@@ -134,11 +134,15 @@
     .sidebar-header {
       padding: 10px 14px;
       border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
       display: flex;
       align-items: center;
       justify-content: space-between;
       font-size: 12px;
       font-weight: 600;
+    }
+    .sidebar-header .btn:not(.primary) {
+      background: var(--surface);
     }
     .file-list {
       flex: 1;
@@ -205,7 +209,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      background: var(--surface);
+      background: var(--surface-2);
       font-size: 12px;
       color: var(--text-dim);
       flex-shrink: 0;
@@ -262,33 +266,36 @@
 
     /* 敏感词高亮插桩 */
     mark.sensi-mark {
-      background: transparent;
+      display: inline;
+      background: rgba(220, 38, 38, 0.04);
       padding: 1px 3px;
+      margin: 0 1.5px;
       border-radius: 3px;
+      border: 1.5px solid var(--danger);
       cursor: pointer;
+      box-decoration-break: clone;
+      -webkit-box-decoration-break: clone;
       transition: all 0.15s ease;
       position: relative;
     }
-    mark.sensi-mark[data-risk="high"] {
-      border-bottom: 2px solid var(--danger);
-    }
+    mark.sensi-mark[data-risk="high"],
     mark.sensi-mark[data-risk="medium"] {
-      border-bottom: 2px solid var(--warning);
+      border: 1.5px solid var(--danger);
+      background: rgba(220, 38, 38, 0.04);
     }
     mark.sensi-mark[data-risk="low"] {
-      border-bottom: 2px solid var(--text-dim);
+      border: 1.5px solid var(--warning);
+      background: rgba(217, 119, 6, 0.04);
     }
     mark.sensi-mark:hover {
-      background: rgba(217, 119, 6, 0.12);
+      background: rgba(220, 38, 38, 0.1);
     }
     mark.sensi-mark.sensi-selected {
-      background: rgba(217, 119, 6, 0.22);
-      box-shadow: 0 0 0 2px var(--warning);
+      background: rgba(220, 38, 38, 0.12);
+      border: 1.5px solid var(--danger);
+      border-bottom: 3px solid var(--danger);
+      padding-bottom: 0;
       font-weight: 600;
-    }
-    mark.sensi-mark.sensi-selected[data-risk="high"] {
-      background: rgba(220, 38, 38, 0.22);
-      box-shadow: 0 0 0 2px var(--danger);
     }
 
     /* 右侧栏：统一智能审计主控台 (Unified Inspector Panel) */
@@ -486,10 +493,13 @@
     .inspector-footer {
       padding: 12px 14px;
       border-top: 1px solid var(--border);
-      background: var(--surface);
+      background: var(--surface-2);
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+    .inspector-footer .btn:not(.primary) {
+      background: var(--surface);
     }
     .btn {
       padding: 7px 12px;
@@ -898,10 +908,11 @@
           <!-- 统计与过滤条 -->
           <div class="audit-toolbar">
             <div style="display: flex; align-items: center; gap: 6px;">
-              <span style="font-weight: 600;">命中清单 (10 项)</span>
+              <span style="font-weight: 600;">命中列表 (10 项)</span>
             </div>
-            <div>
-              <button class="btn" style="padding: 2px 6px; font-size: 10.5px;" onclick="alert('原始 JSON 模态框就绪')">原始 JSON</button>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <button class="btn" style="padding: 2px 6px; font-size: 10.5px;" onclick="alert('已复制 JSON 数据')">复制</button>
+              <button class="btn" style="padding: 2px 6px; font-size: 10.5px;" onclick="alert('JSON 模态框就绪')">JSON</button>
             </div>
           </div>
 

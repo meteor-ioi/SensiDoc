@@ -3,7 +3,7 @@ id: phase-96
 title: OCR 底座质量加固与架构技术债收敛
 priority: high
 tags: [phase, ocr, backend]
-created: 2026-09-13
+created: 2026-09-17
 ---
 
 # OCR 底座质量加固与架构技术债收敛
@@ -18,7 +18,7 @@ created: 2026-09-13
   - 跑通 `anyocr` 13 项单元测试与 SensiDoc 全量 32 项单元测试。
 - [x] 96.2 **模型下载与就绪校验引入 SHA-256 强校验与 Commit 版本锁定 (Task 3) (`src/model_manager.rs`, `src/paths.rs`, `scripts/download_ocr_models.sh`)**：
   - 在 `OcrDownloadFileSpec` 中为 4 项 OCR 组件（Det、Rec、Table、Dict）补充权威 SHA-256 哈希指纹；
-  - 将 ModelScope 下载 URL 由浮动 `master` 分支锁定为不可变 Git Commit Revision（`RapidOCR: 7d07816`、`RapidTable: a484f11`），杜绝云端静默突变导致哈希失效；
+  - 将 ModelScope 下载 URL 由浮动 `master` 分支锁定为**不可变 Git Commit Revision**（`RapidOCR: 7d07816`、`RapidTable: a484f11`），杜绝云端静默突变导致哈希失效；
   - 在 `src/model_manager.rs` 实现 `verify_file_sha256()` 校验函数；在已存在组件复用与临时下载流 `.part` 转正前执行强哈希校验，遇截断或哈希不匹配自动阻断并删除损坏缓存；
   - 校准 `src/paths.rs` 中各组件大小就绪阈值（Det > 8MB, Rec > 18MB, Table > 6MB, Dict > 50KB）；
   - 新增 `test_verify_file_sha256` 与 `test_ocr_specs_sha256_against_local_files_if_exist`，验证 4 款本地模型 SHA-256 与定义完全匹配。
@@ -40,5 +40,4 @@ created: 2026-09-13
 - [实施计划](plan/OCR_TECH_DEBT_REMEDIATION_PLAN.md)
 
 ### 📝 开发记录与进度
-- *2026-09-13*：由 todo.md 自动化同步生成。当前完成度: [1/5]。
-- *2026-09-13*：已完成 96.1 ~ 96.5 全部任务，包含 anyocr 路径治理与双向 Gitee 镜像、Cargo 依赖瘦身、SHA-256 强哈希校验与 ModelScope commit 锁定、锁中毒自愈恢复机制、体积指标数据驱动。全量 35 项单元测试 100% 验证通过。完成度 [5/5]，流转至 04_Done 归档。
+- *2026-09-17*：由 todo.md 自动化同步生成。当前完成度: [5/5]。

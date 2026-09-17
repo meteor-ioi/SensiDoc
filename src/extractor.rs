@@ -78,9 +78,254 @@ impl DualModelStrategy {
 
 pub struct Extractor;
 
-// 常用高频 PII 正则表达式（极速预编译，严格匹配独立数字串）
-static REGEX_PHONE: LazyLock<Regex> = LazyLock::new(|| {
+// ==================== 高精数学校验与格式验证算法 ====================
+
+/// 验证中国二代居民身份证 (18位)
+/// 算法标准：ISO 7064:1983.MOD 11-2 + 前6位行政区划初筛 + 出生年月日逻辑有效性
+pub fn validate_id_card(id: &str) -> bool {
+    let bytes = id.as_bytes();
+    if bytes.len() != 18 {
+        return false;
+    }
+
+    // 1. 省份代码初筛 (前两位)
+    let province_code = match id[0..2].parse::<u32>() {
+        Ok(code) => code,
+        Err(_) => return false,
+    };
+    let valid_provinces = [
+        11, 12, 13, 14, 15, // 华北
+        21, 22, 23,         // 东北
+        31, 32, 33, 34, 35, 36, 37, // 华东
+        41, 42, 43, 44, 45, 46,     // 中南
+        50, 51, 52, 53, 54,         // 西南
+        61, 62, 63, 64, 65,         // 西北
+        71, 81, 82,                 // 港澳台
+    ];
+    if !valid_provinces.contains(&province_code) {
+        return false;
+    }
+
+    // 2. 出生年月日有效性检查 (第7~14位)
+    let year = match id[6..10].parse::<u32>() {
+        Ok(y) => y,
+        Err(_) => return false,
+    };
+    let month = match id[10..12].parse::<u32>() {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
+    let day = match id[12..14].parse::<u32>() {
+        Ok(d) => d,
+        Err(_) => return false,
+    };
+
+    if year < 1880 || year > 2040 || month < 1 || month > 12 || day < 1 || day > 31 {
+        return false;
+    }
+
+    // 平闰年与各月份天数
+    let is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    let max_days = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if is_leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return false,
+    };
+    if day > max_days {
+        return false;
+    }
+
+    // 3. ISO 7064:1983.MOD 11-2 加权求和校验
+    const WEIGHTS: [u32; 17] = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2];
+    const CHECK_CODES: [char; 11] = ['1', '0', 'X', '9', '8', '7', '6', '5', '4', '3', '2'];
+
+    let mut sum = 0u32;
+    for i in 0..17 {
+        if !bytes[i].is_ascii_digit() {
+            return false;
+        }
+        sum += (bytes[i] - b'0') as u32 * WEIGHTS[i];
+    }
+
+    let expected_check = CHECK_CODES[(sum % 11) as usize];
+    let actual_check = (bytes[17] as char).to_ascii_uppercase();
+    actual_check == expected_check
+}
+
+/// 验证银行卡/信用卡号 (13~19位，Luhn 模10算法)
+pub fn validate_luhn(card: &str) -> bool {
+    let clean: String = card.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    if clean.len() < 13 || clean.len() > 19 {
+        return false;
+    }
+    if !clean.chars().all(|c| c.is_ascii_digit()) {
+        return false;
+    }
+
+    let bytes = clean.as_bytes();
+    let mut sum = 0u32;
+
+    for (i, &b) in bytes.iter().rev().enumerate() {
+        let digit = (b - b'0') as u32;
+        if i % 2 == 1 {
+            let doubled = digit * 2;
+            sum += if doubled > 9 { doubled - 9 } else { doubled };
+        } else {
+            sum += digit;
+        }
+    }
+
+    sum % 10 == 0
+}
+
+/// 验证统一社会信用代码 (18位，GB 32100-2015)
+pub fn validate_uscc(code: &str) -> bool {
+    if code.len() != 18 {
+        return false;
+    }
+
+    const CHARS: &str = "0123456789ABCDEFGHJKLMNPQRTUWXY";
+    const WEIGHTS: [u32; 17] = [1, 3, 9, 27, 19, 26, 16, 17, 20, 29, 25, 13, 8, 24, 10, 30, 28];
+
+    let chars_bytes = CHARS.as_bytes();
+    let get_char_value = |c: char| -> Option<u32> {
+        let cu = c.to_ascii_uppercase();
+        chars_bytes.iter().position(|&b| b == cu as u8).map(|pos| pos as u32)
+    };
+
+    let mut sum = 0u32;
+    for (i, c) in code[0..17].chars().enumerate() {
+        match get_char_value(c) {
+            Some(v) => sum += v * WEIGHTS[i],
+            None => return false,
+        }
+    }
+
+    let remainder = sum % 31;
+    let check_val = (31 - remainder) % 31;
+    let expected_char = chars_bytes[check_val as usize] as char;
+
+    let actual_char = match code.chars().nth(17) {
+        Some(c) => c.to_ascii_uppercase(),
+        None => return false,
+    };
+    actual_char == expected_char
+}
+
+/// 验证组织机构代码 (9位，GB 11714-1997 MOD 11-2)
+/// 支持带短横线 8位-1位 格式
+pub fn validate_org_code(code: &str) -> bool {
+    let clean = code.trim();
+    let (body, check_char) = if clean.len() == 10 && clean.as_bytes()[8] == b'-' {
+        (&clean[0..8], clean.chars().nth(9).unwrap().to_ascii_uppercase())
+    } else if clean.len() == 9 {
+        (&clean[0..8], clean.chars().nth(8).unwrap().to_ascii_uppercase())
+    } else {
+        return false;
+    };
+
+    const WEIGHTS: [u32; 8] = [3, 7, 9, 10, 5, 8, 4, 2];
+    let mut sum = 0u32;
+
+    for (i, c) in body.chars().enumerate() {
+        let cu = c.to_ascii_uppercase();
+        let val = if cu.is_ascii_digit() {
+            (cu as u8 - b'0') as u32
+        } else if cu.is_ascii_uppercase() {
+            (cu as u8 - b'A' + 10) as u32
+        } else {
+            return false;
+        };
+        sum += val * WEIGHTS[i];
+    }
+
+    let remainder = 11 - (sum % 11);
+    let expected_char = match remainder {
+        10 => 'X',
+        11 => '0',
+        r => (b'0' + r as u8) as char,
+    };
+
+    check_char == expected_char
+}
+
+/// 验证国际银行账号 (IBAN，ISO 7064: MOD 97-10)
+pub fn validate_iban(iban: &str) -> bool {
+    let clean: String = iban.chars().filter(|c| !c.is_whitespace()).collect();
+    if clean.len() < 15 || clean.len() > 34 {
+        return false;
+    }
+
+    let cu: String = clean.to_ascii_uppercase();
+    let bytes = cu.as_bytes();
+
+    // 前两位必须是字母国家码，第3/4位必须是数字
+    if !bytes[0].is_ascii_uppercase() || !bytes[1].is_ascii_uppercase() {
+        return false;
+    }
+    if !bytes[2].is_ascii_digit() || !bytes[3].is_ascii_digit() {
+        return false;
+    }
+
+    // 常用国家特定长度初筛
+    let country = &cu[0..2];
+    let expected_len = match country {
+        "AL" => Some(28), "AD" => Some(24), "AT" => Some(20), "BE" => Some(16), "BA" => Some(20),
+        "BG" => Some(22), "HR" => Some(21), "CY" => Some(28), "CZ" => Some(24), "DK" => Some(18),
+        "EE" => Some(20), "FI" => Some(18), "FR" => Some(27), "DE" => Some(22), "GI" => Some(23),
+        "GR" => Some(27), "HU" => Some(28), "IS" => Some(26), "IE" => Some(22), "IL" => Some(23),
+        "IT" => Some(27), "LV" => Some(21), "LT" => Some(20), "LU" => Some(20), "MT" => Some(31),
+        "MC" => Some(27), "ME" => Some(22), "NL" => Some(18), "NO" => Some(15), "PL" => Some(28),
+        "PT" => Some(25), "RO" => Some(24), "SM" => Some(27), "SA" => Some(24), "RS" => Some(22),
+        "SK" => Some(24), "SI" => Some(19), "ES" => Some(24), "SE" => Some(24), "CH" => Some(21),
+        "TR" => Some(26), "AE" => Some(23), "GB" => Some(22),
+        _ => None,
+    };
+    if let Some(exp) = expected_len {
+        if cu.len() != exp {
+            return false;
+        }
+    }
+
+    // 移位：将前4个字符移到末尾
+    let rearranged = format!("{}{}", &cu[4..], &cu[0..4]);
+
+    // 步进计算 MOD 97 == 1
+    let mut remainder = 0u64;
+    for c in rearranged.chars() {
+        if c.is_ascii_digit() {
+            let digit = (c as u8 - b'0') as u64;
+            remainder = (remainder * 10 + digit) % 97;
+        } else if c.is_ascii_uppercase() {
+            let val = (c as u8 - b'A' + 10) as u64; // 两位数 10~35
+            remainder = (remainder * 10 + (val / 10)) % 97;
+            remainder = (remainder * 10 + (val % 10)) % 97;
+        } else {
+            return false;
+        }
+    }
+
+    remainder == 1
+}
+
+// 常用高频 PII 与敏感资产正则表达式（极速预编译）
+static REGEX_PHONE_CN: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?:^|[^\d])(?:\+?86)?(1[3-9]\d{9})(?:[^\d]|$)").unwrap()
+});
+
+static REGEX_PHONE_INTL: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\+[1-9]\d{6,14}\b").unwrap()
+});
+
+static REGEX_LANDLINE_CN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:0[1-2]\d-[1-9]\d{7}|0[3-9]\d{2}-[1-9]\d{6,7}|400[-\s]?\d{3}[-\s]?\d{4})\b").unwrap()
 });
 
 static REGEX_ID_CARD: LazyLock<Regex> = LazyLock::new(|| {
@@ -92,7 +337,27 @@ static REGEX_EMAIL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static REGEX_BANK_CARD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b62\d{14,17}\b").unwrap()
+    Regex::new(r"\b(?:4\d{12}(?:\d{3})?|5[1-5]\d{14}|62\d{14,17}|3[47]\d{13}|[3-6]\d{15,18})\b").unwrap()
+});
+
+static REGEX_USCC: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[1-9ANY][1-9]\d{6}[0-9A-HJ-NP-RT-UW-Y]{10}\b").unwrap()
+});
+
+static REGEX_ORG_CODE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[0-9A-Z]{8}-[0-9A-Z]\b").unwrap()
+});
+
+static REGEX_IBAN: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b").unwrap()
+});
+
+static REGEX_CLOUD_AK: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\b(?:AKIA[0-9A-Z]{16}|LTAI[0-9A-Za-z]{16,20}|AKID[0-9A-Za-z]{32})\b").unwrap()
+});
+
+static REGEX_PRIVATE_KEY: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----").unwrap()
 });
 
 impl Extractor {
@@ -101,118 +366,139 @@ impl Extractor {
         vec![]
     }
 
-    /// 正则兜底提取器：根据用户启用的规则字段，按需极速检出规范数据
+    /// 正则兜底提取器：根据用户启用的规则字段，按需极速检出高精校验通过的数据
     pub fn extract_by_regex(text: &str, fields: &[RuleField]) -> Vec<SensitiveItem> {
         let mut results: Vec<SensitiveItem> = Vec::new();
         let enabled: Vec<&RuleField> = fields.iter().filter(|f| f.is_enabled).collect();
 
-        // 辅助函数：判断用户是否启用了与该模式相关的字段
+        // 辅助闭包：判断用户是否启用了与该模式相关的字段
         let wants_category = |keywords: &[&str]| -> Option<&RuleField> {
             enabled.iter().find(|f| {
-                keywords.iter().any(|&k| f.name.contains(k) || f.description.contains(k))
+                keywords.iter().any(|&k| {
+                    f.name.eq_ignore_ascii_case(k)
+                        || f.name.contains(k)
+                        || f.description.contains(k)
+                })
             }).copied()
         };
 
-        // 1. 身份证件正则（仅当用户定义了身份证/证件相关字段时启用）
-        if let Some(field) = wants_category(&["身份证", "证件号", "公民身份"]) {
+        // 1. 中国二代身份证件 (ISO 7064 MOD 11-2 校验)
+        if let Some(field) = wants_category(&["身份证", "证件号", "公民身份", "居民身份证", "ID Card", "ID_CARD"]) {
             for m in REGEX_ID_CARD.find_iter(text) {
-                let matched_text = m.as_str().to_string();
-                let start_idx = m.start();
-                if let Some(existing) = results.iter_mut().find(|item| item.text == matched_text) {
-                    existing.count += 1;
-                    existing.positions.push(start_idx);
-                } else {
-                    results.push(SensitiveItem {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        text: matched_text,
-                        category: field.name.clone(),
-                        priority: field.priority.clone(),
-                        count: 1,
-                        positions: vec![start_idx],
-                        source: "regex".to_string(),
-                    });
+                let matched = m.as_str();
+                if validate_id_card(matched) {
+                    Self::record_item(&mut results, matched.to_string(), m.start(), field.name.clone(), field.priority.clone());
                 }
             }
         }
 
-        // 2. 移动电话正则（仅当用户定义了手机/电话/联系方式相关字段时启用）
-        if let Some(field) = wants_category(&["手机", "电话", "联系方式", "移动电话"]) {
-            for caps in REGEX_PHONE.captures_iter(text) {
+        // 2. 移动电话、国际电话、国内座机与客服热线
+        if let Some(field) = wants_category(&["手机", "电话", "联系方式", "移动电话", "固话", "座机", "热线", "Phone", "Mobile", "Telephone"]) {
+            // 2.1 国内手机号
+            for caps in REGEX_PHONE_CN.captures_iter(text) {
                 if let Some(m) = caps.get(1) {
                     let matched_text = m.as_str().to_string();
-                    let start_idx = m.start();
-
-                    // 排除已经被包含在身份证内的假手机号
-                    let in_id_card = results.iter().any(|r| r.text.contains(&matched_text));
-                    if in_id_card {
+                    // 排除已被包含在身份证内的假手机号
+                    if results.iter().any(|r| r.text.contains(&matched_text)) {
                         continue;
                     }
-
-                    if let Some(existing) = results.iter_mut().find(|item| item.text == matched_text) {
-                        existing.count += 1;
-                        existing.positions.push(start_idx);
-                    } else {
-                        results.push(SensitiveItem {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            text: matched_text,
-                            category: field.name.clone(),
-                            priority: field.priority.clone(),
-                            count: 1,
-                            positions: vec![start_idx],
-                            source: "regex".to_string(),
-                        });
+                    Self::record_item(&mut results, matched_text, m.start(), field.name.clone(), field.priority.clone());
+                }
+            }
+            // 2.2 国际电话 E.164
+            for m in REGEX_PHONE_INTL.find_iter(text) {
+                let matched_text = m.as_str().to_string();
+                if matched_text.starts_with("+86") {
+                    let local = &matched_text[3..];
+                    if results.iter().any(|r| r.text == local) {
+                        continue;
                     }
                 }
+                Self::record_item(&mut results, matched_text, m.start(), field.name.clone(), field.priority.clone());
+            }
+            // 2.3 国内座机与 400 服务热线
+            for m in REGEX_LANDLINE_CN.find_iter(text) {
+                Self::record_item(&mut results, m.as_str().to_string(), m.start(), field.name.clone(), field.priority.clone());
             }
         }
 
-        // 3. 电子邮箱正则（仅当用户定义了邮箱/邮件/email相关字段时启用）
-        if let Some(field) = wants_category(&["邮箱", "邮件", "email", "mail"]) {
+        // 3. 电子邮箱
+        if let Some(field) = wants_category(&["邮箱", "邮件", "电子邮箱", "email", "mail"]) {
             for m in REGEX_EMAIL.find_iter(text) {
-                let matched_text = m.as_str().to_string();
-                let start_idx = m.start();
+                Self::record_item(&mut results, m.as_str().to_string(), m.start(), field.name.clone(), field.priority.clone());
+            }
+        }
 
-                if let Some(existing) = results.iter_mut().find(|item| item.text == matched_text) {
-                    existing.count += 1;
-                    existing.positions.push(start_idx);
-                } else {
-                    results.push(SensitiveItem {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        text: matched_text,
-                        category: field.name.clone(),
-                        priority: field.priority.clone(),
-                        count: 1,
-                        positions: vec![start_idx],
-                        source: "regex".to_string(),
-                    });
+        // 4. 银行卡号 / 信用卡号 (Luhn 模10校验)
+        if let Some(field) = wants_category(&["银行卡", "信用卡", "借记卡", "卡号", "银行账号", "Bank Card", "Credit Card", "Account Number"]) {
+            for m in REGEX_BANK_CARD.find_iter(text) {
+                let matched = m.as_str();
+                if validate_luhn(matched) {
+                    Self::record_item(&mut results, matched.to_string(), m.start(), field.name.clone(), field.priority.clone());
                 }
             }
         }
 
-        // 4. 银行卡号正则（仅当用户定义了银行卡/信用卡/卡号相关字段时启用）
-        if let Some(field) = wants_category(&["银行卡", "信用卡", "卡号", "借记卡", "银行账号", "账号"]) {
-            for m in REGEX_BANK_CARD.find_iter(text) {
-                let matched_text = m.as_str().to_string();
-                let start_idx = m.start();
-
-                if let Some(existing) = results.iter_mut().find(|item| item.text == matched_text) {
-                    existing.count += 1;
-                    existing.positions.push(start_idx);
-                } else {
-                    results.push(SensitiveItem {
-                        id: uuid::Uuid::new_v4().to_string(),
-                        text: matched_text,
-                        category: field.name.clone(),
-                        priority: field.priority.clone(),
-                        count: 1,
-                        positions: vec![start_idx],
-                        source: "regex".to_string(),
-                    });
+        // 5. 企业统一社会信用代码与组织机构代码 (GB 32100-2015 & GB 11714-1997)
+        if let Some(field) = wants_category(&["统一社会信用代码", "信用代码", "税号", "纳税人识别号", "营业执照", "USCC", "机构代码", "组织机构代码"]) {
+            for m in REGEX_USCC.find_iter(text) {
+                let matched = m.as_str();
+                if validate_uscc(matched) {
+                    Self::record_item(&mut results, matched.to_string(), m.start(), field.name.clone(), field.priority.clone());
                 }
+            }
+            for m in REGEX_ORG_CODE.find_iter(text) {
+                let matched = m.as_str();
+                if validate_org_code(matched) {
+                    Self::record_item(&mut results, matched.to_string(), m.start(), field.name.clone(), field.priority.clone());
+                }
+            }
+        }
+
+        // 6. 国际银行账户 (IBAN，ISO 7064 MOD 97-10 校验)
+        if let Some(field) = wants_category(&["IBAN", "国际银行账号", "国际汇款账号", "海外银行账户"]) {
+            for m in REGEX_IBAN.find_iter(text) {
+                let matched = m.as_str();
+                if validate_iban(matched) {
+                    Self::record_item(&mut results, matched.to_string(), m.start(), field.name.clone(), field.priority.clone());
+                }
+            }
+        }
+
+        // 7. 云厂商 AccessKey 与加密私钥凭据
+        if let Some(field) = wants_category(&["密钥", "AccessKey", "SecretKey", "私钥", "Token", "凭据", "AK", "SK", "Private Key", "API Key"]) {
+            for m in REGEX_CLOUD_AK.find_iter(text) {
+                Self::record_item(&mut results, m.as_str().to_string(), m.start(), field.name.clone(), "high".to_string());
+            }
+            for m in REGEX_PRIVATE_KEY.find_iter(text) {
+                Self::record_item(&mut results, m.as_str().to_string(), m.start(), field.name.clone(), "high".to_string());
             }
         }
 
         results
+    }
+
+    fn record_item(
+        results: &mut Vec<SensitiveItem>,
+        text_val: String,
+        start_pos: usize,
+        category: String,
+        priority: String,
+    ) {
+        if let Some(existing) = results.iter_mut().find(|item| item.text == text_val) {
+            existing.count += 1;
+            existing.positions.push(start_pos);
+        } else {
+            results.push(SensitiveItem {
+                id: uuid::Uuid::new_v4().to_string(),
+                text: text_val,
+                category,
+                priority,
+                count: 1,
+                positions: vec![start_pos],
+                source: "regex".to_string(),
+            });
+        }
     }
 
     /// 文本分块器 (Chunking)：根据换行段落进行分块，默认保留 200 字符重叠滑动窗口 (Overlap)，保证单块不超过 chunk_size 字符 (默认 2500)
@@ -515,6 +801,87 @@ impl Extractor {
             .unwrap_or("[]");
 
         Ok(Self::parse_llm_json_response(content))
+    }
+
+    /// 异步向在线多模态视觉模型发送图片与提示词请求并返回生成的文本内容
+    pub async fn query_online_vision(
+        base_url: &str,
+        api_key: &str,
+        model_id: &str,
+        system_prompt: &str,
+        user_prompt: &str,
+        image_data_url: &str,
+    ) -> Result<String, String> {
+        let client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(60))
+            .build()
+            .map_err(|e| format!("构建 HTTP 客户端失败: {e}"))?;
+
+        let trimmed_url = base_url.trim_end_matches('/');
+        let url = if trimmed_url.ends_with("/chat/completions") {
+            trimmed_url.to_string()
+        } else {
+            format!("{}/chat/completions", trimmed_url)
+        };
+
+        let request_payload = serde_json::json!({
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": system_prompt
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": user_prompt
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_data_url
+                            }
+                        }
+                    ]
+                }
+            ],
+            "temperature": 0.0,
+            "max_tokens": 128,
+            "frequency_penalty": 0.3,
+            "presence_penalty": 0.2
+        });
+
+        let mut req = client.post(&url).json(&request_payload);
+        if !api_key.trim().is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", api_key.trim()));
+        }
+
+        let resp = req.send().await.map_err(|e| format!("请求在线视觉 API 失败: {e}"))?;
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_text = resp.text().await.unwrap_or_default();
+            return Err(format!("在线视觉 API 返回错误 [{status}]: {err_text}"));
+        }
+
+        let json_body: serde_json::Value = resp
+            .json()
+            .await
+            .map_err(|e| format!("解析在线视觉 API 响应 JSON 失败: {e}"))?;
+
+        let raw_content = json_body["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("");
+
+        // 剥离可能存在的思维链 <think>...</think>
+        let content_clean = if let Some(think_end) = raw_content.rfind("</think>") {
+            &raw_content[think_end + 8..]
+        } else {
+            raw_content
+        };
+
+        Ok(content_clean.trim().to_string())
     }
 
     /// 测试在线模型连通性 (低开销探针)
@@ -829,6 +1196,37 @@ impl Extractor {
         });
 
         regex_items
+    }
+
+    /// 解析 SSE 行中的 token delta 片段
+    pub fn parse_sse_delta(line: &str) -> Option<String> {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("data:") {
+            return None;
+        }
+        let payload = trimmed["data:".len()..].trim();
+        if payload.is_empty() || payload == "[DONE]" {
+            return None;
+        }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(payload) {
+            if let Some(choices) = v.get("choices").and_then(|c| c.as_array()) {
+                if let Some(first) = choices.first() {
+                    if let Some(delta) = first.get("delta") {
+                        if let Some(content) = delta.get("content").and_then(|c| c.as_str()) {
+                            if !content.is_empty() {
+                                return Some(content.to_string());
+                            }
+                        }
+                        if let Some(reasoning) = delta.get("reasoning_content").and_then(|c| c.as_str()) {
+                            if !reasoning.is_empty() {
+                                return Some(format!("<think>{}</think>", reasoning));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// 统一向本地 Ollama 发送 chat 请求并提取文本响应
@@ -1377,13 +1775,258 @@ impl PostFilterGuard {
     }
 }
 
+/// 流式实体增量解析器
+#[derive(Debug, Clone)]
+pub struct StreamingEntityExtractor {
+    pub full_text: String,
+    pub fields: Vec<RuleField>,
+    pub seen_texts: std::collections::HashSet<String>,
+    pub buffer: String,
+    pub in_think: bool,
+}
+
+impl StreamingEntityExtractor {
+    pub fn new(full_text: String, fields: Vec<RuleField>) -> Self {
+        Self {
+            full_text,
+            fields,
+            seen_texts: std::collections::HashSet::new(),
+            buffer: String::new(),
+            in_think: false,
+        }
+    }
+
+    /// 标记已处理过的文本（如正则命中项），防止流式模型重复推送
+    pub fn mark_seen(&mut self, text: &str) {
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            self.seen_texts.insert(trimmed.to_string());
+        }
+    }
+
+    /// 注入一段流式 token 片段，若探测到闭合的 JSON 对象则立即解析并返回新命中项
+    pub fn push_delta(&mut self, delta: &str) -> Vec<SensitiveItem> {
+        let mut new_items = Vec::new();
+
+        // 思考模式标签过滤 (<think> ... </think>)
+        for ch in delta.chars() {
+            self.buffer.push(ch);
+            if !self.in_think {
+                if self.buffer.ends_with("<think>") {
+                    self.in_think = true;
+                    if let Some(pos) = self.buffer.rfind("<think>") {
+                        self.buffer.truncate(pos);
+                    }
+                }
+            } else {
+                if self.buffer.ends_with("</think>") {
+                    self.in_think = false;
+                    self.buffer.clear();
+                }
+            }
+        }
+
+        if self.in_think {
+            return new_items;
+        }
+
+        // 循环探测已完整闭合的 JSON 对象 { ... }
+        while let Some(start_pos) = self.buffer.find('{') {
+            let bytes = self.buffer.as_bytes();
+            let mut depth = 0;
+            let mut in_str = false;
+            let mut escape = false;
+            let mut end_pos = None;
+
+            for i in start_pos..bytes.len() {
+                let b = bytes[i];
+                if in_str {
+                    if escape {
+                        escape = false;
+                    } else if b == b'\\' {
+                        escape = true;
+                    } else if b == b'"' {
+                        in_str = false;
+                    }
+                } else {
+                    if b == b'"' {
+                        in_str = true;
+                    } else if b == b'{' {
+                        depth += 1;
+                    } else if b == b'}' {
+                        depth -= 1;
+                        if depth == 0 {
+                            end_pos = Some(i);
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if let Some(end) = end_pos {
+                let obj_str = &self.buffer[start_pos..=end];
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(obj_str) {
+                    if let serde_json::Value::Object(map) = val {
+                        let field_val = map
+                            .get("field")
+                            .or_else(|| map.get("category"))
+                            .or_else(|| map.get("type"))
+                            .or_else(|| map.get("name"))
+                            .or_else(|| map.get("key"))
+                            .or_else(|| map.get("field_name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("敏感实体");
+
+                        let text_val = map
+                            .get("text")
+                            .or_else(|| map.get("value"))
+                            .or_else(|| map.get("val"))
+                            .or_else(|| map.get("entity"))
+                            .or_else(|| map.get("content"))
+                            .or_else(|| map.get("target"))
+                            .or_else(|| map.get("item"))
+                            .or_else(|| map.get("extracted_text"));
+
+                        if let Some(tv) = text_val {
+                            let mut extracted_strings = Vec::new();
+                            if let Some(s) = tv.as_str() {
+                                extracted_strings.push(s.to_string());
+                            } else if let Some(arr) = tv.as_array() {
+                                for sub in arr {
+                                    if let Some(s) = sub.as_str() {
+                                        extracted_strings.push(s.to_string());
+                                    }
+                                }
+                            }
+
+                            for raw_text in extracted_strings {
+                                let trimmed = raw_text.trim();
+                                if !trimmed.is_empty()
+                                    && self.full_text.contains(trimmed)
+                                    && !self.seen_texts.contains(trimmed)
+                                {
+                                    self.seen_texts.insert(trimmed.to_string());
+                                    let positions: Vec<usize> = self.full_text
+                                        .match_indices(trimmed)
+                                        .map(|(idx, _)| idx)
+                                        .collect();
+
+                                    if !positions.is_empty() {
+                                        let mut item = SensitiveItem {
+                                            id: uuid::Uuid::new_v4().to_string(),
+                                            text: trimmed.to_string(),
+                                            category: field_val.to_string(),
+                                            priority: "medium".to_string(),
+                                            count: positions.len(),
+                                            positions,
+                                            source: "ai".to_string(),
+                                        };
+                                        Self::align_item_priority(&mut item, &self.fields);
+                                        new_items.push(item);
+                                    }
+                                }
+                            }
+                        } else {
+                            // 兼容顶级键值对形态，例如 {"甲方企业": "北京华云智远科技有限公司"}
+                            for (k, v) in map {
+                                if let Some(s) = v.as_str() {
+                                    let trimmed = s.trim();
+                                    if !trimmed.is_empty()
+                                        && self.full_text.contains(trimmed)
+                                        && !self.seen_texts.contains(trimmed)
+                                    {
+                                        self.seen_texts.insert(trimmed.to_string());
+                                        let positions: Vec<usize> = self.full_text
+                                            .match_indices(trimmed)
+                                            .map(|(idx, _)| idx)
+                                            .collect();
+                                        if !positions.is_empty() {
+                                            let mut item = SensitiveItem {
+                                                id: uuid::Uuid::new_v4().to_string(),
+                                                text: trimmed.to_string(),
+                                                category: k,
+                                                priority: "medium".to_string(),
+                                                count: positions.len(),
+                                                positions,
+                                                source: "ai".to_string(),
+                                            };
+                                            Self::align_item_priority(&mut item, &self.fields);
+                                            new_items.push(item);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                // 裁切掉已消耗的字符
+                self.buffer.drain(..=end);
+            } else {
+                break;
+            }
+        }
+
+        new_items
+    }
+
+    /// 提取结束时的兜底解析（若有未闭合或特殊格式的残余实体）
+    pub fn finish(&mut self) -> Vec<SensitiveItem> {
+        let mut final_items = Vec::new();
+        if self.buffer.trim().is_empty() {
+            return final_items;
+        }
+
+        let fallback_items = Extractor::parse_llm_json_response(&self.buffer);
+        for mut item in fallback_items {
+            let trimmed = item.text.trim();
+            if !trimmed.is_empty()
+                && self.full_text.contains(trimmed)
+                && !self.seen_texts.contains(trimmed)
+            {
+                self.seen_texts.insert(trimmed.to_string());
+                let positions: Vec<usize> = self.full_text
+                    .match_indices(trimmed)
+                    .map(|(idx, _)| idx)
+                    .collect();
+                if !positions.is_empty() {
+                    item.positions = positions.clone();
+                    item.count = positions.len();
+                    Self::align_item_priority(&mut item, &self.fields);
+                    final_items.push(item);
+                }
+            }
+        }
+        self.buffer.clear();
+        final_items
+    }
+
+    pub fn align_item_priority(item: &mut SensitiveItem, fields: &[RuleField]) {
+        let enabled_fields: Vec<&RuleField> = fields.iter().filter(|f| f.is_enabled).collect();
+        if let Some(f) = enabled_fields.iter().find(|f| f.name == item.category) {
+            item.category = f.name.clone();
+            item.priority = f.priority.clone();
+        } else if let Some(f) = enabled_fields.iter().find(|f| {
+            item.category.contains(&f.name)
+                || f.name.contains(&item.category)
+                || f.description.contains(&item.category)
+        }) {
+            item.category = f.name.clone();
+            item.priority = f.priority.clone();
+        } else if item.category == "自定义敏感项" && enabled_fields.len() == 1 {
+            item.category = enabled_fields[0].name.clone();
+            item.priority = enabled_fields[0].priority.clone();
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_regex_extraction() {
-        let text = "联系人张先生，手机号码 13800138000，身份证号 110101199003072345，邮箱 test@example.com";
+        // 110101199003072340 校验位通过 ISO 7064 MOD 11-2 计算恰为 0
+        let text = "联系人张先生，手机号码 13800138000，身份证号 110101199003072340，邮箱 test@example.com";
         let fields = vec![
             RuleField { name: "身份证件".into(), description: "18位身份证号".into(), priority: "high".into(), is_enabled: true },
             RuleField { name: "移动电话".into(), description: "手机号".into(), priority: "high".into(), is_enabled: true },
@@ -1393,8 +2036,111 @@ mod tests {
         println!("提取结果: {:#?}", items);
         assert_eq!(items.len(), 3);
         assert!(items.iter().any(|i| i.text == "13800138000" && i.category == "移动电话"));
-        assert!(items.iter().any(|i| i.text == "110101199003072345" && i.category == "身份证件"));
+        assert!(items.iter().any(|i| i.text == "110101199003072340" && i.category == "身份证件"));
         assert!(items.iter().any(|i| i.text == "test@example.com" && i.category == "电子邮箱"));
+    }
+
+    #[test]
+    fn test_validators_id_card_and_false_positives() {
+        // 合法身份证
+        assert!(validate_id_card("110101199003072340"));
+        // 校验位故意篡改 (0 改为 5) 必须被拦截
+        assert!(!validate_id_card("110101199003072345"));
+        // 18 位长流水号/时间戳必须被拦截
+        assert!(!validate_id_card("202609171234567890"));
+        // 非法月份 (13月)
+        assert!(!validate_id_card("110101199013072340"));
+        // 非法日期 (平年 2月29日)
+        assert!(!validate_id_card("110101199102292340"));
+        // 非法省份代码 (99)
+        assert!(!validate_id_card("990101199003072340"));
+    }
+
+    #[test]
+    fn test_validators_luhn_bank_card() {
+        // 合法银联卡号与 Visa
+        assert!(validate_luhn("6222021234567894"));
+        assert!(validate_luhn("4532015112830366"));
+        // 末位篡改的伪卡号必须被拦截
+        assert!(!validate_luhn("6222021234567890"));
+        // 普通 16 位数字流水串
+        assert!(!validate_luhn("2026091700000000"));
+    }
+
+    #[test]
+    fn test_validators_uscc_and_org_code() {
+        // 真实统一社会信用代码 (腾讯与百度)
+        assert!(validate_uscc("91440300708461136T"));
+        assert!(validate_uscc("91110108551385082Q"));
+        // 校验位篡改 (T 改为 A) 必须被拦截
+        assert!(!validate_uscc("91440300708461136A"));
+
+        // 组织机构代码 (9位)
+        assert!(validate_org_code("70846113-6"));
+        assert!(validate_org_code("708461136"));
+        assert!(!validate_org_code("70846113-7"));
+    }
+
+    #[test]
+    fn test_validators_iban() {
+        // 德国与英国合法 IBAN
+        assert!(validate_iban("DE89370400440532013000"));
+        assert!(validate_iban("GB29NWBK60161331926819"));
+        // 校验和错误的伪 IBAN
+        assert!(!validate_iban("DE89370400440532013001"));
+        assert!(!validate_iban("FR1420041010050500013M02607")); // 错位校验
+    }
+
+    #[test]
+    fn test_comprehensive_regex_extraction_all_types() {
+        let text = r#"
+            商务合作协议：
+            甲方企业：深圳市腾讯计算机系统有限公司
+            统一社会信用代码：91440300708461136T，组织机构代码：70846113-6
+            对公结算银行卡号：6222021234567894
+            国际海外汇款 IBAN：DE89370400440532013000
+            技术支持直线：0755-86013388，全国服务热线：400-670-0700，海外联络：+14155552671
+            系统运维密钥配置：
+            AWS_KEY: AKIAIOSFODNN7EXAMPLE
+            ALI_KEY: LTAI4G1234567890ABCDEF
+            -----BEGIN RSA PRIVATE KEY-----
+            MIIEowIBAAKCAQEA0Y...
+            -----END RSA PRIVATE KEY-----
+            干扰测试数据（必须被拦截）：
+            订单单号：202609170000000001
+            虚假身份证号：110101199003072345
+        "#;
+
+        let fields = vec![
+            RuleField { name: "企业税号".into(), description: "统一社会信用代码或税号".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "银行卡号".into(), description: "银行结算卡号".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "国际银行账号".into(), description: "海外转账IBAN".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "联系电话".into(), description: "手机或座机服务热线".into(), priority: "medium".into(), is_enabled: true },
+            RuleField { name: "API密钥".into(), description: "AccessKey与私钥凭据".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "身份证号".into(), description: "二代居民身份证".into(), priority: "high".into(), is_enabled: true },
+        ];
+
+        let items = Extractor::extract_by_regex(text, &fields);
+        println!("综合全量提取结果数量: {}", items.len());
+        for it in &items {
+            println!("  [{}] {} ({})", it.category, it.text, it.priority);
+        }
+
+        // 验证正向命中
+        assert!(items.iter().any(|i| i.text == "91440300708461136T" && i.category == "企业税号"));
+        assert!(items.iter().any(|i| i.text == "70846113-6" && i.category == "企业税号"));
+        assert!(items.iter().any(|i| i.text == "6222021234567894" && i.category == "银行卡号"));
+        assert!(items.iter().any(|i| i.text == "DE89370400440532013000" && i.category == "国际银行账号"));
+        assert!(items.iter().any(|i| i.text == "0755-86013388" && i.category == "联系电话"));
+        assert!(items.iter().any(|i| i.text == "400-670-0700" && i.category == "联系电话"));
+        assert!(items.iter().any(|i| i.text == "+14155552671" && i.category == "联系电话"));
+        assert!(items.iter().any(|i| i.text == "AKIAIOSFODNN7EXAMPLE" && i.priority == "high"));
+        assert!(items.iter().any(|i| i.text == "LTAI4G1234567890ABCDEF" && i.priority == "high"));
+        assert!(items.iter().any(|i| i.text.contains("BEGIN RSA PRIVATE KEY")));
+
+        // 验证负向干扰 100% 被拦截
+        assert!(!items.iter().any(|i| i.text == "110101199003072345"));
+        assert!(!items.iter().any(|i| i.text == "202609170000000001"));
     }
 
     #[test]
@@ -1523,4 +2269,62 @@ mod tests {
         assert_eq!(items[1].text, "1,860,000元");
         assert_eq!(items[1].category, "合同金额");
     }
+
+    #[test]
+    fn test_parse_sse_delta() {
+        let chunk1 = "data: {\"choices\":[{\"delta\":{\"content\":\"北京华云\"}}]}";
+        assert_eq!(Extractor::parse_sse_delta(chunk1), Some("北京华云".to_string()));
+
+        let chunk_done = "data: [DONE]";
+        assert_eq!(Extractor::parse_sse_delta(chunk_done), None);
+
+        let chunk_think = "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"正在思考\"}}]}";
+        assert_eq!(Extractor::parse_sse_delta(chunk_think), Some("<think>正在思考</think>".to_string()));
+    }
+
+    #[test]
+    fn test_streaming_entity_extractor() {
+        let full_text = "甲方：北京华云智远科技有限公司。乙方：上海创科恒通网络设备有限公司。合同总价款为 1,860,000.00 元。";
+        let fields = vec![
+            RuleField { name: "甲方企业".into(), description: "甲方单位全称".into(), priority: "high".into(), is_enabled: true },
+            RuleField { name: "乙方企业".into(), description: "乙方单位全称".into(), priority: "medium".into(), is_enabled: true },
+            RuleField { name: "合同金额".into(), description: "金额".into(), priority: "low".into(), is_enabled: true },
+        ];
+
+        let mut extractor = StreamingEntityExtractor::new(full_text.to_string(), fields);
+
+        // 模拟逐 token 流式输出
+        let tokens = vec![
+            "<think>分析开始",
+            "...</think>",
+            "[\n  ",
+            "{\"field\": \"甲方企业\", ",
+            "\"text\": \"北京华云智远科技有限公司\"}",
+            ",\n  {\"field\": \"乙方企业\", \"text\": \"上海创科恒通网络设备有限公司\"}",
+            ",\n  {\"field\": \"合同金额\", \"text\": \"1,860,000.00 元\"}",
+            "\n]"
+        ];
+
+        let mut all_streamed_items = Vec::new();
+        for t in tokens {
+            let emitted = extractor.push_delta(t);
+            all_streamed_items.extend(emitted);
+        }
+        all_streamed_items.extend(extractor.finish());
+
+        assert_eq!(all_streamed_items.len(), 3);
+        assert_eq!(all_streamed_items[0].text, "北京华云智远科技有限公司");
+        assert_eq!(all_streamed_items[0].category, "甲方企业");
+        assert_eq!(all_streamed_items[0].priority, "high");
+        assert_eq!(all_streamed_items[0].count, 1);
+
+        assert_eq!(all_streamed_items[1].text, "上海创科恒通网络设备有限公司");
+        assert_eq!(all_streamed_items[1].category, "乙方企业");
+        assert_eq!(all_streamed_items[1].priority, "medium");
+
+        assert_eq!(all_streamed_items[2].text, "1,860,000.00 元");
+        assert_eq!(all_streamed_items[2].category, "合同金额");
+        assert_eq!(all_streamed_items[2].priority, "low");
+    }
 }
+

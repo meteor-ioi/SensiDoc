@@ -42,11 +42,26 @@
 git clone https://github.com/meteor-ioi/SensiDoc.git
 cd SensiDoc
 
-# 本地以服务模式启动
+# 1. 命令行直接审计文档或扫描件 (输出结构化 JSON / 表格)
+cargo run -- audit contract.docx -t "合同模板" --regex-only -q
+cargo run -- audit invoice.png --ocr fast-vlm -r "发票代码:高,金额:高" -f table
+
+# 2. 单据与扫描件快速转换为 Markdown (支持 base / fast-vlm / full-vlm)
+cargo run -- convert receipt.jpg --ocr fast-vlm -o receipt.md
+
+# 3. 启动无头 HTTP API 后端服务或桌面视窗
 cargo run -- --server
 ```
 
-启动后，访问 `http://127.0.0.1:3000` 即可在浏览器中使用。
+启动服务后，访问 `http://127.0.0.1:3000` 即可在浏览器中使用。更多高级命令行集成指南请参阅 [CLI 完整指南](docs/CLI_GUIDE.md)。
+
+---
+
+## 技术架构与工程指南
+
+- [小微端侧多模态模型 (VLM 0.8B~2B) 单据识别与结构化提取工程实践指南](docs/SMALL_VLM_RECOGNITION_BEST_PRACTICES.md)
+- [超轻量端侧小模型输出格式与遵循度评估报告](docs/SMALL_MODEL_BENCHMARK_REPORT.md)
+- [命令行与无头服务器使用指南](docs/CLI_GUIDE.md)
 
 ---
 

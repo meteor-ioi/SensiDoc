@@ -30,16 +30,7 @@ impl Exporter {
                 continue;
             }
 
-            let masked = if raw.chars().count() <= 2 {
-                "*".repeat(raw.chars().count())
-            } else {
-                let chars: Vec<char> = raw.chars().collect();
-                let first = chars[0];
-                let last = chars[chars.len() - 1];
-                let stars = "*".repeat(chars.len() - 2);
-                format!("{first}{stars}{last}")
-            };
-
+            let masked = "*".repeat(raw.chars().count());
             desensitized = desensitized.replace(raw, &masked);
         }
         desensitized
@@ -76,6 +67,6 @@ mod tests {
 
         let result = Exporter::desensitize_text(text, &items);
         assert!(result.contains("联系人**"));
-        assert!(result.contains("1*********0"));
+        assert!(result.contains("***********"));
     }
 }

@@ -3,7 +3,7 @@ id: phase-70
 title: 扫描件与图片型 PDF 的 OCR 像素级光栅化遮盖
 priority: medium
 tags: [phase, ocr]
-created: 2026-09-13
+created: 2026-09-17
 ---
 
 # 扫描件与图片型 PDF 的 OCR 像素级光栅化遮盖
@@ -21,4 +21,4 @@ created: 2026-09-13
 
 
 ### 📝 开发记录与进度
-- *2026-09-13*：由 todo.md 自动化同步生成。当前完成度: [0/2]。
+- *2026-09-17*：由 todo.md 自动化同步生成。当前完成度: [0/2]。

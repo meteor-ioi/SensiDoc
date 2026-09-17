@@ -1,9 +1,12 @@
+pub mod vlm;
+pub use vlm::*;
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// OCR 引擎空闲自动释放超时时间：3 分钟无新请求自动释放内存
-pub const OCR_IDLE_TIMEOUT: Duration = Duration::from_secs(180);
+/// OCR 引擎空闲自动释放超时时间：15 分钟无新请求自动释放内存 (900 秒)
+pub const OCR_IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 
 struct OcrStateHolder {
     engine: Option<Arc<anyocr::Engine>>,
@@ -84,6 +87,86 @@ pub struct OcrResult {
     pub image_height: u32,
     /// 端到端纯推理耗时 (毫秒)
     pub elapsed_ms: u64,
+}
+
+impl OcrResult {
+    /// 统计可疑低置信度识别区块数量 (置信度 < 0.88)
+    pub fn low_confidence_count(&self) -> usize {
+        self.raw_boxes
+            .iter()
+            .filter(|b| b.score > 0.0 && b.score < 0.88 && !b.text.trim().is_empty())
+            .count()
+    }
+}
+
+/// 自适应上下文边界扩展切片 (Smart Context Expansion)
+/// 针对低置信度区块坐标 [x, y, w, h]，结合字高进行自适应扩展：
+/// - 高度方向：轻度扩展 15% (避免上下邻行文字污染)
+/// - 宽度方向：根据字高向左、右扩展 1.2 ~ 1.5 倍字高 (确保涵盖前后邻近字符/Key语义锚点)
+pub fn expand_crop_box(
+    coords: [f32; 4],
+    img_width: u32,
+    img_height: u32,
+) -> [u32; 4] {
+    let min_x = coords[0].min(coords[2]);
+    let min_y = coords[1].min(coords[3]);
+    let max_x = coords[0].max(coords[2]);
+    let max_y = coords[1].max(coords[3]);
+    let _w = (max_x - min_x).max(1.0);
+    let h = (max_y - min_y).max(1.0);
+
+    let pad_y = (h * 0.15).max(2.0);
+    // 宽度适度扩展，避免横向过度膨胀侵入相邻单元格/列
+    let pad_x = (h * 0.4).max(6.0);
+
+    let x0 = (min_x - pad_x).max(0.0) as u32;
+    let y0 = (min_y - pad_y).max(0.0) as u32;
+    let x1 = (max_x + pad_x).min(img_width as f32) as u32;
+    let y1 = (max_y + pad_y).min(img_height as f32) as u32;
+
+    [x0, y0, x1.saturating_sub(x0).max(1), y1.saturating_sub(y0).max(1)]
+}
+
+const B64_CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/// 原生零依赖 Base64 快速编码器
+pub fn base64_encode(data: &[u8]) -> String {
+    let mut out = String::with_capacity((data.len() + 2) / 3 * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = if chunk.len() > 1 { chunk[1] } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] } else { 0 };
+
+        out.push(B64_CHARS[(b0 >> 2) as usize] as char);
+        out.push(B64_CHARS[(((b0 & 3) << 4) | (b1 >> 4)) as usize] as char);
+        if chunk.len() > 1 {
+            out.push(B64_CHARS[(((b1 & 15) << 2) | (b2 >> 6)) as usize] as char);
+        } else {
+            out.push('=');
+        }
+        if chunk.len() > 2 {
+            out.push(B64_CHARS[(b2 & 63) as usize] as char);
+        } else {
+            out.push('=');
+        }
+    }
+    out
+}
+
+/// 对单据原始二进制图像执行微切片自适应裁剪，并返回切片 PNG 二进制及 Base64 Data URL
+pub fn crop_image_box(bytes: &[u8], coords: [f32; 4]) -> Result<(Vec<u8>, String), String> {
+    let img = image::load_from_memory(bytes).map_err(|e| format!("加载图像失败: {e}"))?;
+    let (img_w, img_h) = (img.width(), img.height());
+    let [x, y, w, h] = expand_crop_box(coords, img_w, img_h);
+
+    let cropped = img.crop_imm(x, y, w, h);
+    let mut buf = std::io::Cursor::new(Vec::new());
+    cropped
+        .write_to(&mut buf, image::ImageFormat::Png)
+        .map_err(|e| format!("编码切片图像为 PNG 失败: {e}"))?;
+    let data = buf.into_inner();
+    let b64 = format!("data:image/png;base64,{}", base64_encode(&data));
+    Ok((data, b64))
 }
 
 /// 纯 Rust 原生嵌入式 OCR 引擎 (代理委托至 anyocr 核心引擎)
@@ -285,5 +368,39 @@ mod tests {
         assert!(guard.is_none(), "自愈后状态容器应被重置为 None");
         drop(guard); // 释放锁，防范不可重入 Mutex 自死锁
         assert!(!OcrEngine::is_loaded(), "引擎处于未加载安全状态");
+    }
+
+    #[test]
+    fn test_expand_crop_box() {
+        // 模拟一个单字符/短数字框 [x0, y0, x1, y1] = [100.0, 200.0, 115.0, 220.0] (宽 15, 高 20)
+        let coords = [100.0, 200.0, 115.0, 220.0];
+        let [x, y, w, h] = expand_crop_box(coords, 1000, 1000);
+        // 字高 20，左右向外扩展 pad_x = (20 * 0.4).max(6.0) = 8px，x 从 100 - 8 = 92 开始
+        assert_eq!(x, 92);
+        assert!(w >= 15, "扩展后宽度必须包含周围上下文");
+        // 上下轻度扩展 15% (3px)，y 应从 200 - 3 = 197 开始
+        assert_eq!(y, 197);
+        assert_eq!(h, 26);
+    }
+
+    #[test]
+    fn test_base64_encode() {
+        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
+        assert_eq!(base64_encode(b"sensidoc"), "c2Vuc2lkb2M=");
+        assert_eq!(base64_encode(b""), "");
+    }
+
+    #[test]
+    fn test_crop_image_box() {
+        // 创建一个简单的 100x100 内存测试图像
+        let img = image::RgbImage::new(100, 100);
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).expect("编码测试图像失败");
+        let png_bytes = buf.into_inner();
+
+        let coords = [20.0, 30.0, 10.0, 15.0];
+        let (crop_bytes, b64_url) = crop_image_box(&png_bytes, coords).expect("切片裁剪失败");
+        assert!(!crop_bytes.is_empty());
+        assert!(b64_url.starts_with("data:image/png;base64,"));
     }
 }

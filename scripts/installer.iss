@@ -3,7 +3,7 @@
 ; ==============================================================================
 
 #ifndef MyAppVersion
-#define MyAppVersion "1.3.3"
+#define MyAppVersion "1.4.0"
 #endif
 
 #ifndef OutputSuffix
@@ -25,6 +25,10 @@
 
 #ifndef ExeSourcePath
 #define ExeSourcePath "..\target\release\" + MyAppExeName
+#endif
+
+#ifndef RuntimeBinDir
+#define RuntimeBinDir "..\bin\windows-" + TargetArch
 #endif
 
 [Setup]
@@ -63,11 +67,17 @@ Source: "{#ExeSourcePath}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "..\assets\sensidoc_win.ico"; DestDir: "{app}"; DestName: "sensidoc.ico"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+; llama.cpp 离线模型运行时 (按架构匹配的 llama-server.exe 与 DLL)
+Source: "{#RuntimeBinDir}\*"; DestDir: "{app}\bin"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
+; ONNX Runtime 动态链接库 (若 target 构建目录下生成了 onnxruntime.dll 则一并收录)
+Source: "..\target\release\onnxruntime.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#ExeSourcePath}\..\onnxruntime.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 #ifdef IncludeOcrModels
 Source: "..\models\ocr\*"; DestDir: "{app}\models\ocr"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 
 [Dirs]
+Name: "{app}\bin"
 Name: "{app}\models"
 #ifdef IncludeOcrModels
 Name: "{app}\models\ocr"

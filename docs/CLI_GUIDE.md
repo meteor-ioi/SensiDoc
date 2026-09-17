@@ -1,8 +1,8 @@
 # SensiDoc CLI 命令行工具与 Agent 集成开发指南 (CLI_GUIDE.md)
 
-> **版本**：v1.0.2  
+> **版本**：v1.4.0  
 > **适用受众**：终端开发者、DevOps/安全工程师、AI Agent 编排系统（LangChain、CrewAI、MCP、自定义 Subprocess）  
-> **核心定位**：本地离线文档敏感信息智能审计与全格式原生排版等长脱敏内核。
+> **核心定位**：本地离线文档与扫描件智能审计、全格式原生排版等长脱敏及三级 OCR/VLM 解析内核。
 
 ---
 
@@ -10,32 +10,38 @@
 
 SensiDoc CLI 遵循经典的 **Unix 管道哲学**：
 - **数据与日志物理隔离**：所有的结构化数据（JSON 响应、Markdown 文本、脱敏文件路径）严格只输出至标准输出 `stdout`；所有人类可读的进度、警告及调试信息全部输出至标准错误 `stderr`；
-- **免模型毫秒级极速模式 (`--regex-only`)**：针对高频的通用敏感信息（手机号、身份证号、银行卡号等），提供毫秒级（< 15ms）纯正则兜底抽取，无需唤醒 LLM 大模型，资源占用为 0；
+- **全格式与扫描件支持**：既支持原生排版文档（DOCX/PDF/XLSX/PPTX/TXT/CSV），也完整支持图像单据与扫描版 PDF 的结构化识别；
+- **三级 OCR/VLM 智能增强 (`--ocr`)**：支持 `base`（毫秒级基础 OCR）、`fast-vlm`（自动联动基础 OCR + 局部微切片快速复核纠偏）与 `full-vlm`（全量多模态高保真排版重构）；
+- **免模型毫秒级极速模式 (`--regex-only`)**：针对高频通用敏感信息（手机号、身份证号、银行卡号等），提供毫秒级（< 15ms）纯正则兜底抽取，无需唤醒 LLM 大模型，资源占用为 0；
 - **智能双轨服务探针**：在需要大模型语义推理时，CLI 会优先探测本地 `18188` 端口是否有常驻的 `llama-server` 实例。若有直接复用连接（延迟 < 500ms），无则单次按需拉起并在推理结束后立即释放。
 
 ```text
 [调用方: AI Agent / CI-CD / Terminal]
                 │
-                ▼ (参数输入)
+                ▼ (参数输入: --ocr / -t / -r / --regex-only)
         [sensidoc 命令行引擎]
                 │
-   ┌────────────┴────────────────────────────────────────┐
-   │                                                     │
-   ▼                                                     ▼
-【audit / mask 审计与脱敏】                        【templates / convert】
-   │                                                     │
-   ├── anydoc 格式转换 (DOCX/PDF/XLSX/PPTX/TXT/CSV)      ├── templates list (读取场景模板)
-   │                                                     └── convert (快速导出 Markdown)
-   ├── 规则解析 (-t 模板 / --rules 追加 / --regex-only)
-   │
-   ├── 提取执行 (双轨机制):
-   │     ├─ 优先: 探测 18188 端口复用常驻服务
-   │     └─ 降级: 临时启动单次推理进程并优雅回收
-   │
-   ├── 等长替换 / 冲突消解
-   │
-   ▼
-[stdout 标准输出: 纯结构化 JSON / 目标文件]
+    ┌───────────┴─────────────────────────────────────────┐
+    │                                                     │
+    ▼                                                     ▼
+【audit / mask 审计与脱敏】                         【convert / templates】
+    │                                                     │
+    ├── 文档前置路由 (prepare_document_markdown):          ├── convert (转 Markdown 纯文本)
+    │     ├─ 原生文档: AnyDoc 解析                        │     └─ 支持 --ocr base/fast-vlm/full-vlm
+    │     ├─ 基础 OCR: PP-OCRv6 + 结构化表格识别          └── templates list (读取场景模板)
+    │     ├─ Fast-VLM: 自动先基础 OCR ➔ 局部微切片纠偏
+    │     └─ Full-VLM: 端到端全量多模态视觉高保真重构
+    │
+    ├── 规则解析 (-t 模板 / --rules 追加 / --regex-only)
+    │
+    ├── 提取执行 (双轨机制):
+    │     ├─ 优先: 探测 18188 端口复用常驻服务
+    │     └─ 降级: 临时启动单次推理进程并优雅回收
+    │
+    ├── 等长替换 / 原生排版保护 / 冲突消解
+    │
+    ▼
+[stdout 标准输出: 纯结构化 JSON / 目标文件 / Markdown]
 [stderr 标准错误: 状态与进度提示]
 ```
 
@@ -43,13 +49,14 @@ SensiDoc CLI 遵循经典的 **Unix 管道哲学**：
 
 ## 2. 核心子命令与参数速查
 
-| 子命令 | 功能说明 | 典型场景 |
-| :--- | :--- | :--- |
-| **`audit`** | 审计文档并输出结构化命中清单 | Agent 获取实体信息、CI/CD 安全合规卡点 |
-| **`mask`** | 生成等长排版脱敏后的目标文档 | 原始文件脱敏导出 (保留 Word/PDF/Excel 原生排版) |
-| **`convert`** | 快速将任意版式文档解析为 Markdown | 纯文本预处理、RAG 知识库灌库提取 |
-| **`templates`** | 列出或查询系统中已保存的场景模板 | Agent 预先获取可用的提取规则模板列表 |
-| **`serve`** | 显式启动 HTTP 后端 API 服务或桌面视窗 | 启动后台持久化常驻服务或可视化界面 |
+| 子命令 | 功能说明 | 典型场景 | OCR/VLM 支持 |
+| :--- | :--- | :--- | :--- |
+| **`convert`** | 快速将任意文档/扫描件解析为 Markdown | 纯文本预处理、RAG 知识库灌库提取、单据 OCR | **`--ocr [<TIER>]`** |
+| **`audit`** | 审计文档并输出结构化命中清单 | Agent 获取实体信息、CI/CD 安全合规卡点 | **`--ocr [<TIER>]`** |
+| **`mask`** | 生成等长排版脱敏后的目标文档 | 原始文件脱敏导出 (保留 Word/PDF/Excel 原生排版) | **`--ocr [<TIER>]`** |
+| **`templates`** | 列出或查询系统中已保存的场景模板 | Agent 预先获取可用的提取规则模板列表 | - |
+| **`serve`** | 显式启动 HTTP 后端 API 服务或桌面视窗 | 启动后台持久化常驻服务或可视化界面 | 完整 Web API |
+| **`benchmark`** | 运行多模型天梯榜评测基准 | 评估模型在复杂场景下的提取精确度与遵循度 | - |
 
 ---
 
@@ -62,7 +69,11 @@ sensidoc audit <FILE> [OPTIONS]
 ```
 
 #### 关键参数列表
-- `<FILE>`：待审计文档路径，支持 `.docx`、`.pdf`、`.xlsx`、`.pptx`、`.txt`、`.csv`、`.md`。
+- `<FILE>`：待审计文档路径，支持 `.docx`、`.pdf`、`.xlsx`、`.pptx`、`.txt`、`.csv`、`.md` 及图像格式（`.png`、`.jpg`、`.jpeg`、`.bmp`、`.webp`）。
+- `--ocr [<TIER>]`：**扫描件/图像 OCR 与 VLM 增强档位**（`base` | `fast-vlm` | `full-vlm`）：
+  - `--ocr` 或 `--ocr base`：基础毫秒级 OCR 解析；
+  - `--ocr fast-vlm`：**自动先执行基础 OCR**，再自适应提取低置信度（< 0.88）疑难区块切片送入轻量 VLM 进行局部语义纠偏；
+  - `--ocr full-vlm`：整图端到端视觉多模态高保真重构。
 - `-t, --template <NAME_OR_ID>`：指定使用在 Web 端已保存的场景模板（支持模糊匹配，如 `-t "合同模板"`）。
 - `-r, --rules <RULES>`：命令行自定义规则追加，逗号分隔，格式为 `字段名[:风险等级]`（风险等级可选 `高/中/低` 或 `high/medium/low`），如：`--rules "甲方企业:高,手机号:高,优惠折扣:中"`。
 - `--rules-file <JSON_PATH>`：从外部 JSON 规则文件加载字段定义。
@@ -80,11 +91,11 @@ sensidoc audit <FILE> [OPTIONS]
 # 1. 最轻量、极速审计（推荐 Agent 高频调用）
 sensidoc audit contract.docx -t "合同模板" --regex-only -q
 
-# 2. 终端人类可读表格输出
-sensidoc audit contract.pdf -t "合同模板" -f table
+# 2. 扫描件/发票图片审计（自动基础 OCR + 局部微切片快速纠偏）
+sensidoc audit invoice.png --ocr fast-vlm -r "发票代码:高,购买方:高,金额:中" -f table
 
-# 3. 命令行临时追加自定义字段
-sensidoc audit budget.xlsx --rules "采购金额:高,供应商:中,经办人:中"
+# 3. 终端人类可读表格输出
+sensidoc audit contract.pdf -t "合同模板" -f table
 
 # 4. CI/CD 安全扫描卡点（若有高危信息直接非零退出阻断流水线）
 sensidoc audit report.docx -t "核心机密模板" --fail-on-sensitive -q
@@ -102,11 +113,13 @@ sensidoc mask <FILE> [OPTIONS]
 ```
 
 #### 关键参数列表
-- `<FILE>`：待脱敏的原始文档路径。
+- `<FILE>`：待脱敏的原始文档路径（支持文档与扫描件图像）。
+- `--ocr [<TIER>]`：扫描件/图像 OCR 与 VLM 增强档位（`base` | `fast-vlm` | `full-vlm`）。
 - `-o, --output <PATH>`：指定脱敏后输出文件的路径（若不指定，默认在同目录下生成 `[原文件名]_脱敏.[扩展名]`）。
 - `-t, --template <NAME_OR_ID>`：指定所依据的场景模板。
 - `-r, --rules <RULES>`：追加或自定义脱敏字段。
 - `--mode <MODE>`：脱敏格式模式，默认为 `native`（100% 保留原生 DOCX/PDF/XLSX/PPTX 版式样式），可选 `markdown`（导出为轻量纯文本 Markdown）。
+- `--style <STYLE>`：脱敏打码风格，可选 `masking`（保留首尾星号掩码如 `张*三`）或 `redaction`（字符硬抹除如 `████`）。
 - `--regex-only`：免模型极速脱敏。
 - `-q, --quiet`：静默模式，仅在 `stdout` 输出最终生成的文件路径。
 - `--no-record`：**无痕模式**，不将本次文档与脱敏快照写入 Web 工作区文档列表。
@@ -116,29 +129,85 @@ sensidoc mask <FILE> [OPTIONS]
 # 1. 脱敏 Word 文档并保持排版原样
 sensidoc mask 采购合同.docx -t "合同模板" -o 采购合同_已脱敏.docx
 
-# 2. 脱敏 PDF 文档（原生 Content Stream 字符级打码，自动抹除 XMP 元数据）
+# 2. 扫描件合同脱敏（快速 OCR 纠偏后导出 Markdown 脱敏文本）
+sensidoc mask 扫描件.png --ocr fast-vlm -t "合同模板" --mode markdown -o 扫描件_脱敏.md
+
+# 3. 脱敏 PDF 文档（原生 Content Stream 字符级打码，自动抹除 XMP 元数据）
 sensidoc mask 简历.pdf -t "HR模板" --regex-only
 
-# 3. 脱敏 Excel 表格并导出为 Markdown 文本
-sensidoc mask 薪酬表.xlsx --rules "身份证,手机号,实发工资:高" --mode markdown -o 薪酬表_脱敏.md
+# 4. 硬抹除风格脱敏 Excel 表格
+sensidoc mask 薪酬表.xlsx --rules "身份证,手机号,实发工资:高" --style redaction
 ```
 
 ---
 
-### 3.3 `sensidoc convert`（文档纯文本转换）
+### 3.3 `sensidoc convert`（文档与扫描件转 Markdown）
 
 ```bash
-sensidoc convert <FILE> [-o <OUTPUT>] [-q]
+sensidoc convert <FILE> [OPTIONS]
 ```
-直接调用底层的 `anydoc` 纯 Rust 转换流，将 Word、PDF、Excel、PPT、RTF 等转换为结构化 Markdown 字符串并输出到 `stdout`。
 
+将各种格式的复杂文档、单据图像或扫描件快速转换为排版工整的标准 GitHub Flavored Markdown (GFM) 文本。
+
+#### 关键参数列表
+- `<FILE>`：待转换的目标文档路径。
+- `--ocr [<TIER>]`：**扫描件/图像 OCR 与 VLM 增强档位**：
+  - `base`（缺省 `--ocr` 不带参数时默认）：毫秒级 PP-OCRv6 + 结构化表格识别；
+  - `fast-vlm`：**自动先执行基础 OCR**，再自适应定位低置信度（< 0.88）局部疑难单元格/文字块，拉起轻量 VLM 进行局部微切片定向纠偏；
+  - `full-vlm`：整图端到端视觉多模态大模型排版高保真重构。
+- `-o, --output <PATH>`：输出 Markdown 文件的写入路径（默认直接输出至 `stdout`）。
+- `-q, --quiet`：静默模式，仅输出最终 Markdown 结果，抑制进度日志。
+
+#### 示例
 ```bash
+# 1. 原生文档直接转换
 sensidoc convert presentation.pptx > presentation.md
+
+# 2. 单据图像毫秒级基础 OCR 转换
+sensidoc convert invoice.png --ocr -o invoice.md
+
+# 3. 扫描件先基础 OCR，自动联动局部微切片快速纠偏 (推荐单据提取)
+sensidoc convert receipt.jpg --ocr fast-vlm -o receipt.md
+
+# 4. 复杂单据/表格端到端全量视觉多模态排版重构
+sensidoc convert complex_bill.png --ocr full-vlm -o complex_bill.md
 ```
 
 ---
 
-### 3.4 `sensidoc templates`（场景模板管理）
+### 3.4 扫描件与图像 OCR/VLM 三级识别流水线 (`--ocr` 深度说明)
+
+针对纸质单据、发票、合同扫描件与工业图纸，SensiDoc CLI 统一提供 `--ocr` 档位调度：
+
+```text
+[输入文件: 图像 / 扫描版 PDF]
+           │
+           ▼
+    [解析 --ocr 档位]
+           │
+ ┌─────────┼────────────────────────┐
+ │ (未传)  │ (base 或仅 --ocr)      │ (fast-vlm)             │ (full-vlm)
+ ▼         ▼                        ▼                        ▼
+[原生解析] [基础 ONNX OCR]          [1. 基础 ONNX OCR 产出]  [整图 Base64 编码]
+(普通文档) (毫秒级文字与表格识别)              │                       │
+                                    ▼                       ▼
+                           [2. 聚类 <0.88 疑难区块]  [多模态端到端高保真重构]
+                                    │                       │
+                                    ▼                       │
+                           [3. 局部微切片轻量 VLM 纠偏]     │
+                                    │                       │
+                                    ▼                       ▼
+                         [修正后 Markdown 结构化输出 / 审计 / 脱敏]
+```
+
+#### 档位选型指南：
+1. **`base`（毫秒级基础 OCR）**：适合版面印刷清晰、对比度高、对速度要求极高（< 300ms）的高频流水线作业；
+2. **`fast-vlm`（基础 OCR + 局部微切片快速复核）**：**默认最推荐路线**。系统**自动先执行基础 OCR** 产出不可变底稿，仅对识别置信度低于 0.88 的疑难错别字、连笔数字、英文单位切片送入轻量端侧模型（如 Qwen3.5-0.8B）进行定向纠偏，兼顾极高精度与秒级吞吐；
+3. **`full-vlm`（全量多模态重构）**：适合排版极其复杂、跨区域复合单据、严重倾斜扭曲或多层嵌套表格，直接由大型视觉语言模型端到端理解输出。
+
+---
+
+### 3.5 `sensidoc templates`（场景模板管理）
 
 ```bash
 sensidoc templates [list] [-f table|json]
@@ -155,7 +224,7 @@ sensidoc templates list -f json
 
 ---
 
-### 3.5 `sensidoc serve`（服务与桌面运行）
+### 3.6 `sensidoc serve`（服务与桌面运行）
 
 ```bash
 # 启动本地无头后端服务（监听指定端口）
@@ -278,43 +347,60 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-def sensidoc_audit(file_path: str, template: Optional[str] = None, rules: Optional[str] = None, regex_only: bool = True) -> Dict[str, Any]:
+def sensidoc_audit(file_path: str, template: Optional[str] = None, rules: Optional[str] = None, ocr: Optional[str] = None, regex_only: bool = False) -> Dict[str, Any]:
     """
-    通过 SensiDoc CLI 审计文档敏感信息并返回字典
+    通过 SensiDoc CLI 审计文档敏感信息并返回字典 (支持文档与扫描件)
     """
     cmd = ["sensidoc", "audit", file_path, "-q"]
     if template:
         cmd.extend(["-t", template])
     if rules:
         cmd.extend(["-r", rules])
+    if ocr:
+        cmd.extend(["--ocr", ocr])
     if regex_only:
         cmd.append("--regex-only")
         
     proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return json.loads(proc.stdout)
 
-def sensidoc_mask(file_path: str, output_path: str, template: Optional[str] = None) -> str:
+def sensidoc_convert(file_path: str, ocr: Optional[str] = None) -> str:
+    """
+    通过 SensiDoc CLI 将文档或扫描件转换为 Markdown
+    """
+    cmd = ["sensidoc", "convert", file_path, "-q"]
+    if ocr:
+        cmd.extend(["--ocr", ocr])
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
+    return proc.stdout
+
+def sensidoc_mask(file_path: str, output_path: str, template: Optional[str] = None, ocr: Optional[str] = None) -> str:
     """
     对目标文件进行原生等长排版脱敏并输出到指定路径
     """
     cmd = ["sensidoc", "mask", file_path, "-o", output_path, "-q"]
     if template:
         cmd.extend(["-t", template])
+    if ocr:
+        cmd.extend(["--ocr", ocr])
     proc = subprocess.run(cmd, capture_output=True, text=True, check=True)
     return proc.stdout.strip()
 
 # 使用示例
 if __name__ == "__main__":
-    # 1. 审计文档
-    result = sensidoc_audit("tests/01_合同.docx", template="合同模板")
+    # 1. 审计普通文档
+    result = sensidoc_audit("tests/01_合同.docx", template="合同模板", regex_only=True)
     print(f"命中敏感词数: {result['summary']['total_detected']}")
     for item in result["detected_items"]:
         print(f"[{item['category']}] {item['text']} (风险: {item['priority']})")
         
-    # 2. 原生脱敏
-    out_file = sensidoc_mask("tests/01_合同.docx", "dist/01_合同_脱敏.docx", template="合同模板")
-    print(f"脱敏文件生成于: {out_file}")
-```
+    # 2. 针对扫描件单据执行微切片纠偏并审计
+    scan_res = sensidoc_audit("tests/invoice.png", ocr="fast-vlm", rules="发票代码:高,金额:高")
+    print(f"扫描件命中: {scan_res['summary']['total_detected']}")
+
+    # 3. 扫描件转换为高保真 Markdown
+    md_text = sensidoc_convert("tests/receipt.jpg", ocr="fast-vlm")
+    print(f"转换结果字数: {len(md_text)}")
 
 ### 7.2 Node.js / TypeScript Agent Tool
 
@@ -334,13 +420,16 @@ export interface AuditResult {
   detected_items: Array<{ category: string; text: string; priority: string }>;
 }
 
-export async function auditDocument(filePath: string, template = "合同模板"): Promise<AuditResult> {
-  const { stdout } = await execFileAsync('sensidoc', [
-    'audit', filePath,
-    '-t', template,
-    '--regex-only',
-    '-q'
-  ]);
+export async function auditDocument(
+  filePath: string,
+  options?: { template?: string; ocr?: 'base' | 'fast-vlm' | 'full-vlm'; regexOnly?: boolean }
+): Promise<AuditResult> {
+  const args = ['audit', filePath, '-q'];
+  if (options?.template) args.push('-t', options.template);
+  if (options?.ocr) args.push('--ocr', options.ocr);
+  if (options?.regexOnly) args.push('--regex-only');
+
+  const { stdout } = await execFileAsync('sensidoc', args);
   return JSON.parse(stdout);
 }
 ```

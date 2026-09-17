@@ -3,7 +3,7 @@ id: phase-93
 title: OCR 底座解耦重构——全面迁移至 anyocr 独立引擎与冗余剥离
 priority: medium
 tags: [phase, ocr, backend]
-created: 2026-09-13
+created: 2026-09-17
 ---
 
 # OCR 底座解耦重构——全面迁移至 anyocr 独立引擎与冗余剥离
@@ -41,4 +41,4 @@ created: 2026-09-13
 - [对话跳转](conversation://179180f8-e7e7-45e2-aaf7-aada2d975a7b)
 
 ### 📝 开发记录与进度
-- *2026-09-13*：由 todo.md 自动化同步生成。当前完成度: [5/5]。
+- *2026-09-17*：由 todo.md 自动化同步生成。当前完成度: [5/5]。

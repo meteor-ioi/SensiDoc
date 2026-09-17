@@ -3,7 +3,7 @@
 # ==============================================================================
 
 param(
-    [string]$Version = "1.3.3",
+    [string]$Version = "1.4.0",
     [string]$Target = "",
     [string]$Arch = "x86_64"
 )
@@ -73,9 +73,52 @@ if (-not (Test-Path $distDir)) {
 
 $archInstallMode = if ($Arch -eq "arm64") { "arm64" } else { "x64compatible" }
 
+# 3.5 准备与检查当前架构的 llama.cpp 离线推理运行时 (llama-server.exe 及配套 DLL)
+$archBinDir = Join-Path $ProjectRoot "bin/windows-$Arch"
+$archServerExe = Join-Path $archBinDir "llama-server.exe"
+
+if (-not (Test-Path $archServerExe)) {
+    $fallbackExe = Join-Path $ProjectRoot "bin/llama-server.exe"
+    if (Test-Path $fallbackExe) {
+        Write-Host "==> 检测到根 bin/llama-server.exe，正在同步至架构目录 $archBinDir..." -ForegroundColor Yellow
+        New-Item -ItemType Directory -Force -Path $archBinDir | Out-Null
+        Copy-Item -Path "$ProjectRoot/bin/*" -Destination $archBinDir -Recurse -Force
+    } else {
+        Write-Host "==> 未检测到 Windows $Arch 的 llama.cpp 运行时，尝试自动拉取..." -ForegroundColor Yellow
+        $downloadScript = Join-Path $PSScriptRoot "download_llama_windows.ps1"
+        if (Test-Path $downloadScript) {
+            try {
+                & $downloadScript -Arch $Arch
+            } catch {
+                Write-Warning "自动拉取 llama.cpp 失败: $_"
+            }
+        }
+    }
+}
+
+$hasLlamaRuntime = Test-Path $archServerExe
+if ($hasLlamaRuntime) {
+    Write-Host "✅ llama.cpp 运行时已就绪: $archServerExe" -ForegroundColor Green
+} else {
+    Write-Warning "⚠️ 未找到 $archServerExe，生成的安装包将不包含离线 LLM 推理子进程。"
+}
+
+# 探测 ONNX Runtime 动态链接库
+$onnxDllPath = $null
+$candidateOnnxPaths = @(
+    (Join-Path (Split-Path -Parent $exePath) "onnxruntime.dll"),
+    (Join-Path $ProjectRoot "target/release/onnxruntime.dll")
+)
+foreach ($odp in $candidateOnnxPaths) {
+    if (Test-Path $odp) {
+        $onnxDllPath = $odp
+        break
+    }
+}
+
 # 4. 执行 Inno Setup 编译 (标准版)
 Write-Host "==> 正在使用 Inno Setup 构建标准版安装包 ($Arch)..." -ForegroundColor Green
-& $isccPath "/DMyAppVersion=$Version" "/DTargetArch=$Arch" "/DArchInstallMode=$archInstallMode" "/DExeSourcePath=$innoExePath" "scripts/installer.iss"
+& $isccPath "/DMyAppVersion=$Version" "/DTargetArch=$Arch" "/DArchInstallMode=$archInstallMode" "/DExeSourcePath=$innoExePath" "/DRuntimeBinDir=$archBinDir" "scripts/installer.iss"
 
 $installerName = "sensidoc-v${Version}-windows-${Arch}-setup.exe"
 $installerPath = Join-Path $distDir $installerName
@@ -102,6 +145,12 @@ if (Test-Path "assets/sensidoc_win.ico") {
 if (Test-Path "README.md") {
     Copy-Item -Path "README.md" -Destination "$pkgDir/README.md"
 }
+if ($hasLlamaRuntime) {
+    Copy-Item -Recurse -Path $archBinDir -Destination "$pkgDir/bin"
+}
+if ($onnxDllPath) {
+    Copy-Item -Path $onnxDllPath -Destination "$pkgDir/onnxruntime.dll"
+}
 New-Item -ItemType Directory -Force -Path "$pkgDir/models" | Out-Null
 Compress-Archive -Path "$pkgDir/*" -DestinationPath $zipPath -Force
 Remove-Item -Recurse -Force $pkgDir
@@ -113,7 +162,7 @@ if (Test-Path $ocrDetPath) {
     Write-Host "==> 检测到 OCR 模型套件，正在构建 Windows 离线增强版 ($Arch)..." -ForegroundColor Cyan
 
     # 6.1 Inno Setup 构建离线增强版安装包
-    & $isccPath "/DMyAppVersion=$Version" "/DTargetArch=$Arch" "/DArchInstallMode=$archInstallMode" "/DExeSourcePath=$innoExePath" "/DIncludeOcrModels=1" "/DOutputSuffix=-full" "scripts/installer.iss"
+    & $isccPath "/DMyAppVersion=$Version" "/DTargetArch=$Arch" "/DArchInstallMode=$archInstallMode" "/DExeSourcePath=$innoExePath" "/DRuntimeBinDir=$archBinDir" "/DIncludeOcrModels=1" "/DOutputSuffix=-full" "scripts/installer.iss"
     $fullInstallerName = "sensidoc-v${Version}-windows-${Arch}-full-setup.exe"
     $fullInstallerPath = Join-Path $distDir $fullInstallerName
     if (Test-Path $fullInstallerPath) {
@@ -132,6 +181,12 @@ if (Test-Path $ocrDetPath) {
     }
     if (Test-Path "README.md") {
         Copy-Item -Path "README.md" -Destination "$fullPkgDir/README.md"
+    }
+    if ($hasLlamaRuntime) {
+        Copy-Item -Recurse -Path $archBinDir -Destination "$fullPkgDir/bin"
+    }
+    if ($onnxDllPath) {
+        Copy-Item -Path $onnxDllPath -Destination "$fullPkgDir/onnxruntime.dll"
     }
     New-Item -ItemType Directory -Force -Path "$fullPkgDir/models/ocr" | Out-Null
     Copy-Item -Recurse -Path "models/ocr/*" -Destination "$fullPkgDir/models/ocr/"

@@ -42,16 +42,16 @@ download_file "PP-OCRv6_det_small.onnx" \
     "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx" \
     9000000
 
-download_file "PP-OCRv6_rec_small.onnx" \
-    "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx" \
-    20000000
+download_file "PP-OCRv6_rec_medium.onnx" \
+    "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx" \
+    70000000
 
 download_file "slanet-plus.onnx" \
     "https://modelscope.cn/models/RapidAI/RapidTable/resolve/a484f11b64162cc443ccf14582996ca35be33030/slanet-plus.onnx" \
     7000000
 
 download_file "ppocrv6_dict.txt" \
-    "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/paddle/PP-OCRv6/rec/PP-OCRv6_rec_small/ppocrv6_dict.txt" \
+    "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/paddle/PP-OCRv6/rec/PP-OCRv6_rec_medium/ppocrv6_dict.txt" \
     70000
 
 echo "========================================================"

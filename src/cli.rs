@@ -1,8 +1,30 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+
+/// 扫描件/图像 OCR 与 VLM 增强档位
+#[derive(ValueEnum, Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum OcrTier {
+    /// 基础毫秒级 OCR (PP-OCRv6 + 结构化表格识别)
+    Base,
+    /// OCR + 局部微切片自适应快速复核纠偏 (自动先执行基础 OCR)
+    FastVlm,
+    /// 全量多模态视觉端到端高保真重构
+    FullVlm,
+}
+
+impl std::fmt::Display for OcrTier {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OcrTier::Base => write!(f, "base"),
+            OcrTier::FastVlm => write!(f, "fast-vlm"),
+            OcrTier::FullVlm => write!(f, "full-vlm"),
+        }
+    }
+}
 
 use crate::converter::DocConverter;
 use crate::desensitizer::Desensitizer;
@@ -122,6 +144,10 @@ pub struct AuditArgs {
     /// 不将本次审计记录保存到 Web 界面文档列表与快照历史 (无痕模式)
     #[arg(long)]
     pub no_record: bool,
+
+    /// 扫描件/图像 OCR 与 VLM 增强档位 (base: 基础毫秒级 OCR, fast-vlm: OCR+局部微切片快速复核, full-vlm: 全量多模态高保真重构)
+    #[arg(long, value_name = "TIER", default_missing_value = "base", num_args = 0..=1)]
+    pub ocr: Option<OcrTier>,
 }
 
 /// mask 子命令参数
@@ -163,6 +189,10 @@ pub struct MaskArgs {
     #[arg(long, default_value = "native", value_name = "MODE")]
     pub mode: String,
 
+    /// 脱敏打码风格 (masking: 全星号掩码如 ***, redaction: 字符黑块硬抹除如 ████)
+    #[arg(long, default_value = "masking", value_name = "STYLE")]
+    pub style: String,
+
     /// 静默模式 (抑制进度与信息日志)
     #[arg(short = 'q', long)]
     pub quiet: bool,
@@ -170,6 +200,10 @@ pub struct MaskArgs {
     /// 不将本次脱敏执行记录保存到 Web 界面文档列表与快照历史 (无痕模式)
     #[arg(long)]
     pub no_record: bool,
+
+    /// 扫描件/图像 OCR 与 VLM 增强档位 (base: 基础毫秒级 OCR, fast-vlm: OCR+局部微切片快速复核, full-vlm: 全量多模态高保真重构)
+    #[arg(long, value_name = "TIER", default_missing_value = "base", num_args = 0..=1)]
+    pub ocr: Option<OcrTier>,
 }
 
 /// convert 子命令参数
@@ -186,6 +220,10 @@ pub struct ConvertArgs {
     /// 静默模式
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// 扫描件/图像 OCR 与 VLM 增强档位 (base: 基础毫秒级 OCR, fast-vlm: OCR+局部微切片快速复核, full-vlm: 全量多模态高保真重构)
+    #[arg(long, value_name = "TIER", default_missing_value = "base", num_args = 0..=1)]
+    pub ocr: Option<OcrTier>,
 }
 
 /// templates 子命令参数
@@ -273,7 +311,7 @@ pub async fn run_cli(
     match command {
         Commands::Audit(args) => run_audit(args, model_mgr, session_mgr).await,
         Commands::Mask(args) => run_mask(args, model_mgr, session_mgr).await,
-        Commands::Convert(args) => run_convert(args).await,
+        Commands::Convert(args) => run_convert(args, model_mgr, session_mgr).await,
         Commands::Templates(args) => run_templates(args, session_mgr).await,
         Commands::Benchmark(args) => run_benchmark_cmd(args).await,
         Commands::Serve(_) => {
@@ -413,6 +451,133 @@ async fn resolve_rule_fields(
     Ok(fields)
 }
 
+/// 针对目标文档执行格式解析与三级 OCR/VLM 流水线
+/// 支持 base, fast-vlm (自动联动先执行基础 OCR 后微切片纠偏), full-vlm
+pub async fn prepare_document_markdown(
+    file_path: &Path,
+    ocr_tier: Option<OcrTier>,
+    model_mgr: Arc<ModelManager>,
+    session_mgr: Arc<SessionManager>,
+    quiet: bool,
+) -> Result<(String, crate::converter::ConvertResult), String> {
+    let file_bytes = std::fs::read(file_path)
+        .map_err(|e| format!("读取目标文件失败 ({}): {e}", file_path.display()))?;
+    let filename = file_path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("document");
+
+    let is_img = DocConverter::is_image(filename, &file_bytes);
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+    let is_pdf = ext == "pdf";
+
+    // 1. 若用户显式指定了 full-vlm 档位：
+    if ocr_tier == Some(OcrTier::FullVlm) {
+        if is_img {
+            if !quiet {
+                eprintln!("🌌 启动端到端全量多模态视觉高保真重构 (Full-VLM)...");
+            }
+            let engine = crate::ocr::vlm::resolve_vlm_engine(&model_mgr, &session_mgr).await?;
+            let md = crate::ocr::vlm::run_full_vlm_pipeline(&file_bytes, None, &engine).await?;
+            return Ok((
+                md.clone(),
+                crate::converter::ConvertResult::scan(md, 0, Vec::new(), None, None),
+            ));
+        } else if is_pdf {
+            let convert_res = DocConverter::convert_bytes_detailed(filename, &file_bytes)?;
+            if convert_res.doc_type == "scan" {
+                if !quiet {
+                    eprintln!("🌌 检测到扫描版 PDF，启动全量多模态高保真重构 (Full-VLM)...");
+                }
+                let engine = crate::ocr::vlm::resolve_vlm_engine(&model_mgr, &session_mgr).await?;
+                let md = crate::ocr::vlm::run_full_vlm_pipeline(
+                    &file_bytes,
+                    Some(&convert_res.markdown),
+                    &engine,
+                )
+                .await?;
+                return Ok((
+                    md.clone(),
+                    crate::converter::ConvertResult::scan(md, 0, Vec::new(), None, None),
+                ));
+            } else {
+                if !quiet {
+                    eprintln!("ℹ️ 目标 PDF 包含原生文本层，已采用原生排版提取 (跳过视觉重构)");
+                }
+                return Ok((convert_res.markdown.clone(), convert_res));
+            }
+        } else {
+            if !quiet {
+                eprintln!("ℹ️ 目标文档为原生排版格式 (.{})，已采用原生直接解析 (跳过视觉重构)", ext);
+            }
+            let convert_res = DocConverter::convert_bytes_detailed(filename, &file_bytes)?;
+            return Ok((convert_res.markdown.clone(), convert_res));
+        }
+    }
+
+    // 2. 基础 OCR 或 Fast-VLM（以及默认未指定 --ocr 时）：先执行基础详细转换
+    let mut convert_res = DocConverter::convert_bytes_detailed(filename, &file_bytes)?;
+    let is_scan = convert_res.doc_type == "scan" || is_img;
+
+    // 3. 若用户指定了 fast-vlm 档位：
+    // 规则明确：自动先执行基础 OCR（上一步已完成），再进行低置信度局部微切片快速复核
+    if ocr_tier == Some(OcrTier::FastVlm) {
+        if is_scan {
+            if !quiet {
+                let total_boxes = convert_res.raw_boxes.len();
+                let low_count = convert_res.low_confidence_count;
+                eprintln!(
+                    "🔍 基础 OCR 完成 (识别 {} 个文字块，{} 处待复核)，正在自动启动局部微切片快速复核 (Fast-VLM)...",
+                    total_boxes, low_count
+                );
+            }
+            let engine = crate::ocr::vlm::resolve_vlm_engine(&model_mgr, &session_mgr).await?;
+            let vlm_res = crate::ocr::vlm::run_fast_vlm_pipeline(
+                Some(&file_bytes),
+                &convert_res.markdown,
+                &convert_res.raw_boxes,
+                &engine,
+                0.88,
+            )
+            .await?;
+
+            if !quiet {
+                if vlm_res.corrected_count > 0 {
+                    eprintln!(
+                        "✨ 已通过轻量多模态引擎 ({}) 完成 {} 处微切片定向纠偏",
+                        vlm_res.model_used, vlm_res.corrected_count
+                    );
+                } else {
+                    eprintln!("✅ 局部微切片审查完毕，基础识别内容准确无误");
+                }
+            }
+            convert_res.markdown = vlm_res.markdown.clone();
+            convert_res.low_confidence_count = 0;
+            return Ok((vlm_res.markdown, convert_res));
+        } else {
+            if !quiet {
+                eprintln!("ℹ️ 目标文档为原生文档 (.{})，无需进行扫描件微切片复核", ext);
+            }
+            return Ok((convert_res.markdown.clone(), convert_res));
+        }
+    }
+
+    // 4. 若为 Base 模式且是扫描件，打印友好提示
+    if ocr_tier == Some(OcrTier::Base) && is_scan && !quiet {
+        eprintln!(
+            "⚡ 原生基础 OCR 解析完成 (共 {} 个文字块，{} 处低置信度)",
+            convert_res.raw_boxes.len(),
+            convert_res.low_confidence_count
+        );
+    }
+
+    Ok((convert_res.markdown.clone(), convert_res))
+}
+
 /// 执行审计任务并返回敏感项及元数据 (支持自动持久化到 Web 界面工作区)
 async fn perform_extraction(
     file_path: &Path,
@@ -422,6 +587,7 @@ async fn perform_extraction(
     no_record: bool,
     model_opt: Option<&str>,
     online_opt: Option<&str>,
+    ocr_tier: Option<OcrTier>,
     quiet: bool,
     model_mgr: Arc<ModelManager>,
     session_mgr: Arc<SessionManager>,
@@ -441,8 +607,14 @@ async fn perform_extraction(
         eprintln!("🔍 正在解析文档格式 (.{})...", ext);
     }
 
-    let markdown = DocConverter::convert_file(file_path)
-        .map_err(|e| format!("文档转换 Markdown 失败: {e}"))?;
+    let (markdown, _) = prepare_document_markdown(
+        file_path,
+        ocr_tier,
+        model_mgr.clone(),
+        session_mgr.clone(),
+        quiet,
+    )
+    .await?;
 
     // 1. 正则极速提取
     let regex_items = Extractor::extract_by_regex(&markdown, fields);
@@ -593,6 +765,7 @@ async fn perform_extraction(
                 fields.to_vec(),
                 final_items.clone(),
                 execution_ms,
+                None,
             )
             .await;
 
@@ -637,6 +810,7 @@ async fn run_audit(
         args.no_record,
         args.model.as_deref(),
         args.online.as_deref(),
+        args.ocr,
         args.quiet,
         model_mgr,
         session_mgr,
@@ -749,6 +923,7 @@ async fn run_mask(
         args.no_record,
         args.model.as_deref(),
         args.online.as_deref(),
+        args.ocr,
         args.quiet,
         model_mgr,
         session_mgr,
@@ -782,14 +957,18 @@ async fn run_mask(
         .and_then(|s| s.to_str())
         .unwrap_or("document");
 
+    let mask_style = std::str::FromStr::from_str(&args.style).unwrap_or(crate::desensitizer::MaskStyle::Masking);
+
     let desensitized_bytes = if args.mode.eq_ignore_ascii_case("markdown") {
-        Desensitizer::desensitize_plain_text(&markdown, &items).into_bytes()
+        Desensitizer::desensitize_plain_text_with_style(&markdown, &items, mask_style).into_bytes()
     } else {
-        let (_name, bytes, _) = Desensitizer::desensitize_document_auto(
+        let (_name, bytes, _) = Desensitizer::desensitize_document_auto_detailed(
             filename_str,
             Some(&file_bytes),
             &markdown,
             &items,
+            mask_style,
+            None,
         )?;
         bytes
     };
@@ -809,13 +988,24 @@ async fn run_mask(
 }
 
 /// 执行 convert 格式转换子命令
-async fn run_convert(args: ConvertArgs) -> Result<i32, Box<dyn std::error::Error>> {
+async fn run_convert(
+    args: ConvertArgs,
+    model_mgr: Arc<ModelManager>,
+    session_mgr: Arc<SessionManager>,
+) -> Result<i32, Box<dyn std::error::Error>> {
     if !args.file.exists() {
         return Err(format!("目标文件不存在: {:?}", args.file).into());
     }
 
-    let markdown = DocConverter::convert_file(&args.file)
-        .map_err(|e| format!("文档转换失败: {e}"))?;
+    let (markdown, _) = prepare_document_markdown(
+        &args.file,
+        args.ocr,
+        model_mgr,
+        session_mgr,
+        args.quiet,
+    )
+    .await
+    .map_err(|e| format!("文档转换失败: {e}"))?;
 
     if let Some(out_path) = args.output {
         std::fs::write(&out_path, &markdown)?;
@@ -958,4 +1148,81 @@ async fn run_benchmark_cmd(args: BenchmarkArgs) -> Result<i32, Box<dyn std::erro
 
     crate::benchmark::BenchmarkEngine::print_matrix_report_table(&report);
     Ok(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_convert_ocr_flag_default_missing_value() {
+        let cli = Cli::parse_from(["sensidoc", "convert", "invoice.png", "--ocr"]);
+        if let Some(Commands::Convert(args)) = cli.command {
+            assert_eq!(args.ocr, Some(OcrTier::Base));
+        } else {
+            panic!("预期解析为 Convert 子命令");
+        }
+    }
+
+    #[test]
+    fn test_cli_convert_ocr_fast_vlm_parse() {
+        let cli = Cli::parse_from(["sensidoc", "convert", "invoice.png", "--ocr", "fast-vlm"]);
+        if let Some(Commands::Convert(args)) = cli.command {
+            assert_eq!(args.ocr, Some(OcrTier::FastVlm));
+        } else {
+            panic!("预期解析为 Convert 子命令");
+        }
+    }
+
+    #[test]
+    fn test_cli_convert_ocr_full_vlm_parse() {
+        let cli = Cli::parse_from(["sensidoc", "convert", "invoice.png", "--ocr", "full-vlm"]);
+        if let Some(Commands::Convert(args)) = cli.command {
+            assert_eq!(args.ocr, Some(OcrTier::FullVlm));
+        } else {
+            panic!("预期解析为 Convert 子命令");
+        }
+    }
+
+    #[test]
+    fn test_cli_convert_ocr_none_by_default() {
+        let cli = Cli::parse_from(["sensidoc", "convert", "invoice.png"]);
+        if let Some(Commands::Convert(args)) = cli.command {
+            assert_eq!(args.ocr, None);
+        } else {
+            panic!("预期解析为 Convert 子命令");
+        }
+    }
+
+    #[test]
+    fn test_cli_audit_ocr_args() {
+        let cli = Cli::parse_from(["sensidoc", "audit", "receipt.jpg", "--ocr", "fast-vlm"]);
+        if let Some(Commands::Audit(args)) = cli.command {
+            assert_eq!(args.ocr, Some(OcrTier::FastVlm));
+        } else {
+            panic!("预期解析为 Audit 子命令");
+        }
+    }
+
+    #[test]
+    fn test_cli_mask_ocr_args() {
+        let cli = Cli::parse_from(["sensidoc", "mask", "contract.pdf", "--ocr", "base"]);
+        if let Some(Commands::Mask(args)) = cli.command {
+            assert_eq!(args.ocr, Some(OcrTier::Base));
+        } else {
+            panic!("预期解析为 Mask 子命令");
+        }
+    }
+
+    #[test]
+    fn test_ocr_tier_display_and_serde() {
+        assert_eq!(format!("{}", OcrTier::Base), "base");
+        assert_eq!(format!("{}", OcrTier::FastVlm), "fast-vlm");
+        assert_eq!(format!("{}", OcrTier::FullVlm), "full-vlm");
+
+        let serialized = serde_json::to_string(&OcrTier::FastVlm).unwrap();
+        assert_eq!(serialized, "\"fast-vlm\"");
+        let deserialized: OcrTier = serde_json::from_str(&serialized).unwrap();
+        assert_eq!(deserialized, OcrTier::FastVlm);
+    }
 }

@@ -19,30 +19,39 @@ CN_NUM = {
     '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24, '二十五': 25, '二十六': 26, '二十七': 27, '二十八': 28, '二十九': 29, '三十': 30,
 }
 
+def cn_to_int(s):
+    if not s:
+        return 0
+    s = s.replace("零", "")
+    if not s:
+        return 0
+    if s.isdigit():
+        return int(s)
+    
+    total = 0
+    if "百" in s:
+        parts = s.split("百")
+        b_num = cn_to_int(parts[0]) if parts[0] else 1
+        total += b_num * 100
+        s = parts[1]
+    if "十" in s:
+        parts = s.split("十")
+        s_num = cn_to_int(parts[0]) if parts[0] else 1
+        total += s_num * 10
+        s = parts[1]
+    digits = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+    if s:
+        total += digits.get(s, 0)
+    return total
+
 def parse_phase_num(text):
-    # 匹配 "阶段九十六" 或 "阶段 96" 或 "阶段一"
-    m = re.search(r"阶段\s*([0-9一二三四五六七八九十百]+)", text)
+    m = re.search(r"阶段\s*([0-9一二三四五六七八九十百零]+)", text)
     if not m:
         return 999
     val = m.group(1)
     if val.isdigit():
         return int(val)
-    # 简易中文解析
-    if val in CN_NUM:
-        return CN_NUM[val]
-    # 处理 "九十六"
-    res = 0
-    if "百" in val:
-        parts = val.split("百")
-        res += (CN_NUM.get(parts[0], 1)) * 100
-        val = parts[1] if len(parts) > 1 else ""
-    if "十" in val:
-        parts = val.split("十")
-        ten = CN_NUM.get(parts[0], 1) if parts[0] else 1
-        res += ten * 10
-        val = parts[1] if len(parts) > 1 else ""
-    if val:
-        res += CN_NUM.get(val, 0)
+    res = cn_to_int(val)
     return res if res > 0 else 999
 
 def parse_priority(text):
@@ -61,7 +70,7 @@ def clean_title(title):
     cleaned = re.sub(r"\(已完成\)|\(进行中\)|\(待办[^\)]*\)|\(规划中[^\)]*\)", "", title)
     cleaned = re.sub(r"·\s*\[🔗[^\]]+\]\([^\)]+\)", "", cleaned)
     cleaned = re.sub(r"\(P[0-9/]+\)", "", cleaned)
-    cleaned = re.sub(r"^阶段[0-9一二三四五六七八九十百]+[：:]\s*", "", cleaned)
+    cleaned = re.sub(r"^阶段\s*[0-9一二三四五六七八九十百零]+[：:]\s*", "", cleaned)
     cleaned = re.sub(r'[\\/*?:"<>|]', "_", cleaned)
     return cleaned.strip()
 

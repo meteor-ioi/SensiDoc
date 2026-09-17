@@ -15,6 +15,8 @@ pub struct ModelPreset {
     pub id: String,
     pub name: String,
     pub filename: String,
+    #[serde(default)]
+    pub mmproj_filename: Option<String>,
     pub modelscope_id: String,
     pub description: String,
     pub size_desc: String,
@@ -22,6 +24,10 @@ pub struct ModelPreset {
     #[serde(default)]
     pub is_downloading: bool,
     pub is_active: bool,
+    #[serde(default)]
+    pub is_main_downloaded: bool,
+    #[serde(default)]
+    pub is_mmproj_downloaded: bool,
 }
 
 /// 下载进度事件
@@ -67,9 +73,9 @@ pub const OCR_DOWNLOAD_SPECS: [OcrDownloadFileSpec; 4] = [
     },
     OcrDownloadFileSpec {
         filename: crate::paths::OCR_REC_FILENAME,
-        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx",
-        expected_size: 21_234_383,
-        sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx",
+        expected_size: 76_629_984,
+        sha256: "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
     },
     OcrDownloadFileSpec {
         filename: crate::paths::OCR_TABLE_FILENAME,
@@ -79,7 +85,7 @@ pub const OCR_DOWNLOAD_SPECS: [OcrDownloadFileSpec; 4] = [
     },
     OcrDownloadFileSpec {
         filename: crate::paths::OCR_DICT_FILENAME,
-        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/paddle/PP-OCRv6/rec/PP-OCRv6_rec_small/ppocrv6_dict.txt",
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/paddle/PP-OCRv6/rec/PP-OCRv6_rec_medium/ppocrv6_dict.txt",
         expected_size: 74_947,
         sha256: "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
     },
@@ -152,29 +158,35 @@ impl ModelManager {
             map.keys().cloned().collect()
         };
 
-        // 预设离线模型：快前置 (Qwen3.5-0.8B-Q6_K) + 慢终审 (MiniCPM5-2B-Q4_K_M)
+        // 预设离线模型：快前置与视觉VLM (Qwen3.5-0.8B-Q4_K_M + 视觉塔) + 慢终审 (MiniCPM5-2B-Q4_K_M)
         let presets = vec![
             ModelPreset {
-                id: "qwen3.5-text-0.8b-q6_k".to_string(),
-                name: "Qwen3.5-text-0.8B (Q6_K)".to_string(),
-                filename: "Qwen3.5-text-0.8B-Q6_K.gguf".to_string(),
-                modelscope_id: "icychick/Qwen3.5-text-0.8B-GGUF".to_string(),
-                description: "纯文本剥离版超轻量模型，Q6_K 高精度量化，结构化海选前置最佳首选".to_string(),
-                size_desc: "~601 MB".to_string(),
+                id: "qwen3.5-0.8b-q4_k_m".to_string(),
+                name: "Qwen3.5-0.8B (Q4_K_M + 视觉塔)".to_string(),
+                filename: "Qwen3.5-0.8B-Q4_K_M.gguf".to_string(),
+                mmproj_filename: Some("mmproj-BF16.gguf".to_string()),
+                modelscope_id: "unsloth/Qwen3.5-0.8B-GGUF".to_string(),
+                description: "端侧高保真多模态视觉小模型 (含 BF16 视觉塔)，支持原图端到端视觉重构与微切片纠偏".to_string(),
+                size_desc: "~720 MB (含视觉塔)".to_string(),
                 is_downloaded: false,
                 is_downloading: false,
                 is_active: false,
+                is_main_downloaded: false,
+                is_mmproj_downloaded: false,
             },
             ModelPreset {
                 id: "minicpm5-2b-q4_k_m".to_string(),
                 name: "MiniCPM5-2B (Q4_K_M)".to_string(),
                 filename: "MiniCPM5-2B-Q4_K_M.gguf".to_string(),
+                mmproj_filename: None,
                 modelscope_id: "OpenBMB/MiniCPM5-2B-gguf".to_string(),
                 description: "面壁智能 MiniCPM 2B 旗舰端侧小模型，终审精确率 100% 完美平替 4B".to_string(),
                 size_desc: "~1.5 GB".to_string(),
                 is_downloaded: false,
                 is_downloading: false,
                 is_active: false,
+                is_main_downloaded: false,
+                is_mmproj_downloaded: false,
             },
         ];
 
@@ -182,7 +194,16 @@ impl ModelManager {
             .into_iter()
             .map(|mut p| {
                 let path = self.models_dir.join(&p.filename);
-                p.is_downloaded = path.exists() && std::fs::metadata(&path).map(|m| m.len() > 1024 * 1024).unwrap_or(false);
+                let main_ok = path.exists() && std::fs::metadata(&path).map(|m| m.len() > 1024 * 1024).unwrap_or(false);
+                let mm_ok = if let Some(ref mm) = p.mmproj_filename {
+                    let mm_path = self.models_dir.join(mm);
+                    mm_path.exists() && std::fs::metadata(&mm_path).map(|m| m.len() > 1024 * 1024).unwrap_or(false)
+                } else {
+                    true
+                };
+                p.is_main_downloaded = main_ok;
+                p.is_mmproj_downloaded = mm_ok;
+                p.is_downloaded = main_ok && mm_ok;
                 p.is_downloading = downloading_ids.contains(&p.id);
                 p.is_active = active.as_deref() == Some(&p.filename);
                 p
@@ -190,7 +211,7 @@ impl ModelManager {
             .collect()
     }
 
-    /// 扫描 models/ 目录下的所有可用 gguf 模型文件
+    /// 扫描 models/ 目录下的所有可用 gguf 模型文件 (过滤 mmproj 投影权重，避免作为独立语言模型暴露)
     pub fn list_local_models(&self) -> Vec<String> {
         let mut list = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&self.models_dir) {
@@ -198,7 +219,7 @@ impl ModelManager {
                 if let Ok(file_type) = entry.file_type() {
                     if file_type.is_file() {
                         let name = entry.file_name().to_string_lossy().to_string();
-                        if name.ends_with(".gguf") {
+                        if name.ends_with(".gguf") && !name.starts_with("mmproj") && !name.contains("-mmproj") && !name.contains(".mmproj") {
                             list.push(name);
                         }
                     }
@@ -206,6 +227,47 @@ impl ModelManager {
             }
         }
         list
+    }
+
+    /// 列出所有本地 mmproj 视觉塔权重文件
+    pub fn list_local_mmproj(&self) -> Vec<String> {
+        let mut list = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&self.models_dir) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_file() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if name.ends_with(".gguf")
+                            && (name.starts_with("mmproj")
+                                || name.contains("-mmproj")
+                                || name.contains(".mmproj"))
+                        {
+                            list.push(name);
+                        }
+                    }
+                }
+            }
+        }
+        list
+    }
+
+    /// 检查指定模型文件是否具有可用的多模态视觉塔投影 (mmproj)
+    pub fn has_mmproj_for(&self, model_filename: &str) -> bool {
+        if model_filename == "Qwen3.5-0.8B-Q4_K_M.gguf" {
+            let p = self.models_dir.join("mmproj-BF16.gguf");
+            return p.exists() && std::fs::metadata(&p).map(|m| m.len() > 1024 * 1024).unwrap_or(false);
+        }
+        let candidate_names = [
+            format!("{}.mmproj.gguf", model_filename.trim_end_matches(".gguf")),
+            format!("mmproj-{}.gguf", model_filename.trim_end_matches(".gguf")),
+        ];
+        for name in &candidate_names {
+            let p = self.models_dir.join(name);
+            if p.exists() && std::fs::metadata(&p).map(|m| m.len() > 1024 * 1024).unwrap_or(false) {
+                return true;
+            }
+        }
+        false
     }
 
     /// 获取当前运行中的模型名称（主动探测专属端口上的 llama-server 真实运行状态并自动同步）
@@ -476,13 +538,39 @@ end try"#;
             .arg("-ngl")
             .arg("99") // 开启 macOS Apple Silicon Metal GPU 全量卸载加速
             .arg("-c")
-            .arg("4096")
+            .arg("8192") // 针对视觉 VLM 扩展上下文容量 (包含图片视觉 tokens 及丰富 Markdown 表格输出)
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--top-k")
             .arg(&top_k_str)
             .arg("--repeat-penalty")
             .arg(&repeat_penalty_str);
+
+        // 自动探测或按配置挂载多模态视觉塔 (mmproj)
+        let explicit_mm = profile.and_then(|p| p.mmproj.as_deref());
+        let mm_target: Option<std::path::PathBuf> = if let Some(m) = explicit_mm {
+            if m == "none" || m.is_empty() {
+                None
+            } else {
+                let p = self.models_dir.join(m);
+                if p.exists() { Some(p) } else { None }
+            }
+        } else if model_filename == "Qwen3.5-0.8B-Q4_K_M.gguf" {
+            let p = self.models_dir.join("mmproj-BF16.gguf");
+            if p.exists() { Some(p) } else { None }
+        } else {
+            let candidate_mmprojs = [
+                self.models_dir.join(format!("{}.mmproj.gguf", model_filename.trim_end_matches(".gguf"))),
+                self.models_dir.join(format!("mmproj-{}.gguf", model_filename.trim_end_matches(".gguf"))),
+            ];
+            candidate_mmprojs.into_iter().find(|p| p.exists() && std::fs::metadata(p).map(|m| m.len() > 1024 * 1024).unwrap_or(false))
+        };
+
+        if let Some(mm_path) = mm_target {
+            info!("检测到多模态视觉塔权重，已自动挂载 --mmproj: {:?}", mm_path);
+            cmd.arg("--mmproj").arg(mm_path);
+            cmd.arg("--image-min-tokens").arg("1024");
+        }
 
         // 严格遵循设置面板思考模式：未开启时显式设置 --reasoning off，彻底杜绝模型擅自激活思维链耗尽 tokens
         if enable_thinking {
@@ -500,9 +588,23 @@ end try"#;
             cmd.env("DYLD_LIBRARY_PATH", &lib_dir);
         }
 
+        // Windows 平台静默启动（抑制 CMD 黑色控制台黑框弹出）与同级动态库 PATH 环境变量注入
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+
+            if let Some(bin_parent) = self.llama_bin_path.parent() {
+                let current_path = std::env::var("PATH").unwrap_or_default();
+                cmd.env("PATH", format!("{};{}", bin_parent.display(), current_path));
+            }
+        }
+
         let child = cmd
             .spawn()
             .map_err(|e| format!("拉起 llama-server 子进程失败: {e}"))?;
+
 
         {
             let mut guard = self.active_child.lock().await;
@@ -536,7 +638,7 @@ end try"#;
         Err("llama-server 启动超时或健康检查未通过".to_string())
     }
 
-    /// 从魔搭（ModelScope）下载预设模型，支持断点续传与实时进度广播
+    /// 从魔搭（ModelScope）下载预设模型，支持多文件（主模型+视觉塔）两阶段下载、断点续传与实时进度广播
     pub async fn download_model(&self, model_id: &str) -> Result<(), String> {
         let presets = self.get_presets().await;
         let target_preset = presets
@@ -544,14 +646,11 @@ end try"#;
             .find(|p| p.id == model_id)
             .ok_or_else(|| format!("未知的预设模型 ID: {model_id}"))?;
 
-        let filename = &target_preset.filename;
-        let modelscope_repo = &target_preset.modelscope_id;
-        let target_path = self.models_dir.join(filename);
-        let part_path = self.models_dir.join(format!("{filename}.part"));
-
-        let download_url = format!(
-            "https://modelscope.cn/models/{modelscope_repo}/resolve/master/{filename}"
-        );
+        let modelscope_repo = target_preset.modelscope_id.clone();
+        let mut download_files = vec![target_preset.filename.clone()];
+        if let Some(ref mm) = target_preset.mmproj_filename {
+            download_files.push(mm.clone());
+        }
 
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
@@ -559,136 +658,177 @@ end try"#;
             .build()
             .map_err(|e| format!("创建 HTTP 客户端失败: {e}"))?;
 
-        // 1. 获取现有 .part 文件已下载的字节数
-        let mut downloaded: u64 = if part_path.exists() {
-            std::fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0)
-        } else {
-            0
-        };
-
-        // 2. 发送 Range 请求获取剩余数据流
-        let mut req = client.get(&download_url);
-        if downloaded > 0 {
-            req = req.header("Range", format!("bytes={}-", downloaded));
-        }
-
         let (cancel_tx, mut cancel_rx) = tokio::sync::oneshot::channel::<()>();
         {
             let mut map = self.download_cancellations.lock().await;
             map.insert(model_id.to_string(), cancel_tx);
         }
 
-        let resp = tokio::select! {
-            res = req.send() => {
-                match res {
-                    Ok(r) => r,
-                    Err(e) => {
-                        let mut map = self.download_cancellations.lock().await;
-                        map.remove(model_id);
-                        return Err(format!("连接魔搭下载源失败: {e}"));
-                    }
-                }
-            }
-            _ = &mut cancel_rx => {
-                let _ = tokio::fs::remove_file(&part_path).await;
-                let _ = self.progress_tx.send(DownloadProgress {
-                    model_id: model_id.to_string(),
-                    percent: 0.0,
-                    downloaded_bytes: 0,
-                    total_bytes: 0,
-                    speed_mb: 0.0,
-                    status: "canceled".to_string(),
-                    error: None,
-                });
-                return Ok(());
-            }
-        };
-
-        let total_size = if let Some(cr) = resp.headers().get("content-range").and_then(|h| h.to_str().ok()) {
-            if let Some(slash_idx) = cr.rfind('/') {
-                cr[slash_idx + 1..].parse::<u64>().unwrap_or_else(|_| resp.content_length().unwrap_or(0) + downloaded)
-            } else {
-                resp.content_length().unwrap_or(0) + downloaded
-            }
-        } else {
-            match resp.content_length() {
-                Some(len) => len + downloaded,
-                None => downloaded + 500 * 1024 * 1024,
-            }
-        };
-
-        let mut stream = resp.bytes_stream();
-        let mut file = tokio::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&part_path)
-            .await
-            .map_err(|e| {
-                let mgr_cancels = self.download_cancellations.clone();
-                let m_id = model_id.to_string();
-                tokio::spawn(async move {
-                    let mut map = mgr_cancels.lock().await;
-                    map.remove(&m_id);
-                });
-                format!("打开临时模型文件失败: {e}")
-            })?;
-
-        let mut last_broadcast = std::time::Instant::now();
-        let mut speed_calc_time = std::time::Instant::now();
-        let mut speed_downloaded = 0u64;
-        let mut current_speed = 0.0f64;
+        let total_files = download_files.len();
+        let mut overall_downloaded_bytes = 0u64;
         let mut is_canceled = false;
 
-        loop {
-            tokio::select! {
-                _ = &mut cancel_rx => {
-                    is_canceled = true;
-                    break;
-                }
-                chunk_opt = stream.next() => {
-                    match chunk_opt {
-                        Some(chunk_result) => {
-                            let chunk = match chunk_result {
-                                Ok(c) => c,
-                                Err(e) => {
-                                    let mut map = self.download_cancellations.lock().await;
-                                    map.remove(model_id);
-                                    return Err(format!("下载数据分块失败: {e}"));
-                                }
-                            };
-                            if let Err(e) = file.write_all(&chunk).await {
-                                let mut map = self.download_cancellations.lock().await;
-                                map.remove(model_id);
-                                return Err(format!("写入模型文件失败: {e}"));
-                            }
-                            downloaded += chunk.len() as u64;
-                            speed_downloaded += chunk.len() as u64;
+        for (file_idx, filename) in download_files.iter().enumerate() {
+            let target_path = self.models_dir.join(filename);
+            let part_path = self.models_dir.join(format!("{filename}.part"));
 
-                            if speed_calc_time.elapsed() >= std::time::Duration::from_millis(500) {
-                                let elapsed_secs = speed_calc_time.elapsed().as_secs_f64();
-                                current_speed = (speed_downloaded as f64 / (1024.0 * 1024.0)) / elapsed_secs;
-                                speed_downloaded = 0;
-                                speed_calc_time = std::time::Instant::now();
-                            }
-
-                            if last_broadcast.elapsed() >= std::time::Duration::from_millis(150) || downloaded >= total_size {
-                                let percent = (downloaded as f64 / total_size as f64 * 100.0).min(100.0);
-                                let _ = self.progress_tx.send(DownloadProgress {
-                                    model_id: model_id.to_string(),
-                                    downloaded_bytes: downloaded,
-                                    total_bytes: total_size,
-                                    percent,
-                                    speed_mb: current_speed,
-                                    status: if downloaded >= total_size { "completed".to_string() } else { "downloading".to_string() },
-                                    error: None,
-                                });
-                                last_broadcast = std::time::Instant::now();
-                            }
-                        }
-                        None => break,
+            // 如果该文件已存在且大小正常（>1MB），跳过下载
+            if target_path.exists() {
+                if let Ok(meta) = std::fs::metadata(&target_path) {
+                    if meta.len() > 1024 * 1024 {
+                        overall_downloaded_bytes += meta.len();
+                        continue;
                     }
                 }
             }
+
+            let download_url = format!(
+                "https://modelscope.cn/models/{modelscope_repo}/resolve/master/{filename}"
+            );
+
+            // 1. 获取现有 .part 文件已下载的字节数
+            let mut downloaded: u64 = if part_path.exists() {
+                std::fs::metadata(&part_path).map(|m| m.len()).unwrap_or(0)
+            } else {
+                0
+            };
+
+            // 2. 发送 Range 请求获取剩余数据流
+            let mut req = client.get(&download_url);
+            if downloaded > 0 {
+                req = req.header("Range", format!("bytes={}-", downloaded));
+            }
+
+            let resp = tokio::select! {
+                res = req.send() => {
+                    match res {
+                        Ok(r) => r,
+                        Err(e) => {
+                            let mut map = self.download_cancellations.lock().await;
+                            map.remove(model_id);
+                            return Err(format!("连接魔搭下载源失败: {e}"));
+                        }
+                    }
+                }
+                _ = &mut cancel_rx => {
+                    is_canceled = true;
+                    if part_path.exists() {
+                        let _ = tokio::fs::remove_file(&part_path).await;
+                    }
+                    break;
+                }
+            };
+
+            let file_total_size = if let Some(cr) = resp.headers().get("content-range").and_then(|h| h.to_str().ok()) {
+                if let Some(slash_idx) = cr.rfind('/') {
+                    cr[slash_idx + 1..].parse::<u64>().unwrap_or_else(|_| resp.content_length().unwrap_or(0) + downloaded)
+                } else {
+                    resp.content_length().unwrap_or(0) + downloaded
+                }
+            } else {
+                match resp.content_length() {
+                    Some(len) => len + downloaded,
+                    None => downloaded + 500 * 1024 * 1024,
+                }
+            };
+
+            let mut stream = resp.bytes_stream();
+            let mut file = tokio::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&part_path)
+                .await
+                .map_err(|e| {
+                    let mgr_cancels = self.download_cancellations.clone();
+                    let m_id = model_id.to_string();
+                    tokio::spawn(async move {
+                        let mut map = mgr_cancels.lock().await;
+                        map.remove(&m_id);
+                    });
+                    format!("打开临时模型文件失败: {e}")
+                })?;
+
+            let mut last_broadcast = std::time::Instant::now();
+            let mut speed_calc_time = std::time::Instant::now();
+            let mut speed_downloaded = 0u64;
+            let mut current_speed = 0.0f64;
+
+            loop {
+                tokio::select! {
+                    _ = &mut cancel_rx => {
+                        is_canceled = true;
+                        break;
+                    }
+                    chunk_opt = stream.next() => {
+                        match chunk_opt {
+                            Some(chunk_result) => {
+                                let chunk = match chunk_result {
+                                    Ok(c) => c,
+                                    Err(e) => {
+                                        let mut map = self.download_cancellations.lock().await;
+                                        map.remove(model_id);
+                                        return Err(format!("下载数据分块失败: {e}"));
+                                    }
+                                };
+                                if let Err(e) = file.write_all(&chunk).await {
+                                    let mut map = self.download_cancellations.lock().await;
+                                    map.remove(model_id);
+                                    return Err(format!("写入模型文件失败: {e}"));
+                                }
+                                downloaded += chunk.len() as u64;
+                                speed_downloaded += chunk.len() as u64;
+
+                                if speed_calc_time.elapsed() >= std::time::Duration::from_millis(500) {
+                                    let elapsed_secs = speed_calc_time.elapsed().as_secs_f64();
+                                    current_speed = (speed_downloaded as f64 / (1024.0 * 1024.0)) / elapsed_secs;
+                                    speed_downloaded = 0;
+                                    speed_calc_time = std::time::Instant::now();
+                                }
+
+                                if last_broadcast.elapsed() >= std::time::Duration::from_millis(150) || downloaded >= file_total_size {
+                                    // 综合加权进度：单文件进度与总文件加权
+                                    let file_pct = if file_total_size > 0 {
+                                        (downloaded as f64 / file_total_size as f64 * 100.0).min(100.0)
+                                    } else {
+                                        0.0
+                                    };
+                                    let total_pct = ((file_idx as f64 + file_pct / 100.0) / total_files as f64 * 100.0).min(99.0);
+
+                                    let _ = self.progress_tx.send(DownloadProgress {
+                                        model_id: model_id.to_string(),
+                                        downloaded_bytes: overall_downloaded_bytes + downloaded,
+                                        total_bytes: overall_downloaded_bytes + file_total_size,
+                                        percent: total_pct,
+                                        speed_mb: current_speed,
+                                        status: "downloading".to_string(),
+                                        error: None,
+                                    });
+                                    last_broadcast = std::time::Instant::now();
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+
+            if is_canceled {
+                drop(file);
+                if part_path.exists() {
+                    let _ = tokio::fs::remove_file(&part_path).await;
+                }
+                break;
+            }
+
+            file.flush().await.map_err(|e| format!("刷新文件缓冲区失败: {e}"))?;
+            drop(file);
+
+            // 单个文件下载完成，将 .part 重命名为正式文件名
+            tokio::fs::rename(&part_path, &target_path)
+                .await
+                .map_err(|e| format!("重命名模型文件失败: {e}"))?;
+
+            overall_downloaded_bytes += file_total_size;
         }
 
         {
@@ -697,15 +837,11 @@ end try"#;
         }
 
         if is_canceled {
-            info!("用户取消下载模型 {}，正在清理临时缓存文件: {:?}", model_id, part_path);
-            drop(file);
-            if part_path.exists() {
-                let _ = tokio::fs::remove_file(&part_path).await;
-            }
+            info!("用户取消下载模型 {}，已清理临时缓存", model_id);
             let _ = self.progress_tx.send(DownloadProgress {
                 model_id: model_id.to_string(),
                 downloaded_bytes: 0,
-                total_bytes: total_size,
+                total_bytes: 0,
                 percent: 0.0,
                 speed_mb: 0.0,
                 status: "canceled".to_string(),
@@ -714,18 +850,10 @@ end try"#;
             return Err("下载已由用户取消".to_string());
         }
 
-        file.flush().await.map_err(|e| format!("刷新文件缓冲区失败: {e}"))?;
-        drop(file);
-
-        // 下载完成，将 .part 重命名为正式文件名
-        tokio::fs::rename(&part_path, &target_path)
-            .await
-            .map_err(|e| format!("重命名模型文件失败: {e}"))?;
-
         let _ = self.progress_tx.send(DownloadProgress {
             model_id: model_id.to_string(),
-            downloaded_bytes: total_size,
-            total_bytes: total_size,
+            downloaded_bytes: overall_downloaded_bytes,
+            total_bytes: overall_downloaded_bytes,
             percent: 100.0,
             speed_mb: 0.0,
             status: "completed".to_string(),
@@ -746,13 +874,20 @@ end try"#;
         };
         drop(map);
 
-        // 清除对应的 .part 临时文件缓存
+        // 清除对应的 .part 临时文件缓存（包含主模型与配套 mmproj 视觉塔）
         let presets = self.get_presets().await;
         if let Some(target_preset) = presets.iter().find(|p| p.id == model_id) {
             let part_path = self.models_dir.join(format!("{}.part", target_preset.filename));
             if part_path.exists() {
                 info!("主动清理已取消的模型缓存文件: {:?}", part_path);
                 let _ = tokio::fs::remove_file(&part_path).await;
+            }
+            if let Some(ref mm) = target_preset.mmproj_filename {
+                let mm_part = self.models_dir.join(format!("{}.part", mm));
+                if mm_part.exists() {
+                    info!("主动清理已取消的视觉塔缓存文件: {:?}", mm_part);
+                    let _ = tokio::fs::remove_file(&mm_part).await;
+                }
             }
         }
 
@@ -769,7 +904,7 @@ end try"#;
         was_active
     }
 
-    /// 下载全套纸质单据与表格 OCR 模型组件 (包含 PP-OCRv6_det_small, PP-OCRv6_rec_small, slanet-plus, 字典)
+    /// 下载全套纸质单据与表格 OCR 模型组件 (包含 PP-OCRv6_det_small, PP-OCRv6_rec_medium, slanet-plus, 字典)
     pub async fn download_ocr_bundle(&self) -> Result<(), String> {
         let ocr_dir = crate::paths::get_user_ocr_models_dir();
         let total_bundle_size = get_ocr_total_expected_bytes();
@@ -1024,11 +1159,54 @@ end try"#;
                 let _ = tokio::fs::remove_file(&part_path).await;
             }
         }
-        // 兼容清理历史残留的 medium 模型文件
-        let legacy_rec = ocr_dir.join("PP-OCRv6_rec_medium.onnx");
+        // 兼容清理历史残留的 small 模型文件
+        let legacy_rec = ocr_dir.join("PP-OCRv6_rec_small.onnx");
         if legacy_rec.exists() {
             let _ = tokio::fs::remove_file(&legacy_rec).await;
         }
+        Ok(())
+    }
+
+    /// 清理并删除已下载的本地 GGUF 模型文件 (若包含从属视觉塔一并清理)
+    pub async fn delete_model(&self, filename: &str) -> Result<(), String> {
+        let active = self.get_active_model().await;
+        if active.as_deref() == Some(filename) {
+            self.stop_server().await;
+        }
+
+        let main_path = self.models_dir.join(filename);
+        if main_path.exists() {
+            tokio::fs::remove_file(&main_path)
+                .await
+                .map_err(|e| format!("删除模型文件失败: {e}"))?;
+        }
+
+        let main_part = self.models_dir.join(format!("{}.part", filename));
+        if main_part.exists() {
+            let _ = tokio::fs::remove_file(&main_part).await;
+        }
+
+        if filename == "Qwen3.5-0.8B-Q4_K_M.gguf" {
+            let mm = self.models_dir.join("mmproj-BF16.gguf");
+            if mm.exists() {
+                let _ = tokio::fs::remove_file(&mm).await;
+            }
+            let mm_part = self.models_dir.join("mmproj-BF16.gguf.part");
+            if mm_part.exists() {
+                let _ = tokio::fs::remove_file(&mm_part).await;
+            }
+        } else {
+            let candidate_mms = [
+                self.models_dir.join(format!("{}.mmproj.gguf", filename.trim_end_matches(".gguf"))),
+                self.models_dir.join(format!("mmproj-{}.gguf", filename.trim_end_matches(".gguf"))),
+            ];
+            for mm in candidate_mms {
+                if mm.exists() {
+                    let _ = tokio::fs::remove_file(&mm).await;
+                }
+            }
+        }
+
         Ok(())
     }
 }
@@ -1054,7 +1232,8 @@ mod tests {
         let mgr = ModelManager::new();
         let presets = mgr.get_presets().await;
         assert_eq!(presets.len(), 2);
-        assert_eq!(presets[0].id, "qwen3.5-text-0.8b-q6_k");
+        assert_eq!(presets[0].id, "qwen3.5-0.8b-q4_k_m");
+        assert_eq!(presets[0].mmproj_filename.as_deref(), Some("mmproj-BF16.gguf"));
         assert_eq!(presets[1].id, "minicpm5-2b-q4_k_m");
     }
 
@@ -1066,7 +1245,7 @@ mod tests {
             .build()
             .unwrap();
 
-        let qwen_url = "https://modelscope.cn/models/icychick/Qwen3.5-text-0.8B-GGUF/resolve/master/Qwen3.5-text-0.8B-Q6_K.gguf";
+        let qwen_url = "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/Qwen3.5-0.8B-Q4_K_M.gguf";
         let qwen_resp = client
             .get(qwen_url)
             .header("Range", "bytes=0-1023")
@@ -1075,6 +1254,16 @@ mod tests {
             .unwrap();
 
         assert!(qwen_resp.status().is_success() || qwen_resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
+
+        let mmproj_url = "https://modelscope.cn/models/unsloth/Qwen3.5-0.8B-GGUF/resolve/master/mmproj-BF16.gguf";
+        let mmproj_resp = client
+            .get(mmproj_url)
+            .header("Range", "bytes=0-1023")
+            .send()
+            .await
+            .unwrap();
+
+        assert!(mmproj_resp.status().is_success() || mmproj_resp.status() == reqwest::StatusCode::PARTIAL_CONTENT);
 
         let minicpm_url = "https://modelscope.cn/models/OpenBMB/MiniCPM5-2B-gguf/resolve/master/MiniCPM5-2B-Q4_K_M.gguf";
         let minicpm_resp = client
@@ -1091,12 +1280,12 @@ mod tests {
     async fn test_cancel_download_cleans_cache() {
         let mgr = ModelManager::new();
         // 创建一个模拟的 .part 文件
-        let test_part = mgr.models_dir.join("Qwen3.5-text-0.8B-Q6_K.gguf.part");
+        let test_part = mgr.models_dir.join("Qwen3.5-0.8B-Q4_K_M.gguf.part");
         tokio::fs::write(&test_part, b"temporary download cache").await.unwrap();
         assert!(test_part.exists());
 
         // 调用 cancel_download 取消
-        let _ = mgr.cancel_download("qwen3.5-text-0.8b-q6_k").await;
+        let _ = mgr.cancel_download("qwen3.5-0.8b-q4_k_m").await;
         // 验证 .part 临时文件已被自动清理
         assert!(!test_part.exists(), "cancel_download 应当自动清理 .part 临时缓存文件");
     }
@@ -1105,8 +1294,8 @@ mod tests {
     fn test_ocr_bundle_metadata() {
         assert_eq!(OCR_DOWNLOAD_SPECS.len(), 4);
         let total_bytes = get_ocr_total_expected_bytes();
-        // 4 个文件总大小应在 35MB ~ 45MB 之间 (采用 rec_small 约 39MB)
-        assert!(total_bytes > 35 * 1024 * 1024 && total_bytes < 45 * 1024 * 1024);
+        // 4 个文件总大小应在 85MB ~ 105MB 之间 (采用 rec_medium 约 94.4MB)
+        assert!(total_bytes > 85 * 1024 * 1024 && total_bytes < 105 * 1024 * 1024);
     }
 
     #[tokio::test]
