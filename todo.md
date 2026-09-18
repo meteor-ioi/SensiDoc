@@ -2028,6 +2028,29 @@
   - 联动响应：在时光机下拉（`selectSnapshot`）或重新提取自动激活新快照时，若「快照相关信息」弹窗正处于打开状态，即刻自动重新调用 `openSnapshotRulesModal()` 动态刷新当前选中快照的所有指标、流式日志、提示词与规则，无需关闭重开；
   - 全量回归：跑通 `cargo check`、`cargo test`（64 项单元测试 100% 绿灯，63 passed, 1 ignored）及 `node -c web/app.js` 语法静态检查。
 
+---
+
+## 阶段一百二十五：文档本地源文件重新关联机制与底图缓存防丢自愈体系 (已完成) · [🔗 对话跳转](conversation://22ade210-5b05-4199-a973-928f91585f1e)
+- [x] 125.1 **数据模型扩展与底图状态探测能力 (`src/session.rs`)**：
+  - 在 `DocumentItem` 增加 `pub fn has_original_file(&self) -> bool`，智能检测 `source_path` 物理源文件或 `uploads/{id}.bin` 缓存有效性；
+  - 新增 `pub async fn relink_document_source(...)` 方法，安全重写 `uploads/{id}.bin` 物理镜像、更新 `source_path` 元数据并自动重解析图像尺寸后落盘保存。
+- [x] 125.2 **后端多模重新关联接口与原生文件选择对话框整合 (`src/main.rs`)**：
+  - 封装跨平台原生单选文件对话框 `pick_single_document_dialog(prompt_text)`（适配 macOS `osascript` 与 Windows `PowerShell OpenFileDialog`）；
+  - 注册 `GET /api/documents/{id}/file-status` 提供底图完整性健康状态查询；
+  - 注册 `POST /api/documents/{id}/pick-and-relink` 支持桌面端一键唤起系统原生选择器直连物理源文件；
+  - 注册 `POST /api/documents/{id}/relink` 支持 Web 浏览器端 Multipart 文件上传或指定路径补齐。
+- [x] 125.3 **前端右键上下文菜单扩展与双模自适应关联流程 (`web/app.js`)**：
+  - 在侧边栏文档项右键菜单中新增「重新关联源文件...」选项；
+  - 封装 `relinkDocumentFile(docId)`：桌面客户端运行环境下优先调用原生对话框，网页端或降级场景动态唤起隐藏 `<input type="file">`，关联成功后自动触发视图与底图缓存无缝热更新。
+- [x] 125.4 **VLM/OCR 底图缺失主动拦截与带操作引导的全局通知体系 (`web/app.js`)**：
+  - 封装 `showToastWithAction(message, actionLabel, onAction, type)` 高交互 Toast 组件；
+  - 在全量 VLM 重构、快速 VLM 复核及基础 OCR 识别捕获到“原始文件不存在，本地暂存缓存已丢失”时，主动抛出带有 `[重新关联文件]` 操作按钮的浮层提示，点击直达关联流程；
+  - 桌面端侧边栏监听 DOM `drop` 事件时增加 `window.__SENSIDOC_DESKTOP__` 判定防护，全面让渡给底层系统级 `DragDropEvent` 原生拖拽，确保新拖入文件永久绑定宿主绝对路径。
+- [x] 125.5 **生命周期单元测试覆盖与全量功能回归 (`src/session.rs`)**：
+  - 新增 `test_document_relink_lifecycle` 单元测试，完整覆盖“底图丢失探测 ➔ 重新关联物理源路径 ➔ 恢复读取并同步工作区”的全生命周期闭环；
+  - 全工程 65 项单元测试（OCR、脱敏、解析、推理等）全部绿灯通过（64 passed, 0 failed, 1 ignored）。
+
+
 
 
 

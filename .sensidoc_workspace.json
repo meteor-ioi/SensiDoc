@@ -8229,7 +8229,7 @@
       "base_markdown": null,
       "fast_vlm_markdown": null,
       "full_vlm_markdown": null,
-      "ocr_tier": null,
+      "ocr_tier": "fast_vlm",
       "raw_boxes": [],
       "image_width": null,
       "image_height": null,

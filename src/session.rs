@@ -1096,5 +1096,43 @@ mod tests {
         let _ = mgr_server.delete_document(&doc.id).await;
         let _ = std::fs::remove_file(test_store);
     }
+
+    #[tokio::test]
+    async fn test_document_relink_lifecycle() {
+        let test_store = std::env::temp_dir().join(format!("sensidoc_test_relink_{}.json", uuid::Uuid::new_v4()));
+        let mgr = SessionManager::with_store_path(test_store.clone());
+
+        // 1. 创建一个模拟网页端上传且底图丢失的文档 (无 source_path, uploads 中无对应 bin)
+        let doc = mgr
+            .find_or_create_document("test_relink_doc.png".into(), "# 测试单据".into())
+            .await;
+
+        let upload_bin = crate::paths::get_uploads_dir().join(format!("{}.bin", doc.id));
+        let _ = std::fs::remove_file(&upload_bin);
+
+        assert!(!doc.has_original_file(), "无源路径且无缓存时应返回 false");
+        assert!(doc.read_original_bytes().await.is_err(), "底图丢失时读取应返回错误");
+
+        // 2. 模拟用户重新关联源文件并写入二进制
+        let dummy_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4".to_vec();
+        let simulated_source_path = "/Users/test/mock_relinked_image.png".to_string();
+
+        let relink_res = mgr
+            .relink_document_source(&doc.id, Some(simulated_source_path.clone()), dummy_bytes.clone())
+            .await;
+        assert!(relink_res.is_ok(), "重新关联应当成功");
+        let updated_doc = relink_res.unwrap();
+        assert_eq!(updated_doc.source_path, Some(simulated_source_path.clone()));
+
+        // 3. 验证读回二进制与 has_original_file
+        assert!(updated_doc.has_original_file());
+        let read_bytes = updated_doc.read_original_bytes().await.unwrap();
+        assert_eq!(read_bytes, dummy_bytes);
+
+        // 4. 清理测试产生的临时缓存与工作区
+        let _ = std::fs::remove_file(upload_bin);
+        let _ = mgr.delete_document(&doc.id).await;
+        let _ = std::fs::remove_file(test_store);
+    }
 }
 

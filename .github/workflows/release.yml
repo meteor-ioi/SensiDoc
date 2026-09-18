@@ -17,15 +17,17 @@ permissions:
 jobs:
   build-macos:
     name: Build macOS App (${{ matrix.arch }})
-    runs-on: macos-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - target: aarch64-apple-darwin
             arch: arm64
+            os: macos-latest
           - target: x86_64-apple-darwin
             arch: x86_64
+            os: macos-13
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
