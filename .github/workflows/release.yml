@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号 (例如 v1.0.2)'
+        description: '发布版本号 (例如 v1.4.1)'
         required: false
         default: ''
 
@@ -16,8 +16,16 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS App
+    name: Build macOS App (${{ matrix.arch }})
     runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: arm64
+          - target: x86_64-apple-darwin
+            arch: x86_64
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -25,10 +33,12 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin, x86_64-apple-darwin
+          targets: ${{ matrix.target }}
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          key: macos-${{ matrix.arch }}
 
       - name: Determine Version
         id: get_version
@@ -38,13 +48,14 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             RAW_VER="${GITHUB_REF#refs/tags/}"
           else
-            RAW_VER="v1.0.2"
+            RAW_VER="v1.4.1"
           fi
           VER="${RAW_VER#v}"
           echo "VERSION=${VER}" >> $GITHUB_OUTPUT
           echo "TAG_NAME=v${VER}" >> $GITHUB_OUTPUT
 
       - name: Run Tests
+        if: matrix.arch == 'arm64'
         run: cargo test --verbose
 
       - name: Cache OCR Models
@@ -60,17 +71,17 @@ jobs:
           chmod +x scripts/download_ocr_models.sh
           ./scripts/download_ocr_models.sh
 
-      - name: Package macOS App Bundle & Universal DMG (Standard & Full)
+      - name: Package macOS DMG (Standard & Full for ${{ matrix.arch }})
         env:
           APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
           chmod +x scripts/build_mac_app.sh
-          ./scripts/build_mac_app.sh "v${{ steps.get_version.outputs.VERSION }}"
+          ./scripts/build_mac_app.sh "v${{ steps.get_version.outputs.VERSION }}" "${{ matrix.arch }}"
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-macos
+          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-macos-${{ matrix.arch }}
           path: dist/*.dmg
 
   build-windows:
@@ -96,7 +107,7 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          key: win-${{ matrix.target }}
 
       - name: Determine Version
         id: get_version
@@ -107,7 +118,7 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             RAW_VER="${GITHUB_REF#refs/tags/}"
           else
-            RAW_VER="v1.0.2"
+            RAW_VER="v1.4.1"
           fi
           VER="${RAW_VER#v}"
           echo "VERSION=${VER}" >> $GITHUB_OUTPUT
@@ -131,7 +142,7 @@ jobs:
           chmod +x scripts/download_ocr_models.sh
           ./scripts/download_ocr_models.sh
 
-      - name: Build Windows Installer (Standard & Full)
+      - name: Build Windows Installer (Standard & Full for ${{ matrix.arch }})
         shell: pwsh
         run: |
           $ver = "${{ steps.get_version.outputs.VERSION }}"

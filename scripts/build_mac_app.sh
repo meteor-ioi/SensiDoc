@@ -10,7 +10,7 @@ PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/.." >/dev/null 2>&1 && pwd
 cd "$PROJECT_ROOT"
 
 APP_NAME="SensiDoc"
-RAW_VER="${1:-${APP_VERSION:-1.4.0}}"
+RAW_VER="${1:-${APP_VERSION:-1.4.1}}"
 VERSION="${RAW_VER#v}"
 TARGET_ARG="${2:-auto}" # 可选: arm64, x86_64, all, auto (默认当前主机架构)
 BUNDLE_ID="com.sensidoc.desktop"

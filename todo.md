@@ -1927,6 +1927,10 @@
   - `bash -n scripts/build_mac_app.sh` 语法静态检查通过（Code 0）；
   - 逐项审查 14 个原始诊断问题全部确认已修复：Windows `.exe` 后缀适配、多架构子目录探测、`CREATE_NO_WINDOW` 黑框抑制、PATH 注入、下载脚本双架构支持、Inno Setup `RuntimeBinDir` 宏与 `onnxruntime.dll` 打包、绿色 ZIP 收录运行时、`lipo` 彻底移除、架构错配杜绝、DMG 命名区分等；
   - 遗留非阻塞备忘：`stop_server()` 的孤儿端口清理仅 `#[cfg(unix)]`（通过 `lsof`），Windows 下暂无对应兜底，但 `child.kill()` 的 `TerminateProcess` 语义已足够可靠，不影响功能正确性。
+- [x] 117.6 **GitHub Actions 远端 CI/CD 流水线矩阵升级 (`.github/workflows/release.yml`, `scripts/download_llama_windows.ps1`)**：
+  - 将 macOS 构建重构为 Matrix 并行矩阵（`arm64` 与 `x86_64`），各自独立拉取对应架构 target 并调用 `./scripts/build_mac_app.sh "$VER" "${{ matrix.arch }}"`，彻底消除 lipo 并行翻倍产物；
+  - 优化 `scripts/download_llama_windows.ps1`，针对 GitHub Actions CI 环境直连 GitHub Releases 官方源，确保 Windows 双架构（`x86_64` / `arm64`）自动打包与 llama.cpp 运行时注入 100% 稳定；
+  - 完善 Release 归档逻辑，自动收集并公开发布双系统双架构全量 12 份标准与离线增强 DMG / Setup / Zip 产物。
 
 ---
 

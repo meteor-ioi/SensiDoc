@@ -47,9 +47,13 @@ foreach ($fileName in $candidateFiles) {
     if ($Mirror) {
         $urls += "$Mirror/$fileName"
     }
-    # 默认优先尝试国内加速镜像，失败回退 GitHub 官方源
-    $urls += "https://ghfast.top/https://github.com/ggerganov/llama.cpp/releases/download/${Version}/${fileName}"
-    $urls += "https://github.com/ggerganov/llama.cpp/releases/download/${Version}/${fileName}"
+    # CI 环境下优先直连 GitHub 官方 Releases 源；本地国内环境优先走加速镜像
+    if ($env:GITHUB_ACTIONS -eq "true") {
+        $urls += "https://github.com/ggerganov/llama.cpp/releases/download/${Version}/${fileName}"
+    } else {
+        $urls += "https://ghfast.top/https://github.com/ggerganov/llama.cpp/releases/download/${Version}/${fileName}"
+        $urls += "https://github.com/ggerganov/llama.cpp/releases/download/${Version}/${fileName}"
+    }
 
     foreach ($url in $urls) {
         Write-Host "==> 正在尝试从源下载: $url" -ForegroundColor Green
