@@ -273,7 +273,7 @@ impl DocConverter {
             return Err("PDF 中未提取到有效图像内容".to_string());
         }
 
-        Ok(page_results.join("\n\n---\n\n"))
+        Ok(crate::ocr::sanitize_redundant_empty_lines(&page_results.join("\n\n---\n\n")))
     }
 
     /// 从本地文件路径读取并转换为 Markdown

@@ -98,8 +98,35 @@ struct PromptPreviewRequest {
     custom_template: Option<String>,
 }
 
+fn init_logging() -> Option<tracing_appender::non_blocking::WorkerGuard> {
+    let logs_dir = paths::get_logs_dir();
+    let file_appender = tracing_appender::rolling::never(&logs_dir, "sensidoc.log");
+    let (non_blocking_file, guard) = tracing_appender::non_blocking(file_appender);
+
+    let file_layer = tracing_subscriber::fmt::layer()
+        .with_writer(non_blocking_file)
+        .with_ansi(false);
+
+    let stdout_layer = tracing_subscriber::fmt::layer();
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| "sensidoc=debug,tower_http=info".into());
+
+    let _ = tracing_subscriber::registry()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer)
+        .try_init();
+
+    tracing::info!("=== SensiDoc v{} 启动 ===", env!("CARGO_PKG_VERSION"));
+    tracing::info!("日志持久化目录: {:?}", logs_dir);
+
+    Some(guard)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let _log_guard = init_logging();
     let cli = Cli::parse();
 
     let model_mgr = Arc::new(ModelManager::new());
@@ -145,14 +172,6 @@ async fn run_server_mode(
     model_mgr: Arc<ModelManager>,
     session_mgr: Arc<SessionManager>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let _ = tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "sensidoc=debug,tower_http=info".into()),
-        )
-        .with(tracing_subscriber::fmt::layer())
-        .try_init();
-
     tracing::info!("Initializing SensiDoc HTTP Service on {}:{}...", host, port);
 
     let state = AppState {
@@ -234,6 +253,8 @@ async fn run_server_mode(
         .route("/api/ocr/download", post(download_ocr_handler))
         .route("/api/ocr/cancel", post(cancel_ocr_handler))
         .route("/api/ocr/delete", post(delete_ocr_handler).delete(delete_ocr_handler))
+        .route("/api/system/logs", get(get_system_logs_handler))
+        .route("/api/system/logs/reveal", post(reveal_logs_dir_handler))
         .fallback_service(ServeDir::new(web_dir))
         .layer(axum::middleware::from_fn(set_no_cache_headers))
         .layer(CorsLayer::permissive())
@@ -623,12 +644,15 @@ pub async fn pick_files_dialog_native() -> Result<Vec<String>, String> {
     #[cfg(target_os = "macos")]
     {
         let script = r#"try
-  set selectedFiles to choose file with prompt "请选择要导入提取的文档文件" of type {"pdf", "docx", "doc", "xlsx", "xls", "pptx", "txt", "md", "csv", "png", "jpg", "jpeg", "bmp", "webp", "public.data"} with multiple selections allowed
-  set posixPaths to ""
-  repeat with aFile in selectedFiles
-    set posixPaths to posixPaths & (POSIX path of aFile) & linefeed
-  end repeat
-  return posixPaths
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFiles to choose file with prompt "请选择要导入提取的文档文件" of type {"pdf", "docx", "doc", "xlsx", "xls", "pptx", "txt", "md", "csv", "png", "jpg", "jpeg", "bmp", "webp", "public.data"} with multiple selections allowed
+    set posixPaths to ""
+    repeat with aFile in selectedFiles
+      set posixPaths to posixPaths & (POSIX path of aFile) & linefeed
+    end repeat
+    return posixPaths
+  end tell
 on error number -128
   return ""
 end try"#;
@@ -653,12 +677,15 @@ end try"#;
         } else {
             // 降级无类型过滤唤起
             let script_fallback = r#"try
-  set selectedFiles to choose file with prompt "请选择要导入提取的文档文件" with multiple selections allowed
-  set posixPaths to ""
-  repeat with aFile in selectedFiles
-    set posixPaths to posixPaths & (POSIX path of aFile) & linefeed
-  end repeat
-  return posixPaths
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFiles to choose file with prompt "请选择要导入提取的文档文件" with multiple selections allowed
+    set posixPaths to ""
+    repeat with aFile in selectedFiles
+      set posixPaths to posixPaths & (POSIX path of aFile) & linefeed
+    end repeat
+    return posixPaths
+  end tell
 on error number -128
   return ""
 end try"#;
@@ -677,7 +704,37 @@ end try"#;
                     .collect();
                 return Ok(paths);
             }
-            return Ok(Vec::new());
+            // 终极 activate me 兜底
+            let script_final = r#"try
+  activate me
+  set selectedFiles to choose file with prompt "请选择要导入提取的文档文件" with multiple selections allowed
+  set posixPaths to ""
+  repeat with aFile in selectedFiles
+    set posixPaths to posixPaths & (POSIX path of aFile) & linefeed
+  end repeat
+  return posixPaths
+on error number -128
+  return ""
+end try"#;
+            if let Ok(final_out) = tokio::process::Command::new("osascript")
+                .arg("-e")
+                .arg(script_final)
+                .output()
+                .await
+            {
+                if final_out.status.success() {
+                    let out_str = String::from_utf8_lossy(&final_out.stdout).trim().to_string();
+                    let paths: Vec<String> = out_str
+                        .lines()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    return Ok(paths);
+                }
+            }
+            let stderr = String::from_utf8_lossy(&fb_output.stderr);
+            tracing::error!("原生多文件选择器唤起失败: {}", stderr);
+            return Err(format!("无法唤起原生文件选择器: {stderr}"));
         }
     }
 
@@ -731,11 +788,18 @@ end try"#;
 pub async fn pick_single_document_dialog(prompt_text: &str) -> Result<Option<String>, String> {
     #[cfg(target_os = "macos")]
     {
-        let escaped_prompt = prompt_text.replace('"', "\\\"");
+        let escaped_prompt = prompt_text
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', " ")
+            .replace('\r', "");
         let script = format!(
             r#"try
-  set selectedFile to choose file with prompt "{escaped_prompt}" of type {{"pdf", "docx", "doc", "xlsx", "xls", "pptx", "txt", "md", "csv", "png", "jpg", "jpeg", "bmp", "webp", "public.data"}}
-  return POSIX path of selectedFile
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFile to choose file with prompt "{escaped_prompt}" of type {{"pdf", "docx", "doc", "xlsx", "xls", "pptx", "txt", "md", "csv", "png", "jpg", "jpeg", "bmp", "webp", "public.data"}}
+    return POSIX path of selectedFile
+  end tell
 on error number -128
   return ""
 end try"#
@@ -755,11 +819,18 @@ end try"#
                 Ok(Some(out_str))
             }
         } else {
+            tracing::warn!(
+                "带类型过滤的原生重新关联选择器失败，尝试无类型过滤唤起: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             // 降级无类型过滤唤起
             let script_fallback = format!(
                 r#"try
-  set selectedFile to choose file with prompt "{escaped_prompt}"
-  return POSIX path of selectedFile
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFile to choose file with prompt "{escaped_prompt}"
+    return POSIX path of selectedFile
+  end tell
 on error number -128
   return ""
 end try"#
@@ -778,7 +849,34 @@ end try"#
                     Ok(Some(out_str))
                 }
             } else {
-                Ok(None)
+                // 若 tell application 在极特殊环境下报错，进行 activate me 终极兜底
+                let script_final = format!(
+                    r#"try
+  activate me
+  set selectedFile to choose file with prompt "{escaped_prompt}"
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#
+                );
+                if let Ok(final_output) = tokio::process::Command::new("osascript")
+                    .arg("-e")
+                    .arg(&script_final)
+                    .output()
+                    .await
+                {
+                    if final_output.status.success() {
+                        let out_str = String::from_utf8_lossy(&final_output.stdout).trim().to_string();
+                        if out_str.is_empty() {
+                            return Ok(None);
+                        } else {
+                            return Ok(Some(out_str));
+                        }
+                    }
+                }
+                let stderr = String::from_utf8_lossy(&fb_output.stderr);
+                tracing::error!("原生重新关联文件选择器唤起失败: {}", stderr);
+                Err(format!("无法唤起原生文件选择器: {stderr}"))
             }
         }
     }
@@ -1666,8 +1764,11 @@ async fn extract_sensitive_info(
         )
     })?;
 
+    // 自动清洗可能潜藏的多余空行与空表格行标签，避免干扰 LLM 提取准确率
+    let doc_markdown = crate::ocr::sanitize_redundant_empty_lines(&doc.markdown);
+
     // 1. 正则按需兜底提取（仅当启用的规则涉及身份证/手机/邮箱/银行卡时才触发）
-    let regex_items = Extractor::extract_by_regex(&doc.markdown, &payload.fields);
+    let regex_items = Extractor::extract_by_regex(&doc_markdown, &payload.fields);
 
     // 2. 本地小模型 AI 提取 (若开启且模型就绪)
     let mut ai_items = Vec::new();
@@ -1678,7 +1779,7 @@ async fn extract_sensitive_info(
 
     if payload.use_ai {
         let is_online = payload.model_type.as_deref() == Some("online");
-        let chunks = Extractor::chunk_text(&doc.markdown, 2500);
+        let chunks = Extractor::chunk_text(&doc_markdown, 2500);
 
         if is_online {
             let online_models = state.session_mgr.get_online_models().await;
@@ -1765,13 +1866,13 @@ async fn extract_sensitive_info(
 
             // 若为协同引擎模式，挂载方案 A 后置形态白名单拦截器进行终审精筛
             if is_dual_engine {
-                ai_items = extractor::PostFilterGuard::sanitize_items(ai_items, &payload.fields, &doc.markdown);
+                ai_items = extractor::PostFilterGuard::sanitize_items(ai_items, &payload.fields, &doc_markdown);
             }
         }
     }
 
     // 3. 冲突消解、位置回填与合并排序（结合传入的规则自动分类与赋权）
-    let final_items = Extractor::merge_and_resolve(&doc.markdown, regex_items, ai_items, &payload.fields);
+    let final_items = Extractor::merge_and_resolve(&doc_markdown, regex_items, ai_items, &payload.fields);
     let execution_ms = start_time.elapsed().as_millis() as u64;
 
     // 获取当前实际执行本次提取的模型名称
@@ -3245,4 +3346,105 @@ async fn rerun_base_ocr_handler(
         "low_confidence_count": res.low_confidence_count,
         "message": "已重新完成基础 OCR 识别"
     })))
+}
+
+#[derive(Serialize)]
+struct SystemLogsResponse {
+    logs_dir: String,
+    sensidoc_log: LogFileInfo,
+    llama_log: LogFileInfo,
+    installer_log: LogFileInfo,
+}
+
+#[derive(Serialize)]
+struct LogFileInfo {
+    path: String,
+    exists: bool,
+    size_bytes: u64,
+    snippet: String,
+}
+
+async fn get_system_logs_handler() -> Json<SystemLogsResponse> {
+    let logs_dir = paths::get_logs_dir();
+    let sensidoc_path = paths::get_sensidoc_log_path();
+    let llama_path = paths::get_llama_log_path();
+    let installer_path = paths::get_installer_log_path();
+
+    fn build_info(p: &std::path::Path) -> LogFileInfo {
+        let exists = p.exists();
+        let size_bytes = p.metadata().map(|m| m.len()).unwrap_or(0);
+        let snippet = paths::read_recent_log_snippet(p, 30);
+        LogFileInfo {
+            path: p.to_string_lossy().to_string(),
+            exists,
+            size_bytes,
+            snippet,
+        }
+    }
+
+    Json(SystemLogsResponse {
+        logs_dir: logs_dir.to_string_lossy().to_string(),
+        sensidoc_log: build_info(&sensidoc_path),
+        llama_log: build_info(&llama_path),
+        installer_log: build_info(&installer_path),
+    })
+}
+
+async fn reveal_logs_dir_handler() -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let logs_dir = paths::get_logs_dir();
+    open_directory_in_manager(&logs_dir).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("在系统文件管理器中打开日志目录失败: {e}"),
+            }),
+        )
+    })?;
+
+    Ok(Json(serde_json::json!({
+        "status": "success",
+        "logs_dir": logs_dir.to_string_lossy(),
+    })))
+}
+
+fn open_directory_in_manager(path: &std::path::Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let status = std::process::Command::new("open")
+            .arg(path)
+            .status()
+            .map_err(|e| format!("执行 open 命令失败: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("open 命令返回非 0 退出码".to_string())
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let path_str = path.to_string_lossy().to_string();
+        let status = std::process::Command::new("explorer")
+            .arg(&path_str)
+            .status()
+            .map_err(|e| format!("执行 explorer 失败: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("explorer 打开目录失败".to_string())
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let status = std::process::Command::new("xdg-open")
+            .arg(path)
+            .status()
+            .map_err(|e| format!("执行 xdg-open 失败: {e}"))?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err("xdg-open 失败".to_string())
+        }
+    }
 }

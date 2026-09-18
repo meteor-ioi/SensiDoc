@@ -1,6 +1,6 @@
 # SensiDoc CLI 命令行工具与 Agent 集成开发指南 (CLI_GUIDE.md)
 
-> **版本**：v1.4.1  
+> **版本**：v1.4.2  
 > **更新时间**：2026-09-18  
 > **适用受众**：终端开发者、DevOps/安全工程师、AI Agent 编排系统（LangChain、CrewAI、MCP、自定义 Subprocess）  
 > **核心定位**：本地离线文档与扫描件智能审计、全格式原生排版等长脱敏及三级 OCR/VLM 解析内核。

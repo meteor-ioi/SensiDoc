@@ -235,7 +235,7 @@ impl OcrEngine {
             },
             provider: anyocr::ExecutionProvider::Auto,
             enable_table: true,
-            max_batch_size: 16,
+            max_batch_size: 1,
             max_dimension: Some(2560),
         };
 
@@ -287,14 +287,122 @@ impl OcrEngine {
             holder.last_used = Instant::now();
         }
 
+        let cleaned_markdown = sanitize_redundant_empty_lines(&doc.markdown);
+
         Ok(OcrResult {
-            markdown: doc.markdown,
+            markdown: cleaned_markdown,
             raw_boxes,
             image_width: page.dimensions.0,
             image_height: page.dimensions.1,
             elapsed_ms: doc.elapsed_ms,
         })
     }
+}
+
+/// 自动清除 Markdown 与 OCR 识别文本中多余的空行、空表格行与无效占位标签
+///
+/// 针对纸质单据、扫描件与长文档识别中产生的大量空白表格行 (`<tr><td></td></tr>`)、
+/// 纯空白 Markdown 单元格行 (`| | |`)、孤立空标签以及连续 3 个及以上多余换行，
+/// 进行高保真语义清洗，避免冗余空标签污染 LLM 上下文与影响实体抽取准确率。
+pub fn sanitize_redundant_empty_lines(text: &str) -> String {
+    if text.trim().is_empty() {
+        return String::new();
+    }
+
+    use std::sync::LazyLock;
+    static TR_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<tr\b[^>]*>.*?</tr>").expect("合法正则")
+    });
+    static TAG_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"<[^>]+>").expect("合法正则")
+    });
+    static EMPTY_TBODY_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<tbody\b[^>]*>\s*</tbody>").expect("合法正则")
+    });
+    static EMPTY_THEAD_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<thead\b[^>]*>\s*</thead>").expect("合法正则")
+    });
+    static TABLE_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<table\b[^>]*>.*?</table>").expect("合法正则")
+    });
+    static EMPTY_P_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<p\b[^>]*>\s*(?:&nbsp;|&#160;)?\s*</p>").expect("合法正则")
+    });
+    static EMPTY_DIV_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"(?is)<div\b[^>]*>\s*(?:&nbsp;|&#160;)?\s*</div>").expect("合法正则")
+    });
+    static MULTI_NEWLINE_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+        regex::Regex::new(r"\r?\n(?:\s*\r?\n){2,}").expect("合法正则")
+    });
+
+    // 1. 过滤 HTML 表格中的空行 (<tr>...</tr> 内部没有可见文本内容)
+    let step1 = TR_REGEX.replace_all(text, |caps: &regex::Captures| {
+        let tr_str = &caps[0];
+        let stripped = TAG_REGEX.replace_all(tr_str, "");
+        let clean_text = stripped
+            .replace("&nbsp;", " ")
+            .replace("&#160;", " ")
+            .trim()
+            .to_string();
+        if clean_text.is_empty() {
+            String::new()
+        } else {
+            tr_str.to_string()
+        }
+    });
+
+    // 2. 清除清理空 tr 后可能残留的空 thead / tbody / table
+    let step2 = EMPTY_TBODY_REGEX.replace_all(&step1, "");
+    let step3 = EMPTY_THEAD_REGEX.replace_all(&step2, "");
+    let step4 = TABLE_REGEX.replace_all(&step3, |caps: &regex::Captures| {
+        let table_str = &caps[0];
+        let stripped = TAG_REGEX.replace_all(table_str, "");
+        let clean_text = stripped
+            .replace("&nbsp;", " ")
+            .replace("&#160;", " ")
+            .trim()
+            .to_string();
+        if clean_text.is_empty() {
+            String::new()
+        } else {
+            table_str.to_string()
+        }
+    });
+
+    // 3. 清理 Markdown 管道符表格中的纯空数据行 (形如 |   |   |)
+    let mut cleaned_lines = Vec::new();
+    for line in step4.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('|') && trimmed.ends_with('|') {
+            let cells: Vec<&str> = trimmed
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim())
+                .collect();
+            let is_separator = !cells.is_empty()
+                && cells.iter().all(|c| {
+                    !c.is_empty()
+                        && c.chars().all(|ch| ch == '-' || ch == ':' || ch == ' ')
+                        && c.contains('-')
+                });
+            let is_all_empty = cells.iter().all(|c| c.is_empty());
+
+            if is_all_empty && !is_separator {
+                continue;
+            }
+        }
+        cleaned_lines.push(line);
+    }
+    let step5 = cleaned_lines.join("\n");
+
+    // 4. 清理空段落及空块级标签 <p></p>、<div></div>
+    let step6 = EMPTY_P_REGEX.replace_all(&step5, "");
+    let step7 = EMPTY_DIV_REGEX.replace_all(&step6, "");
+
+    // 5. 消除连续多余换行符：将 3 个及以上连续换行（包括中间仅包含空格/制表符的空行）归一化为标准的 2 个换行 (\n\n)
+    let step8 = MULTI_NEWLINE_REGEX.replace_all(&step7, "\n\n");
+
+    step8.trim().to_string()
 }
 
 #[cfg(test)]
@@ -402,5 +510,34 @@ mod tests {
         let (crop_bytes, b64_url) = crop_image_box(&png_bytes, coords).expect("切片裁剪失败");
         assert!(!crop_bytes.is_empty());
         assert!(b64_url.starts_with("data:image/png;base64,"));
+    }
+
+    #[test]
+    fn test_sanitize_redundant_empty_lines() {
+        // 1. 测试 HTML 表格中的空行清除 (保留有效行，清除纯空行)
+        let html_sample = "<table><tr><td>第1行有效</td></tr><tr><td></td></tr><tr><td>   </td></tr><tr><td colspan=\"2\"></td></tr><tr><td>第2行有效</td></tr></table>";
+        let cleaned = sanitize_redundant_empty_lines(html_sample);
+        assert_eq!(cleaned, "<table><tr><td>第1行有效</td></tr><tr><td>第2行有效</td></tr></table>");
+
+        // 2. 测试全空表格被彻底清除
+        let empty_table = "<table><tr><td></td></tr><tr><td>   </td></tr></table>";
+        assert_eq!(sanitize_redundant_empty_lines(empty_table), "");
+
+        // 3. 测试 Markdown 管道符表格中的空数据行清除 (保留表头与分割线)
+        let md_table = "| 列1 | 列2 |\n| --- | --- |\n|  |  |\n| 内容1 | 内容2 |\n|   |   |";
+        let cleaned_md = sanitize_redundant_empty_lines(md_table);
+        assert_eq!(cleaned_md, "| 列1 | 列2 |\n| --- | --- |\n| 内容1 | 内容2 |");
+
+        // 4. 测试正文连续超过 2 个的换行收敛为标准的 2 个换行 (\n\n)
+        let text_with_blanks = "第一段\n\n\n\n\n第二段\n   \n   \n第三段";
+        let cleaned_text = sanitize_redundant_empty_lines(text_with_blanks);
+        assert_eq!(cleaned_text, "第一段\n\n第二段\n\n第三段");
+
+        // 5. 测试用户实际截图场景 (信息优先级说明后的大量空 tr 标签清除)
+        let user_scenario = "信息优先级标注说明：</td></tr><tr><td></td></tr><tr><td></td></tr><tr><td>★★★高：涉及商业底层逻辑。</td></tr><tr><td></td></tr><tr><td></td></tr><tr><td colspan=\"2\"></td></tr></table>\n\n★★中：传统商业常见的免费手段。";
+        let cleaned_user = sanitize_redundant_empty_lines(user_scenario);
+        assert!(!cleaned_user.contains("<tr><td></td></tr>"));
+        assert!(!cleaned_user.contains("<td colspan=\"2\"></td>"));
+        assert!(cleaned_user.contains("信息优先级标注说明：</td></tr><tr><td>★★★高：涉及商业底层逻辑。</td></tr></table>\n\n★★中：传统商业常见的免费手段。"));
     }
 }

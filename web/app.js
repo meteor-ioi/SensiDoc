@@ -585,6 +585,8 @@ const el = {
   confirmModalIconWrap: document.getElementById("confirmModalIconWrap"),
   confirmModalOkBtn: document.getElementById("confirmModalOkBtn"),
   confirmModalCancelBtn: document.getElementById("confirmModalCancelBtn"),
+  confirmModalOpenLogBtn: document.getElementById("confirmModalOpenLogBtn"),
+  openLogsBtn: document.getElementById("openLogsBtn"),
 
   // 另存为场景模板模态框
   saveTemplateModal: document.getElementById("saveTemplateModal"),
@@ -1945,6 +1947,11 @@ function showConfirmDialog({
       el.confirmModalCancelBtn.innerText = cancelText;
     }
 
+    if (el.confirmModalOpenLogBtn) {
+      const isLogRelated = typeof message === "string" && (message.includes("日志") || message.includes("llama-server") || message.includes("退出") || message.includes("报错") || message.includes("超时"));
+      el.confirmModalOpenLogBtn.style.display = isLogRelated ? "inline-flex" : "none";
+    }
+
     if (el.confirmModalIconWrap) {
       const type = iconType || (isDanger ? "danger" : "info");
       if (type === "danger") {
@@ -1989,6 +1996,21 @@ function closeConfirmDialog(result) {
     const fn = confirmModalResolver;
     confirmModalResolver = null;
     fn(result);
+  }
+}
+
+// 在系统原生文件管理器中打开 SensiDoc 日志目录
+async function revealLogsDirectory() {
+  try {
+    const res = await fetch("/api/system/logs/reveal", { method: "POST" });
+    const data = await res.json();
+    if (data.status === "success") {
+      showToast("已在文件管理器中打开日志目录", "success");
+    } else {
+      showToast("打开日志目录失败: " + (data.error || "未知原因"), "error");
+    }
+  } catch (e) {
+    showToast("无法请求打开日志目录: " + e.message, "error");
   }
 }
 
@@ -2489,6 +2511,12 @@ function initEventListeners() {
   if (el.confirmModalCancelBtn) {
     el.confirmModalCancelBtn.addEventListener("click", () => closeConfirmDialog(false));
   }
+  if (el.confirmModalOpenLogBtn) {
+    el.confirmModalOpenLogBtn.addEventListener("click", () => revealLogsDirectory());
+  }
+  if (el.openLogsBtn) {
+    el.openLogsBtn.addEventListener("click", () => revealLogsDirectory());
+  }
   if (el.confirmModal) {
     el.confirmModal.addEventListener("click", (e) => {
       if (e.target === el.confirmModal) closeConfirmDialog(false);
@@ -2578,7 +2606,16 @@ function initEventListeners() {
             }
           }
         } catch (err) {
-          console.warn("唤起系统原生文件选择器异常，降级到常规网页上传:", err);
+          console.warn("唤起系统原生文件选择器异常，提示手动上传:", err);
+          showToastWithAction(
+            `唤起系统原生选择器异常，请点击手动选择`,
+            "上传文件",
+            () => {
+              if (el.fileInput) el.fileInput.click();
+            },
+            "warning"
+          );
+          return;
         }
       }
       if (el.fileInput) el.fileInput.click();
@@ -3465,39 +3502,11 @@ function copyDocumentPath(doc) {
   }
 }
 
-// 重新关联/补齐文档本地源文件与底图缓存
-async function relinkDocumentFile(docId) {
+// 纯网页端或降级兜底：触发本地 input 上传并重新关联
+function triggerLocalRelinkFileInput(docId) {
   const doc = (state.documents || []).find((d) => d.id === docId);
   if (!doc) return;
 
-  // 1. 若处于桌面端环境，优先唤起操作系统原生单选文件对话框
-  if (window.__SENSIDOC_DESKTOP__) {
-    try {
-      showToast(`正在唤起原生文件选择器...`, "info");
-      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}/pick-and-relink`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "重新关联文件失败");
-      }
-      if (data.canceled) {
-        return;
-      }
-      if (data.doc) {
-        Object.assign(doc, data.doc);
-      } else if (data.source_path) {
-        doc.source_path = data.source_path;
-      }
-      onDocumentRelinked(doc);
-      showToast(`已成功重新关联源文件: ${doc.filename}`, "success");
-      return;
-    } catch (err) {
-      console.warn("原生重新关联失败，尝试降级为网页文件选择:", err);
-    }
-  }
-
-  // 2. 纯网页端环境或桌面原生调用降级：动态创建隐藏 input 上传补齐
   let fileInput = document.getElementById("relinkFileInput");
   if (!fileInput) {
     fileInput = document.createElement("input");
@@ -3540,6 +3549,51 @@ async function relinkDocumentFile(docId) {
   };
 
   fileInput.click();
+}
+
+// 重新关联/补齐文档本地源文件与底图缓存
+async function relinkDocumentFile(docId) {
+  const doc = (state.documents || []).find((d) => d.id === docId);
+  if (!doc) return;
+
+  // 1. 若处于桌面端环境，优先唤起操作系统原生单选文件对话框
+  if (window.__SENSIDOC_DESKTOP__) {
+    try {
+      showToast(`正在唤起原生文件选择器...`, "info");
+      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}/pick-and-relink`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "重新关联文件失败");
+      }
+      if (data.canceled) {
+        return;
+      }
+      if (data.doc) {
+        Object.assign(doc, data.doc);
+      } else if (data.source_path) {
+        doc.source_path = data.source_path;
+      }
+      onDocumentRelinked(doc);
+      showToast(`已成功重新关联源文件: ${doc.filename}`, "success");
+      return;
+    } catch (err) {
+      console.warn("原生重新关联失败，提供手动选择兜底:", err);
+      showToastWithAction(
+        `唤起系统原生选择器异常（${err.message || "未能响应"}），请手动选择`,
+        "选择文件",
+        () => {
+          triggerLocalRelinkFileInput(docId);
+        },
+        "warning"
+      );
+      return;
+    }
+  }
+
+  // 2. 纯网页端环境：直接同步触发本地文件选择器（保持直接用户手势有效）
+  triggerLocalRelinkFileInput(docId);
 }
 
 function onDocumentRelinked(doc) {
@@ -4717,9 +4771,9 @@ function renderRulesTable() {
               <button type="button" class="ai-mode-pill ${aiGenRulesMode === 'append' ? 'active' : ''}" data-mode="append" title="生成后保留现有规则，将新规则追加至列表顶部">追加</button>
               <button type="button" class="ai-mode-pill ${aiGenRulesMode === 'overwrite' ? 'active' : ''}" data-mode="overwrite" title="生成后清空所有已有规则，仅保留本次生成项">覆盖</button>
             </div>
-            <button type="button" class="btn primary sm ai-prompt-submit-btn" style="display: inline-flex; align-items: center; gap: 4px;" title="根据输入描述一键提炼规则">
+            <button type="button" class="btn primary sm ai-prompt-submit-btn" style="display: inline-flex; align-items: center; gap: 4px;" title="根据输入描述执行提炼规则">
               <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-              <span>一键生成</span>
+              <span>执行</span>
             </button>
           </div>
         </div>
@@ -4830,7 +4884,7 @@ function renderRulesTable() {
           textarea.disabled = false;
           submitBtn.innerHTML = `
             <svg class="lucide-icon xs" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-            <span>一键生成</span>
+            <span>执行</span>
           `;
         }
       });
@@ -4855,7 +4909,6 @@ function renderRulesTable() {
         <div class="rule-actions">
           ${rule._isDraft ? `
             <div class="draft-priority-wrap" title="选择优先级: 高 / 中 / 低">
-              <span class="draft-priority-hint">优先级</span>
               <div class="draft-priority-segment" role="radiogroup">
                 <button type="button" class="draft-priority-pill ${pri === 'high' ? 'active high' : ''}" data-level="high" title="高敏感度">高</button>
                 <button type="button" class="draft-priority-pill ${pri === 'medium' ? 'active medium' : ''}" data-level="medium" title="中敏感度">中</button>
@@ -4870,7 +4923,7 @@ function renderRulesTable() {
         </div>
       </div>
       <div class="rule-desc-row">
-        <input type="text" value="${escapeHtml(rule.description)}" class="rule-desc-input" placeholder="输入上下文提取特征描述 (组合进入 System Prompt)">
+        <input type="text" value="${escapeHtml(rule.description)}" class="rule-desc-input" placeholder="输入上下文提取特征描述">
       </div>
     `;
 

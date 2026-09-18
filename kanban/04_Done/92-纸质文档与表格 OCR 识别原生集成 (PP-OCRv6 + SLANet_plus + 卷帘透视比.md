@@ -3,7 +3,7 @@ id: phase-92
 title: 纸质文档与表格 OCR 识别原生集成 (PP-OCRv6 + SLANet_plus + 卷帘透视比对)
 priority: medium
 tags: [phase, ocr]
-created: 2026-09-17
+created: 2026-09-18
 ---
 
 # 纸质文档与表格 OCR 识别原生集成 (PP-OCRv6 + SLANet_plus + 卷帘透视比对)
@@ -82,4 +82,4 @@ created: 2026-09-17
 - [对话跳转](conversation://6efdb7c6-eaca-4a22-8acc-97baeea17ede)
 
 ### 📝 开发记录与进度
-- *2026-09-17*：由 todo.md 自动化同步生成。当前完成度: [10/10]。
+- *2026-09-18*：由 todo.md 自动化同步生成。当前完成度: [10/10]。

@@ -664,10 +664,12 @@ impl Extractor {
         let url = format!("http://127.0.0.1:{}/v1/chat/completions", server_port);
 
         // 使用 <document> 标签隔离文档正文，强力抵御文档内潜藏的提示词污染
-        let user_content = if user_text.starts_with("<document>") {
-            user_text.to_string()
+        // 自动清除多余空行与空表格行标签，避免污染 LLM 提示词上下文与降低实体抽取准确率
+        let sanitized_user_text = crate::ocr::sanitize_redundant_empty_lines(user_text);
+        let user_content = if sanitized_user_text.starts_with("<document>") {
+            sanitized_user_text
         } else {
-            format!("<document>\n{}\n</document>", user_text)
+            format!("<document>\n{}\n</document>", sanitized_user_text)
         };
 
         let effective_max_tokens = if max_tokens == 0 {
@@ -747,10 +749,12 @@ impl Extractor {
         };
 
         // 使用 <document> 标签隔离文档正文，强力抵御文档内潜藏的提示词污染
-        let user_content = if user_text.starts_with("<document>") {
-            user_text.to_string()
+        // 自动清除多余空行与空表格行标签，避免污染 LLM 提示词上下文与降低实体抽取准确率
+        let sanitized_user_text = crate::ocr::sanitize_redundant_empty_lines(user_text);
+        let user_content = if sanitized_user_text.starts_with("<document>") {
+            sanitized_user_text
         } else {
-            format!("<document>\n{}\n</document>", user_text)
+            format!("<document>\n{}\n</document>", sanitized_user_text)
         };
 
         let effective_max_tokens = if max_tokens == 0 {

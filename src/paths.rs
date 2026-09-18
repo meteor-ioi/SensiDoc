@@ -58,6 +58,46 @@ pub fn get_user_data_dir() -> PathBuf {
     }
 }
 
+/// 获取应用日志持久化存储目录 (Windows: %APPDATA%/SensiDoc/logs, macOS: ~/Library/Application Support/SensiDoc/logs, 其他: ~/.sensidoc/logs)
+pub fn get_logs_dir() -> PathBuf {
+    let logs_dir = get_user_data_dir().join("logs");
+    let _ = std::fs::create_dir_all(&logs_dir);
+    logs_dir
+}
+
+/// 获取主程序运行日志文件路径 (sensidoc.log)
+pub fn get_sensidoc_log_path() -> PathBuf {
+    get_logs_dir().join("sensidoc.log")
+}
+
+/// 获取本地模型推理子进程日志文件路径 (llama-server.log)
+pub fn get_llama_log_path() -> PathBuf {
+    get_logs_dir().join("llama-server.log")
+}
+
+/// 获取安装过程日志文件路径 (installer.log)
+pub fn get_installer_log_path() -> PathBuf {
+    get_logs_dir().join("installer.log")
+}
+
+/// 读取指定日志文件最近的 N 行有效文本内容，供前端或排查诊断展示
+pub fn read_recent_log_snippet(path: &std::path::Path, max_lines: usize) -> String {
+    if !path.exists() {
+        return "(暂无日志记录)".to_string();
+    }
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+            if lines.is_empty() {
+                return "(日志内容为空)".to_string();
+            }
+            let start = lines.len().saturating_sub(max_lines);
+            lines[start..].join("\n")
+        }
+        Err(e) => format!("(读取日志文件失败: {e})"),
+    }
+}
+
 /// 获取前端静态网页目录 (web/)
 pub fn get_web_dir() -> PathBuf {
     if let Some(res) = get_bundle_resources_dir() {
@@ -250,7 +290,7 @@ pub fn get_ocr_models_dir() -> PathBuf {
 }
 
 pub const OCR_DET_FILENAME: &str = "PP-OCRv6_det_small.onnx";
-pub const OCR_REC_FILENAME: &str = "PP-OCRv6_rec_medium.onnx";
+pub const OCR_REC_FILENAME: &str = "PP-OCRv6_rec_small.onnx";
 pub const OCR_TABLE_FILENAME: &str = "slanet-plus.onnx";
 pub const OCR_DICT_FILENAME: &str = "ppocrv6_dict.txt";
 
@@ -259,18 +299,18 @@ pub fn get_ocr_det_path() -> PathBuf {
     get_ocr_models_dir().join(OCR_DET_FILENAME)
 }
 
-/// 获取文本字符识别模型路径 (优先更高精度的 medium，若本地仅有 small 则平滑兼容回退)
+/// 获取文本字符识别模型路径 (优先更轻快高性价比的 small，若本地仅有 medium 则平滑兼容回退)
 pub fn get_ocr_rec_path() -> PathBuf {
     let base = get_ocr_models_dir();
-    let medium = base.join(OCR_REC_FILENAME);
-    if medium.exists() {
-        return medium;
-    }
-    let small = base.join("PP-OCRv6_rec_small.onnx");
+    let small = base.join(OCR_REC_FILENAME);
     if small.exists() {
         return small;
     }
-    medium
+    let medium = base.join("PP-OCRv6_rec_medium.onnx");
+    if medium.exists() {
+        return medium;
+    }
+    small
 }
 
 /// 获取表格结构预测模型路径

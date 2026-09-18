@@ -616,6 +616,8 @@ async fn perform_extraction(
     )
     .await?;
 
+    let markdown = crate::ocr::sanitize_redundant_empty_lines(&markdown);
+
     // 1. 正则极速提取
     let regex_items = Extractor::extract_by_regex(&markdown, fields);
 

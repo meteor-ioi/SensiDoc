@@ -2,7 +2,7 @@
 
 > 本文档实时记录 SensiDoc 项目各模块的开发实施进度，严格按检查点验证推进。  
 > 标记说明：`[ ]` 待办 | `[-]` 进行中 | `[x]` 已完成并通过测试  
-> 💬 **上下文会话导航**：[🔗 点击跳转到本次聊天对话记录 (Conversation ID: b245ac33-c1e5-440d-95a6-4d98f95c5292)](conversation://b245ac33-c1e5-440d-95a6-4d98f95c5292)
+> 💬 **上下文会话导航**：[🔗 点击跳转到本次聊天对话记录 (Conversation ID: 28ffd366-73fb-426f-bf1e-99dd72430155)](conversation://28ffd366-73fb-426f-bf1e-99dd72430155)
 
 ---
 
@@ -2050,19 +2050,88 @@
   - 新增 `test_document_relink_lifecycle` 单元测试，完整覆盖“底图丢失探测 ➔ 重新关联物理源路径 ➔ 恢复读取并同步工作区”的全生命周期闭环；
   - 全工程 65 项单元测试（OCR、脱敏、解析、推理等）全部绿灯通过（64 passed, 0 failed, 1 ignored）。
 
+---
 
+## 阶段一百二十六：OCR 多余空行清洗与冗余表格标签自动过滤 (已完成) · [🔗 对话跳转](conversation://fb5c8714-4c4f-4b30-9b2d-91bec0eb221e)
+- [x] 126.1 **anyocr 表格渲染空行过滤与全空表格剔除 (`anyocr::layout::table_matcher`)**：
+  - 在 `render_tokens_to_markdown` 阶段，自动识别并过滤纯空表格行（`<tr><td></td></tr>`、`<tr><td colspan="*"></td></tr>` 及仅含空白字符的空单元格行）；
+  - 若整张表格在剔除空行后无实质有效内容，自动消除外层 `<table>...</table>` 标签，杜绝空表格与单列长图伪表格渲染；
+  - anyocr 变更已本地验证通过并同步推送至 Gitee 及 GitHub 远程仓库（commit `af9ef3a`），SensiDoc 通过 `cargo update anyocr` 锁定最新 revision。
+- [x] 126.2 **SensiDoc 核心空行与脏标签清洗器落地 (`src/ocr/mod.rs::sanitize_redundant_empty_lines`)**：
+  - 构建高并发、零开销的 `LazyLock` 预编译正则流水线；
+  - 自动过滤 HTML 空表格行、清理空 thead/tbody/table 节点、剔除 Markdown 管道符纯空数据行 (`| | |`)；
+  - 清理无实质文本内容的 `<p></p>` 与 `<div></div>` 标签；
+  - 将连续 3 个及以上的连续多余换行统一收敛归一化为标准的 2 个换行 (`\n\n`)，保持段落干净整洁。
+- [x] 126.3 **OCR / VLM / PDF 转码全链路接入与结果清洗 (`src/ocr/mod.rs`, `src/ocr/vlm.rs`, `src/converter.rs`)**：
+  - `OcrEngine::convert_doc_to_result` 产出的 Markdown 自动挂接空行清洗；
+  - `run_fast_vlm_pipeline`（快速 VLM 微切片纠偏）与 `run_full_vlm_pipeline`（全量 VLM 重构）产出自动挂接空行清洗；
+  - `DocConverter::extract_scanned_pdf` 输出自动执行空行清洗。
+- [x] 126.4 **大模型实体抽取 Prompt 刚性防线构建 (`src/extractor.rs`, `src/main.rs`, `src/cli.rs`)**：
+  - `query_llm` 与 `query_online_llm` 在组装 `<document>` 标签前对正文执行严格空行清洗，彻底杜绝无意义空行与空表格标签污染 LLM 上下文；
+  - `extract_sensitive_info` 与 `extract_sensitive_info_stream`（非流式/流式提取）在执行初筛前对全文进行清洗与对齐；
+  - `cli.rs` 在命令行提取流程中挂接清洗器，保障无头审计与 CI 产物清洁度。
+- [x] 126.5 **单元测试与端到端真实单据图像回归验证**：
+  - 编写涵盖 HTML 空表格行、Markdown 空表格行、正文连续多余换行、用户实际长图文多场景的自动化单测（`test_sanitize_redundant_empty_lines`）；
+  - 全工程 66 项 Cargo 单元测试 100% 绿灯通过；
+  - 在真实样本 `《免费：商业的未来》深度解读.png` 上进行端到端验证，原本产生的 40 处空 `<tr>` 标签与 26 行连续横条被 100% 消除，“★★★高”与“★★中”自然衔接。
 
+---
 
+## 阶段一百二十七：macOS 原生文件选择器焦点置顶与重新关联交互容错加固 (已完成) · [🔗 对话跳转](conversation://73fa04b2-2d02-4c05-ae6b-56f1031d0d4b)
+- [x] 127.1 **macOS 操作系统原生选择器前台激活与焦点置顶加固 (`src/main.rs`, `src/model_manager.rs`)**：
+  - 根因消除：解决无宿主 AppleScript `choose file` 对话框被 SensiDoc 桌面主窗口遮挡在底层、无前台焦点的缺陷，在脚本中注入 `tell application (path to frontmost application as text) activate`，确保原生选择器直接浮现在当前应用窗口最上层；
+  - 覆盖文档多选 (`pick_files_dialog_native`)、单文档重新关联 (`pick_single_document_dialog`) 与 GGUF 模型文件选择 (`pick_file_dialog`) 全场景。
+- [x] 127.2 **原生对话框多级容错兜底与异常精准透传 (`src/main.rs`, `src/model_manager.rs`)**：
+  - 建立三级降级链路：特定文档类型/UTI 过滤 ➔ 全类型兼容唤起 ➔ `activate me` 纯原生兜底；
+  - 异常暴露收敛：彻底修复底层执行失败时误返回 `Ok(None)` 伪装成用户主动取消的 BUG，真实系统失败时准确返回 HTTP 500 与具体 stderr 报错信息，保证前端进入异常分支并感知原因。
+- [x] 127.3 **前端用户手势 (User Gesture) 安全降级与交互兜底重构 (`web/app.js`)**：
+  - 抽取独立的同步本地选择器 `triggerLocalRelinkFileInput(docId)`；纯网页端直接同步触发，保留浏览器原生手势上下文；
+- [x] 127.4 **编译与自动化回归验证**：
+  - `cargo check` 零报错通过；
+  - 跑通 `cargo test` 全量 66 项测试（65 passed, 1 ignored），验证各项生命周期与底图重构链路稳定。
 
+---
 
+## 阶段一百二十八：Windows 离线推理运行时构建升级 (Qwen3.5 架构适配) 与全生命周期日志系统 (已完成) · [🔗 对话跳转](conversation://9e72670a-3b2d-4b2d-a252-4a0924c3b94e)
+- [x] 128.1 **Windows 预编译 llama.cpp 运行时构建升级与现代资产命名适配 (`scripts/download_llama_windows.ps1`)**：
+  - 定位 Windows ARM 与 x86 双架构离线模型启动失败根本原因：`llama_model_load: error loading model: error loading model architecture: unknown model architecture: 'qwen35'`，旧版脚本锁定了 2025 年初的 `b4600`，不识别 2026 年较新的 Qwen 3.5 架构；
+  - 默认版本升级至官方支持 `qwen35` 的最新稳定构建 `b11026`；
+  - 适配官方现代 Release 资产命名（`llama-${Version}-bin-win-cpu-x64.zip`、`llama-${Version}-bin-win-cpu-arm64.zip`、`llama-${Version}-bin-win-opencl-adreno-arm64.zip` 等），确保本地打包及 GitHub Actions CI 自动获取官方预编译包（方案 A）。
+- [x] 128.2 **安装阶段全过程日志记录与自动归档 (`scripts/installer.iss`)**：
+  - 在 Inno Setup `[Setup]` 配置段开启 `SetupLogging=yes`，自动记录安装解压、权限检查与文件部署；
+  - 编写 `[Code]` 脚本段的 `DeinitializeSetup()` 钩子：当安装完成、异常中断或失败时，自动将 Inno Setup 安装日志归档保存至用户数据目录 `%APPDATA%\SensiDoc\logs\installer.log`。
+- [x] 128.3 **应用日志目录与关键日志片段读取基础能力 (`src/paths.rs`)**：
+  - 新增 `get_logs_dir()`（Windows: `%APPDATA%/SensiDoc/logs`，macOS: `~/Library/Application Support/SensiDoc/logs`）；
+  - 新增 `get_sensidoc_log_path()`、`get_llama_log_path()` 与 `get_installer_log_path()`；
+  - 新增 `read_recent_log_snippet()` 安全读取最近 N 行有效日志文本。
+- [x] 128.4 **后端双轨日志落盘与系统级日志目录一键直达 (`Cargo.toml`, `src/main.rs`)**：
+  - 引入 `tracing-appender = "0.2"` 依赖；
+  - 在 `main()` 入口通过 `init_logging()` 初始化非阻塞文件写入器，将主服务运行日志写入 `sensidoc.log`，同时保持控制台标准输出；
+  - 注册 `GET /api/system/logs`（查询日志文件状态与最新日志片段）与 `POST /api/system/logs/reveal`（在 Windows 资源管理器 / macOS 访达中一键高亮打开日志目录）。
+- [x] 128.5 **llama-server 启动异常毫秒级捕获与错误日志穿透透传 (`src/model_manager.rs`)**：
+  - 将子进程标准输出与错误输出重定向至 `llama-server.log`；
+  - 启动健康检查探测中，通过 `child.try_wait()` 在 500ms 内即时捕获子进程提前退出/崩溃（如缺失模型架构、缺失 VC++ DLL），彻底废除原先盲目干等 25 秒超时的糟糕体验；
+  - 自动抓取 `llama-server.log` 最近 10 行日志直接组装进错误信息中返回前端。
+- [x] 128.6 **前端 UI 错误展示与查看日志交互闭环 (`web/index.html`, `web/app.js`)**：
+  - 设置弹窗右上角增加【查看日志】按钮，一键调起 Windows 资源管理器打开日志目录；
+  - 二次确认 / 提示弹窗支持 `white-space: pre-wrap;` 与滚动条展示完整报错，且在涉及模型或日志异常时自动呈现【查看详细日志】按钮，点击直达日志目录；
 
+---
 
-
-
-
-
-
-
-
-
-
+## 阶段一百二十九：OCR 推理吞吐架构调优与识别模型轻量化降维升级 (已完成) · [🔗 对话跳转](conversation://28ffd366-73fb-426f-bf1e-99dd72430155)
+- [x] 129.1 **CPU 纯文本推理 Padding 膨胀瓶颈定位与 Batch 架构调优 (`src/ocr/mod.rs`)**：
+  - 实测排查定位在 CPU 笔记本环境下多行切片识别严重耗时（原 70s 级）的深层根因：开启 Batch 处理时不同切片必须 Padding 补零对齐到批内最长文本宽度，在 CPU 缺乏海量张量核心的环境下引发数倍无效计算，同时触发 L1/L2 Cache 频繁失效；
+  - 将 `anyocr::EngineConfig` 的 `max_batch_size` 调优为 `1`（紧凑逐行串行计算），在 M4 / CPU 环境下单行识别耗时立即从 9.8s 暴降至 3.3s。
+- [x] 129.2 **识别模型降维轻量化切换与兼容回退 (`src/paths.rs`)**：
+  - 将默认识别模型由 `PP-OCRv6_rec_medium.onnx`（34.5M, 76.6MB）切换为更轻快、高性价比的 `PP-OCRv6_rec_small.onnx`（7.7M, 21.2MB）；
+  - `get_ocr_rec_path()` 优先检索并加载 Small 模型，若本地旧环境仅存在 Medium 模型则平滑兼容回退，确保零破坏性迁移。
+- [x] 129.3 **设置面板与离线模型套件下载链路同步重构 (`src/model_manager.rs`, `web/index.html`, `scripts/download_ocr_models.sh`)**：
+  - 更新 `model_manager.rs` 中的 `OCR_DOWNLOAD_SPECS`：文本识别组件直链切换为 Small 模型，更新精确尺寸（`21_234_383` 字节）与 SHA-256 校验码（`6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884`）；
+  - `web/index.html` 设置面板组件状态树文案同步更新为 `PP-OCRv6_rec_small.onnx (21.2 MB)`；
+  - 更新 `scripts/download_ocr_models.sh` 离线打包拉取脚本，将 medium 替换为 small 模型直链。
+- [x] 129.4 **GitHub Actions CI/CD 流程与打包缓存升级 (`.github/workflows/release.yml`)**：
+  - 将 macOS (arm64) 与 Windows (x86_64/arm64) 构建工作流中的 OCR 模型缓存键统一由 `ocr-models-v1` 升级为 `ocr-models-v2`；
+  - 保证 CI 构建离线全量版应用包时自动拉取并打包最新的 Small 模型，同时让离线安装包体积直接瘦身约 55MB。
+- [x] 129.5 **端到端实测验证与性能飞跃闭环**：
+  - 针对实测单据图片（968×1310，24行文本）全量验证：端到端推理总耗时由 5.67s 骤降至 **0.65s (648ms)**，识别部分由 5560ms 压降至 **534ms**（单行仅需 22ms），提速达 **10.4 倍**，解析字符完整准确且低置信度为 0；在常规 4 核 CPU 笔记本上整体耗时将从 70s 直接压降进 3~5s 黄金区间；
+  - `cargo check` 与 `cargo build --release` 编译全部通过。

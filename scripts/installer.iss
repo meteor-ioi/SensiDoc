@@ -3,7 +3,7 @@
 ; ==============================================================================
 
 #ifndef MyAppVersion
-#define MyAppVersion "1.4.1"
+#define MyAppVersion "1.4.2"
 #endif
 
 #ifndef OutputSuffix
@@ -54,6 +54,7 @@ ArchitecturesInstallIn64BitMode={#ArchInstallMode}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+SetupLogging=yes
 
 [Languages]
 Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
@@ -90,3 +91,22 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilen
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+// 安装过程日志自动持久化归档至应用日志目录，确保即使安装中断或失败也能调取排查
+procedure DeinitializeSetup();
+var
+  LogFile: String;
+  TargetDir: String;
+  DestFile: String;
+begin
+  LogFile := ExpandConstant('{log}');
+  if (LogFile <> '') and FileExists(LogFile) then
+  begin
+    TargetDir := ExpandConstant('{userappdata}\SensiDoc\logs');
+    ForceDirectories(TargetDir);
+    DestFile := TargetDir + '\installer.log';
+    FileCopy(LogFile, DestFile, False);
+  end;
+end;
+

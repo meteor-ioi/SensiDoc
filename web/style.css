@@ -3,6 +3,10 @@
 :root {
   --ui-scale: 1; /* 全局 UI 缩放基准比例 (1.0 = 100%, 1.1 = 110%, 1.25 = 125%, 1.5 = 150%, 1.75 = 175%, 2.0 = 200%, 2.5 = 250%, 3.0 = 300%) */
 
+  color-scheme: light;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
+
   --bg: hsl(0 0% 100%);
   --surface: hsl(0 0% 100%);
   --surface-2: hsl(0 0% 98%);
@@ -44,6 +48,10 @@
 /* 媒体查询：系统默认深色 (主背景采用极简沉浸 #191919，列表项保持温润浅黑 #232326 凸显卡片立体层次) */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+    --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
+
     --bg: #191919;
     --surface: #191919;
     --surface-card: #232326;
@@ -77,6 +85,10 @@
 
 /* 显式锁定深色模式 (主背景 #191919 + 列表项浅黑色 #232326) */
 [data-theme="dark"] {
+  color-scheme: dark;
+  --scrollbar-thumb: rgba(255, 255, 255, 0.2);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.38);
+
   --bg: #191919;
   --surface: #191919;
   --surface-card: #232326;
@@ -109,6 +121,10 @@
 
 /* 显式锁定浅色模式 */
 [data-theme="light"] {
+  color-scheme: light;
+  --scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.38);
+
   --bg: hsl(0 0% 100%);
   --surface: hsl(0 0% 100%);
   --surface-card: var(--surface);
@@ -160,6 +176,46 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* ==========================================================================
+   全局统一精致窄滚动条 (消除 Windows 系统原生粗灰色大滚动条及上下三角按钮，实现极简现代视觉)
+   ========================================================================== */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+/* WebKit / Chromium / Edge WebView2 滚动条定制 */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  transition: background-color 0.15s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* 全局表单与交互控件统一继承字体，杜绝 Windows 下系统默认宋体问题 */
@@ -1670,7 +1726,7 @@ body.resizing-panels {
 
 #snapModalLogBlock {
   scrollbar-width: thin;
-  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 #snapModalLogBlock::-webkit-scrollbar {
@@ -1679,8 +1735,12 @@ body.resizing-panels {
 }
 
 #snapModalLogBlock::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
-  border-radius: 3px;
+  background-color: var(--scrollbar-thumb);
+  border-radius: 9999px;
+}
+
+#snapModalLogBlock::-webkit-scrollbar-thumb:hover {
+  background-color: var(--scrollbar-thumb-hover);
 }
 
 /* 顶部拨杆开关：预览 vs 源码 */
@@ -3620,27 +3680,28 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.05);
 }
 
-/* 新增规则/提炼规则草稿卡片（确定前）底纹与视觉区分 */
+/* 新增规则/提炼规则草稿卡片（确定前）底纹与视觉区分：白天模式保持纯白卡片底色 */
 .rule-card.draft-card,
 .rule-card.ai-prompt-card,
 .ai-gen-drawer {
-  background-color: #f2f2f2;
+  background-color: var(--surface);
   border-color: var(--border-strong, #cbd5e1);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 }
 
 .rule-card.draft-card:hover,
 .rule-card.ai-prompt-card:hover {
-  background-color: #f2f2f2;
+  background-color: var(--surface);
   border-color: var(--border-strong, #cbd5e1);
 }
 
 .rule-card.draft-card .rule-card-header,
 .rule-card.draft-card .rule-desc-row,
+.rule-card.draft-card .rule-card-draft-actions,
 .rule-card.ai-prompt-card .ai-prompt-card-header,
 .rule-card.ai-prompt-card .ai-prompt-card-body,
 .rule-card.ai-prompt-card .ai-prompt-card-footer {
-  background-color: #f2f2f2;
+  background-color: var(--surface);
 }
 
 [data-theme="dark"] .rule-card.draft-card,
@@ -3648,6 +3709,7 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
 [data-theme="dark"] .ai-gen-drawer,
 [data-theme="dark"] .rule-card.draft-card .rule-card-header,
 [data-theme="dark"] .rule-card.draft-card .rule-desc-row,
+[data-theme="dark"] .rule-card.draft-card .rule-card-draft-actions,
 [data-theme="dark"] .rule-card.ai-prompt-card .ai-prompt-card-header,
 [data-theme="dark"] .rule-card.ai-prompt-card .ai-prompt-card-body,
 [data-theme="dark"] .rule-card.ai-prompt-card .ai-prompt-card-footer {
@@ -3668,7 +3730,7 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
   gap: 8px;
   padding: 6px 12px;
   border-top: 1px solid var(--border);
-  background: var(--surface-2, rgba(0, 0, 0, 0.015));
+  background: var(--surface);
 }
 
 /* 方案三：行内首卡 AI 智能提炼卡片 (Inline Ghost Prompt Card) */
@@ -3764,20 +3826,39 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
   position: relative;
   display: flex;
   align-items: center;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
 .ai-prompt-model-wrapper {
   position: relative;
-  width: 120px;
+  width: 116px;
+  min-width: 116px;
+  max-width: 116px;
+  flex: 0 0 116px;
 }
 
 .ai-prompt-model-btn {
+  width: 100%;
   height: 25px;
   padding: 0 8px;
   font-size: 11px;
   border-radius: var(--radius-sm);
   background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.ai-prompt-model-btn .custom-select-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  text-align: left;
 }
 
 .ai-prompt-model-dropdown {
@@ -3903,20 +3984,24 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
 .rule-desc-input {
   width: 100%;
   font-size: 11.5px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-mute);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
   outline: none;
-  padding: 1px 6px;
-  border-radius: 4px;
-  height: 22px;
-  line-height: 18px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm, 6px);
+  height: 25px;
+  line-height: 19px;
   box-sizing: border-box;
   transition: border-color 0.12s, background 0.12s, color 0.12s, box-shadow 0.12s;
 }
 
+.rule-desc-input::placeholder {
+  color: var(--text-mute);
+}
+
 .rule-desc-input:hover {
-  color: var(--text-dim);
+  border-color: var(--border-strong);
 }
 
 .rule-desc-input:focus {
@@ -3924,6 +4009,21 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
   background: var(--surface-2);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+/* 草稿卡片（新建规则）：字段名称与字段描述均在未输入前清晰呈现边框线，杜绝漏看 */
+.rule-card.draft-card .rule-name-input {
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.rule-card.draft-card .rule-name-input:hover {
+  border-color: var(--border-strong);
+}
+
+.rule-card.draft-card .rule-name-input:focus {
+  border-color: var(--border-strong);
+  background: var(--surface-2);
 }
 
 .risk-badge {
@@ -4164,20 +4264,32 @@ mark.sensi-mark.sensi-selected[data-risk="low"] {
 }
 
 #backToRulesBtn {
-  width: 100%;
-  height: 30px;
-  font-size: 11.5px;
-  font-weight: 500;
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  flex: 0 0 32px;
+  padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
   color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--surface);
+  cursor: pointer;
+  box-sizing: border-box;
+  transition: all 0.15s ease;
 }
 
 #backToRulesBtn:hover {
   color: var(--text);
   border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+#backToRulesBtn svg {
+  width: 16px;
+  height: 16px;
 }
 
 /* 清单工具栏 */

@@ -585,7 +585,7 @@ pub async fn run_fast_vlm_pipeline(
 
     Ok(FastVlmResult {
         success: true,
-        markdown: current_markdown,
+        markdown: crate::ocr::sanitize_redundant_empty_lines(&current_markdown),
         corrected_count: corrections.len(),
         corrections,
         inspected,
@@ -714,7 +714,7 @@ pub async fn run_full_vlm_pipeline(
         trimmed.to_string()
     };
 
-    Ok(clean)
+    Ok(crate::ocr::sanitize_redundant_empty_lines(&clean))
 }
 
 /// 对快速微切片 VLM 纠偏输出进行严格的字符安全清洗

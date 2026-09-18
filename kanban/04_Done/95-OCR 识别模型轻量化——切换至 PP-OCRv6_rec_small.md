@@ -3,7 +3,7 @@ id: phase-95
 title: OCR 识别模型轻量化——切换至 PP-OCRv6_rec_small
 priority: medium
 tags: [phase, ocr, ai]
-created: 2026-09-17
+created: 2026-09-18
 ---
 
 # OCR 识别模型轻量化——切换至 PP-OCRv6_rec_small
@@ -30,4 +30,4 @@ created: 2026-09-17
 
 
 ### 📝 开发记录与进度
-- *2026-09-17*：由 todo.md 自动化同步生成。当前完成度: [4/4]。
+- *2026-09-18*：由 todo.md 自动化同步生成。当前完成度: [4/4]。

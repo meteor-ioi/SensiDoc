@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SensiDoc - 敏感信息提取与脱敏工具</title>
-  <link rel="stylesheet" href="style.css?v=1.6.7">
+  <link rel="stylesheet" href="style.css?v=1.7.0">
   <style>
     /* 选中文档列表项与提取结果卡片：与模型框完全一致的 1px 细线边框，彻底剥离外层阴影与轮廓 */
     .file-item.active,
@@ -624,9 +624,14 @@
         </div>
 
         <div class="inspector-footer">
-          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; position: relative;">
+          <div style="display: flex; align-items: center; gap: 8px; position: relative;">
+            <!-- 返回提取规则面板快捷按钮 (方案一：左置紧凑图标按钮，流线型对齐) -->
+            <button type="button" id="backToRulesBtn" class="btn" title="返回提取规则面板" aria-label="返回提取规则面板">
+              <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg>
+            </button>
+
             <!-- 左侧：提取导出下拉折叠列表 (未脱敏的清单与结构化报告) -->
-            <div class="export-dropdown-wrapper extract-export" id="extractExportDropdownWrapper" style="width: 100%; position: relative;">
+            <div class="export-dropdown-wrapper extract-export" id="extractExportDropdownWrapper" style="flex: 1; min-width: 0; position: relative;">
               <button id="extractExportBtn" class="btn" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="导出提取的敏感词清单与全量提取数据">
                 <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" x2="12" y1="15" y2="3"></line></svg>
                 <span>提取导出 ▼</span>
@@ -649,7 +654,7 @@
             </div>
 
             <!-- 右侧：脱敏导出下拉折叠列表 (脱敏后的文档) -->
-            <div class="export-dropdown-wrapper" id="exportDropdownWrapper" style="width: 100%; position: relative;">
+            <div class="export-dropdown-wrapper" id="exportDropdownWrapper" style="flex: 1; min-width: 0; position: relative;">
               <button id="exportDesensBtn" class="btn primary" style="width: 100%; height: 32px; font-size: 12px; font-weight: 500; display: inline-flex; align-items: center; justify-content: center; gap: 4px;" title="导出脱敏后的文档">
                 <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path><path d="m9 12 2 2 4-4"></path></svg>
                 <span>脱敏导出 ▼</span>
@@ -681,12 +686,6 @@
               </div>
             </div>
           </div>
-
-          <!-- 返回提取规则面板快捷按钮 -->
-          <button type="button" id="backToRulesBtn" class="btn" title="返回调整待提取的规则与字段">
-            <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"></path></svg>
-            <span>返回提取规则面板</span>
-          </button>
         </div>
       </div>
     </aside>
@@ -696,6 +695,13 @@
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-box" style="width: 660px; max-width: 95%; height: 500px; max-height: 86vh; display: flex; flex-direction: column; box-sizing: border-box;">
       <div class="modal-header" style="margin-bottom: 12px; flex-shrink: 0; position: relative; display: flex; align-items: center; justify-content: center;">
+        <!-- 左侧快速入口：打开系统日志目录 -->
+        <div style="position: absolute; left: 0; display: flex; align-items: center;">
+          <button id="openLogsBtn" class="btn sm" title="在系统文件管理器中打开 SensiDoc 日志目录 (含安装日志、主程序日志与模型推理日志)" style="padding: 4px 8px; font-size: 12px; display: inline-flex; align-items: center; gap: 4px;">
+            <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+            <span>日志</span>
+          </button>
+        </div>
         <!-- 设置子板块切换选项卡 (居中展示) -->
         <div class="settings-tab-nav">
           <button class="settings-tab-btn active" id="tabSetModelBtn">
@@ -715,7 +721,10 @@
             <span>外观显示</span>
           </button>
         </div>
-        <button id="closeModalBtn" class="btn sm" style="position: absolute; right: 0;">关闭</button>
+        <!-- 右侧操作栏：关闭按钮 -->
+        <div style="position: absolute; right: 0; display: flex; align-items: center;">
+          <button id="closeModalBtn" class="btn sm">关闭</button>
+        </div>
       </div>
 
       <!-- 板块 1: 离线模型管理 (方案一：独立模型卡片与依赖树) -->
@@ -883,7 +892,7 @@
               <div>
                 <span class="model-dep-branch">├── </span>
                 <span class="model-dep-label">文本识别: </span>
-                <span class="model-dep-sub">PP-OCRv6_rec_medium.onnx (76.6 MB)</span>
+                <span class="model-dep-sub">PP-OCRv6_rec_small.onnx (21.2 MB)</span>
               </div>
               <span class="dep-status-tag pending" id="ocrRecStatusTag">检测中...</span>
             </div>
@@ -1366,12 +1375,18 @@
         </div>
         <h3 id="confirmModalTitle" style="font-size: 15px; font-weight: 600; color: var(--text); margin: 0;">确认操作</h3>
       </div>
-      <div id="confirmModalMessage" style="font-size: 12.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 20px; word-break: break-word;">
+      <div id="confirmModalMessage" style="font-size: 12.5px; color: var(--text-dim); line-height: 1.6; margin-bottom: 20px; word-break: break-word; white-space: pre-wrap; max-height: 280px; overflow-y: auto;">
         确定要执行此操作吗？
       </div>
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button id="confirmModalCancelBtn" class="btn sm" style="min-width: 68px;">取消</button>
-        <button id="confirmModalOkBtn" class="btn sm danger" style="min-width: 68px;">确认删除</button>
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <button id="confirmModalOpenLogBtn" class="btn sm secondary" style="display: none; font-size: 11.5px; padding: 4px 8px; align-items: center; gap: 4px;">
+          <svg class="lucide-icon xs" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" x2="8" y1="13" y2="13"></line><line x1="16" x2="8" y1="17" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+          <span>查看详细日志</span>
+        </button>
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-left: auto;">
+          <button id="confirmModalCancelBtn" class="btn sm" style="min-width: 68px;">取消</button>
+          <button id="confirmModalOkBtn" class="btn sm danger" style="min-width: 68px;">确认删除</button>
+        </div>
       </div>
     </div>
   </div>

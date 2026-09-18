@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: '发布版本号 (例如 v1.4.1)'
+        description: '发布版本号 (例如 v1.4.2)'
         required: false
         default: ''
 
@@ -40,7 +40,7 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             RAW_VER="${GITHUB_REF#refs/tags/}"
           else
-            RAW_VER="v1.4.1"
+            RAW_VER="v1.4.2"
           fi
           VER="${RAW_VER#v}"
           echo "VERSION=${VER}" >> $GITHUB_OUTPUT
@@ -54,7 +54,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models/ocr
-          key: ocr-models-v1
+          key: ocr-models-v2
 
       - name: Download OCR Models for Full Offline Edition
         if: steps.cache-ocr-models.outputs.cache-hit != 'true'
@@ -109,7 +109,7 @@ jobs:
           elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
             RAW_VER="${GITHUB_REF#refs/tags/}"
           else
-            RAW_VER="v1.4.1"
+            RAW_VER="v1.4.2"
           fi
           VER="${RAW_VER#v}"
           echo "VERSION=${VER}" >> $GITHUB_OUTPUT
@@ -124,7 +124,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: models/ocr
-          key: ocr-models-v1
+          key: ocr-models-v2
 
       - name: Download OCR Models for Full Offline Edition
         if: steps.cache-ocr-models-win.outputs.cache-hit != 'true'

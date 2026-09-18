@@ -73,9 +73,9 @@ pub const OCR_DOWNLOAD_SPECS: [OcrDownloadFileSpec; 4] = [
     },
     OcrDownloadFileSpec {
         filename: crate::paths::OCR_REC_FILENAME,
-        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_medium.onnx",
-        expected_size: 76_629_984,
-        sha256: "eef444829dbbe18d7fea59a3f6eb75647518d2b3a9568d27c92e42940204894b",
+        download_url: "https://modelscope.cn/models/RapidAI/RapidOCR/resolve/7d0781614ca1a83d5ad9603f713acb2e74855d72/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx",
+        expected_size: 21_234_383,
+        sha256: "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
     },
     OcrDownloadFileSpec {
         filename: crate::paths::OCR_TABLE_FILENAME,
@@ -312,8 +312,11 @@ impl ModelManager {
         #[cfg(target_os = "macos")]
         {
             let script = r#"try
-  set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)" of type {"gguf", "public.data"}
-  return POSIX path of selectedFile
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)" of type {"gguf", "public.data"}
+    return POSIX path of selectedFile
+  end tell
 on error number -128
   return ""
 end try"#;
@@ -334,17 +337,20 @@ end try"#;
             } else {
                 // 降级无 type 过滤唤起
                 let script_fallback = r#"try
-  set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)"
-  return POSIX path of selectedFile
+  tell application (path to frontmost application as text)
+    activate
+    set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)"
+    return POSIX path of selectedFile
+  end tell
 on error number -128
   return ""
 end try"#;
                 let fb_output = tokio::process::Command::new("osascript")
-                    .arg("-e")
-                    .arg(script_fallback)
-                    .output()
-                    .await
-                    .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
+                .arg("-e")
+                .arg(script_fallback)
+                .output()
+                .await
+                .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
                 if fb_output.status.success() {
                     let path_str = String::from_utf8_lossy(&fb_output.stdout).trim().to_string();
                     if path_str.is_empty() {
@@ -353,7 +359,31 @@ end try"#;
                         Ok(Some(path_str))
                     }
                 } else {
-                    Ok(None)
+                    let script_final = r#"try
+  activate me
+  set selectedFile to choose file with prompt "请选择本地 GGUF 模型文件 (.gguf)"
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#;
+                    if let Ok(final_out) = tokio::process::Command::new("osascript")
+                        .arg("-e")
+                        .arg(script_final)
+                        .output()
+                        .await
+                    {
+                        if final_out.status.success() {
+                            let path_str = String::from_utf8_lossy(&final_out.stdout).trim().to_string();
+                            if path_str.is_empty() {
+                                return Ok(None);
+                            } else {
+                                return Ok(Some(path_str));
+                            }
+                        }
+                    }
+                    let stderr = String::from_utf8_lossy(&fb_output.stderr);
+                    tracing::error!("原生模型选择器唤起失败: {}", stderr);
+                    Err(format!("无法唤起原生文件选择器: {stderr}"))
                 }
             }
         }
@@ -579,8 +609,28 @@ end try"#;
             cmd.arg("--reasoning").arg("off");
         }
 
-        cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        // 将 llama-server 子进程的 stdout 与 stderr 重定向持久化至专用日志文件 (llama-server.log)
+        let log_file_path = crate::paths::get_llama_log_path();
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_path) {
+            use std::io::Write;
+            let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let _ = writeln!(f, "\n------------------------------------------------------------");
+            let _ = writeln!(f, "[SensiDoc] 启动本地推理服务: {timestamp}");
+            let _ = writeln!(f, "[SensiDoc] 二进制路径: {:?}", self.llama_bin_path);
+            let _ = writeln!(f, "[SensiDoc] 运行模型: {model_filename}");
+            let _ = writeln!(f, "[SensiDoc] 服务端口: {}", self.server_port);
+            let _ = writeln!(f, "------------------------------------------------------------");
+        }
+
+        let out_file = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_path);
+        let err_file = std::fs::OpenOptions::new().create(true).append(true).open(&log_file_path);
+        if let (Ok(out), Ok(err)) = (out_file, err_file) {
+            cmd.stdout(Stdio::from(out));
+            cmd.stderr(Stdio::from(err));
+        } else {
+            cmd.stdout(Stdio::piped());
+            cmd.stderr(Stdio::piped());
+        }
 
         // macOS 动态链接库环境变量绑定
         let lib_dir = crate::paths::get_lib_dir();
@@ -605,7 +655,6 @@ end try"#;
             .spawn()
             .map_err(|e| format!("拉起 llama-server 子进程失败: {e}"))?;
 
-
         {
             let mut guard = self.active_child.lock().await;
             *guard = Some(child);
@@ -615,27 +664,55 @@ end try"#;
             *guard = Some(model_filename.to_string());
         }
 
-        // 健康检查探测服务端口就绪
+        // 健康检查探测服务端口就绪 (智能监测崩溃并即时报错)
         self.wait_for_server_ready().await?;
         info!("llama-server 已成功启动并在端口 {} 就绪！", self.server_port);
 
         Ok(())
     }
 
-    /// 等待服务探测就绪（最多 25 秒重试）
+    /// 等待服务探测就绪（最多 25 秒重试），智能监测子进程退出并提取实时错误日志
     async fn wait_for_server_ready(&self) -> Result<(), String> {
         let client = reqwest::Client::new();
         let health_url = format!("http://127.0.0.1:{}/health", self.server_port);
+        let log_path = crate::paths::get_llama_log_path();
 
         for _ in 0..50 {
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+            // 1. 优先探测子进程是否已提前异常退出，避免盲目干等超时
+            {
+                let mut guard = self.active_child.lock().await;
+                if let Some(ref mut child) = *guard {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            let recent_log = crate::paths::read_recent_log_snippet(&log_path, 10);
+                            return Err(format!(
+                                "llama-server 子进程异常退出 ({status})。\n日志路径: {}\n\n最近报错:\n{recent_log}",
+                                log_path.display()
+                            ));
+                        }
+                        Ok(None) => {}
+                        Err(e) => {
+                            warn!("探测 llama-server 进程状态异常: {e}");
+                        }
+                    }
+                }
+            }
+
+            // 2. 探测健康检查接口
             if let Ok(resp) = client.get(&health_url).send().await {
                 if resp.status().is_success() {
                     return Ok(());
                 }
             }
         }
-        Err("llama-server 启动超时或健康检查未通过".to_string())
+
+        let recent_log = crate::paths::read_recent_log_snippet(&log_path, 10);
+        Err(format!(
+            "llama-server 启动超时（健康检查未通过）。\n日志路径: {}\n\n最近日志:\n{recent_log}",
+            log_path.display()
+        ))
     }
 
     /// 从魔搭（ModelScope）下载预设模型，支持多文件（主模型+视觉塔）两阶段下载、断点续传与实时进度广播
@@ -904,7 +981,7 @@ end try"#;
         was_active
     }
 
-    /// 下载全套纸质单据与表格 OCR 模型组件 (包含 PP-OCRv6_det_small, PP-OCRv6_rec_medium, slanet-plus, 字典)
+    /// 下载全套纸质单据与表格 OCR 模型组件 (包含 PP-OCRv6_det_small, PP-OCRv6_rec_small, slanet-plus, 字典)
     pub async fn download_ocr_bundle(&self) -> Result<(), String> {
         let ocr_dir = crate::paths::get_user_ocr_models_dir();
         let total_bundle_size = get_ocr_total_expected_bytes();
@@ -1294,8 +1371,8 @@ mod tests {
     fn test_ocr_bundle_metadata() {
         assert_eq!(OCR_DOWNLOAD_SPECS.len(), 4);
         let total_bytes = get_ocr_total_expected_bytes();
-        // 4 个文件总大小应在 85MB ~ 105MB 之间 (采用 rec_medium 约 94.4MB)
-        assert!(total_bytes > 85 * 1024 * 1024 && total_bytes < 105 * 1024 * 1024);
+        // 4 个文件总大小应在 35MB ~ 45MB 之间 (采用 rec_small 约 39MB，大幅轻量化)
+        assert!(total_bytes > 35 * 1024 * 1024 && total_bytes < 45 * 1024 * 1024);
     }
 
     #[tokio::test]

@@ -6,7 +6,7 @@
 param(
     [ValidateSet("x86_64", "arm64")]
     [string]$Arch = "x86_64",
-    [string]$Version = "b4600",
+    [string]$Version = "b11026",
     [string]$Mirror = ""
 )
 
@@ -21,15 +21,18 @@ Write-Host "   目标架构: $Arch | 构建版本: $Version" -ForegroundColor Cy
 Write-Host "   目标目录: $TargetDir" -ForegroundColor Cyan
 Write-Host "========================================================" -ForegroundColor Cyan
 
-# 1. 确定目标文件名与候选 URL
+# 1. 确定目标文件名与候选 URL (适配 llama.cpp 最新命名规则与历史规则)
 $candidateFiles = @()
 if ($Arch -eq "x86_64") {
     $candidateFiles = @(
+        "llama-${Version}-bin-win-cpu-x64.zip",
         "llama-${Version}-bin-win-avx2-x64.zip",
         "llama-${Version}-bin-win-x64.zip"
     )
 } else {
     $candidateFiles = @(
+        "llama-${Version}-bin-win-cpu-arm64.zip",
+        "llama-${Version}-bin-win-opencl-adreno-arm64.zip",
         "llama-${Version}-bin-win-arm64.zip",
         "llama-${Version}-bin-win-llvm-arm64.zip"
     )
