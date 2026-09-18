@@ -80,6 +80,55 @@ function showToast(message, type = "info") {
 }
 const showNotification = showToast;
 
+function showToastWithAction(message, actionLabel, onAction, type = "error") {
+  const host = document.querySelector(".preview-container") || document.body;
+  let toastContainer = document.getElementById("globalToastContainer");
+  if (!toastContainer || toastContainer.parentElement !== host) {
+    if (toastContainer) toastContainer.remove();
+    toastContainer = document.createElement("div");
+    toastContainer.id = "globalToastContainer";
+    toastContainer.className = "global-toast-container";
+    host.appendChild(toastContainer);
+  }
+
+  const toast = document.createElement("div");
+  toast.className = `global-toast toast-${type}`;
+  toast.style.display = "inline-flex";
+  toast.style.alignItems = "center";
+  toast.style.gap = "10px";
+
+  const textSpan = document.createElement("span");
+  textSpan.innerText = message;
+  toast.appendChild(textSpan);
+
+  const actionBtn = document.createElement("button");
+  actionBtn.innerText = actionLabel;
+  actionBtn.style.cssText = "background: rgba(255,255,255,0.22); border: 1px solid rgba(255,255,255,0.45); color: #fff; padding: 2px 9px; border-radius: 4px; font-size: 11.5px; cursor: pointer; font-weight: 500; transition: background 0.15s ease;";
+  actionBtn.addEventListener("mouseenter", () => {
+    actionBtn.style.background = "rgba(255,255,255,0.35)";
+  });
+  actionBtn.addEventListener("mouseleave", () => {
+    actionBtn.style.background = "rgba(255,255,255,0.22)";
+  });
+  actionBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toast.remove();
+    if (typeof onAction === "function") onAction();
+  });
+  toast.appendChild(actionBtn);
+
+  toastContainer.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.classList.add("show");
+  });
+
+  setTimeout(() => {
+    toast.classList.remove("show");
+    setTimeout(() => toast.remove(), 220);
+  }, 6000);
+}
+
 // AI 提炼规则模式：append (追加，默认) 或 overwrite (覆盖)
 let aiGenRulesMode = "append";
 
@@ -1138,7 +1187,13 @@ async function triggerBaseOcrRerun(doc) {
     showNotification(data.message || "基础 OCR 识别完毕", "success");
   } catch (err) {
     console.error("基础 OCR 重新识别失败:", err);
-    showNotification(`基础 OCR 识别失败: ${err.message}`, "error");
+    if (err.message && (err.message.includes("原始文件不存在") || err.message.includes("本地暂存缓存已丢失"))) {
+      showToastWithAction("单据原图缺失，请重新关联本地源文件", "重新关联文件", () => {
+        relinkDocumentFile(doc.id);
+      }, "error");
+    } else {
+      showNotification(`基础 OCR 识别失败: ${err.message}`, "error");
+    }
     renderMarkdownWithHighlights(
       doc.markdown,
       state.currentSnapshot ? state.currentSnapshot.items : []
@@ -1568,7 +1623,13 @@ async function triggerFastVlmReview(doc) {
     showToast(data.message || "快速 VLM 复核完毕", "success");
   } catch (err) {
     console.error("快速 VLM 复核失败:", err);
-    showToast(`快速 VLM 复核失败: ${err.message}`, "error");
+    if (err.message && (err.message.includes("原始文件不存在") || err.message.includes("本地暂存缓存已丢失"))) {
+      showToastWithAction("单据原图缺失，请重新关联本地源文件", "重新关联文件", () => {
+        relinkDocumentFile(doc.id);
+      }, "error");
+    } else {
+      showToast(`快速 VLM 复核失败: ${err.message}`, "error");
+    }
     renderMarkdownWithHighlights(
       doc.markdown,
       state.currentSnapshot ? state.currentSnapshot.items : []
@@ -1720,7 +1781,13 @@ async function triggerFullVlmReview(doc) {
       }
     } catch (_) {}
 
-    showNotification(errMsg, "error");
+    if (errMsg.includes("原始文件不存在") || errMsg.includes("本地暂存缓存已丢失")) {
+      showToastWithAction("单据原图缺失，请重新关联本地源文件", "重新关联文件", () => {
+        relinkDocumentFile(doc.id);
+      }, "error");
+    } else {
+      showNotification(errMsg, "error");
+    }
     renderMarkdownWithHighlights(
       doc.markdown,
       state.currentSnapshot ? state.currentSnapshot.items : []
@@ -2545,6 +2612,10 @@ function initEventListeners() {
       e.preventDefault();
       sidebarDragCounter = 0;
       el.sidebar.classList.remove("dragover");
+      // 桌面原生客户端环境下，系统级拖拽已由 Wry 原生拦截并通过 __handleNativeFilesDrop 携带物理绝对路径导入
+      if (window.__SENSIDOC_DESKTOP__) {
+        return;
+      }
       if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         handleFilesUpload(e.dataTransfer.files);
       }
@@ -3394,6 +3465,93 @@ function copyDocumentPath(doc) {
   }
 }
 
+// 重新关联/补齐文档本地源文件与底图缓存
+async function relinkDocumentFile(docId) {
+  const doc = (state.documents || []).find((d) => d.id === docId);
+  if (!doc) return;
+
+  // 1. 若处于桌面端环境，优先唤起操作系统原生单选文件对话框
+  if (window.__SENSIDOC_DESKTOP__) {
+    try {
+      showToast(`正在唤起原生文件选择器...`, "info");
+      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}/pick-and-relink`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "重新关联文件失败");
+      }
+      if (data.canceled) {
+        return;
+      }
+      if (data.doc) {
+        Object.assign(doc, data.doc);
+      } else if (data.source_path) {
+        doc.source_path = data.source_path;
+      }
+      onDocumentRelinked(doc);
+      showToast(`已成功重新关联源文件: ${doc.filename}`, "success");
+      return;
+    } catch (err) {
+      console.warn("原生重新关联失败，尝试降级为网页文件选择:", err);
+    }
+  }
+
+  // 2. 纯网页端环境或桌面原生调用降级：动态创建隐藏 input 上传补齐
+  let fileInput = document.getElementById("relinkFileInput");
+  if (!fileInput) {
+    fileInput = document.createElement("input");
+    fileInput.type = "file";
+    fileInput.id = "relinkFileInput";
+    fileInput.style.display = "none";
+    fileInput.accept = ".pdf,.docx,.doc,.xlsx,.xls,.pptx,.txt,.md,.csv,.png,.jpg,.jpeg,.bmp,.webp";
+    document.body.appendChild(fileInput);
+  }
+
+  fileInput.value = "";
+  fileInput.onchange = async () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (file.path) {
+      formData.append("source_path", file.path);
+    }
+
+    try {
+      showToast(`正在补齐底图并重新关联...`, "info");
+      const res = await fetch(`/api/documents/${encodeURIComponent(docId)}/relink`, {
+        method: "POST",
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "重新关联失败");
+      }
+      if (data.doc) {
+        Object.assign(doc, data.doc);
+      }
+      onDocumentRelinked(doc);
+      showToast(`已成功重新关联源文件: ${file.name}`, "success");
+    } catch (err) {
+      showToast(`关联失败: ${err.message}`, "error");
+    }
+  };
+
+  fileInput.click();
+}
+
+function onDocumentRelinked(doc) {
+  renderFileList();
+  if (state.currentDocId === doc.id) {
+    const imgUrl = `/api/documents/${doc.id}/file?t=${Date.now()}`;
+    if (el.rawOriginalImg) el.rawOriginalImg.src = imgUrl;
+    if (el.curtainOriginalImg) el.curtainOriginalImg.src = imgUrl;
+    updateViewModeForDocument(doc);
+  }
+}
+
 // 显示文档列表项右键上下文菜单
 function showDocContextMenu(e, doc) {
   let menu = document.getElementById("docContextMenu");
@@ -3424,9 +3582,13 @@ function showDocContextMenu(e, doc) {
       <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
       <span>${revealLabel}</span>
     </div>
-    <div class="context-menu-item ${hasSource ? "" : "disabled"}" data-action="copy-path" title="${hasSource ? doc.source_path : "网页临时上传文档，无本地源物理路径"}">
+    <div class="context-menu-item ${hasSource ? "" : "disabled"}" data-action="copy-path" title="${hasSource ? doc.source_path : "网页临时上传文档，未记录本地物理路径"}">
       <svg class="lucide-icon sm" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>
       <span>复制源文件路径</span>
+    </div>
+    <div class="context-menu-item" data-action="relink" title="重新选择或上传本地源文件，恢复或替换底图">
+      <svg class="lucide-icon sm" viewBox="0 0 24 24"><path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48"></path></svg>
+      <span>重新关联源文件...</span>
     </div>
     <div class="context-menu-divider"></div>
     <div class="context-menu-item danger" data-action="delete">
@@ -3446,6 +3608,8 @@ function showDocContextMenu(e, doc) {
         await revealDocumentFile(doc.id);
       } else if (action === "copy-path") {
         copyDocumentPath(doc);
+      } else if (action === "relink") {
+        await relinkDocumentFile(doc.id);
       } else if (action === "delete") {
         const confirmed = await showConfirmDialog({
           title: "删除文档",

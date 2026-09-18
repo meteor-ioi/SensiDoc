@@ -187,6 +187,9 @@ async fn run_server_mode(
         .route("/api/documents/import-paths", post(import_paths_handler))
         .route("/api/documents/{id}", get(get_document).delete(delete_document))
         .route("/api/documents/{id}/file", get(get_document_file))
+        .route("/api/documents/{id}/file-status", get(get_document_file_status))
+        .route("/api/documents/{id}/pick-and-relink", post(pick_and_relink_document).get(pick_and_relink_document))
+        .route("/api/documents/{id}/relink", post(relink_document_handler))
         .route("/api/documents/{id}/open", post(open_document_handler))
         .route("/api/documents/{id}/reveal", post(reveal_document_handler))
         .route("/api/documents/{id}/desensitize", post(desensitize_document).get(desensitize_document))
@@ -724,6 +727,105 @@ end try"#;
     }
 }
 
+/// 唤起操作系统原生单文件选择器，用于重新关联单个文档源文件
+pub async fn pick_single_document_dialog(prompt_text: &str) -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        let escaped_prompt = prompt_text.replace('"', "\\\"");
+        let script = format!(
+            r#"try
+  set selectedFile to choose file with prompt "{escaped_prompt}" of type {{"pdf", "docx", "doc", "xlsx", "xls", "pptx", "txt", "md", "csv", "png", "jpg", "jpeg", "bmp", "webp", "public.data"}}
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#
+        );
+        let output = tokio::process::Command::new("osascript")
+            .arg("-e")
+            .arg(&script)
+            .output()
+            .await
+            .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
+
+        if output.status.success() {
+            let out_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if out_str.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(out_str))
+            }
+        } else {
+            // 降级无类型过滤唤起
+            let script_fallback = format!(
+                r#"try
+  set selectedFile to choose file with prompt "{escaped_prompt}"
+  return POSIX path of selectedFile
+on error number -128
+  return ""
+end try"#
+            );
+            let fb_output = tokio::process::Command::new("osascript")
+                .arg("-e")
+                .arg(&script_fallback)
+                .output()
+                .await
+                .map_err(|e| format!("无法唤起原生文件选择器: {e}"))?;
+            if fb_output.status.success() {
+                let out_str = String::from_utf8_lossy(&fb_output.stdout).trim().to_string();
+                if out_str.is_empty() {
+                    Ok(None)
+                } else {
+                    Ok(Some(out_str))
+                }
+            } else {
+                Ok(None)
+            }
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        let escaped_prompt = prompt_text.replace('\'', "''");
+        let script = format!(
+            r#"[System.Reflection.Assembly]::LoadWithPartialName('System.Windows.Forms') | Out-Null; $f = New-Object System.Windows.Forms.OpenFileDialog; $f.Multiselect = $false; $f.Filter = '所有支持文档 (*.pdf;*.docx;*.doc;*.xlsx;*.xls;*.pptx;*.txt;*.md;*.csv;*.png;*.jpg;*.jpeg;*.bmp;*.webp)|*.pdf;*.docx;*.doc;*.xlsx;*.xls;*.pptx;*.txt;*.md;*.csv;*.png;*.jpg;*.jpeg;*.bmp;*.webp|所有文件 (*.*)|*.*'; $f.Title = '{escaped_prompt}'; if ($f.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) {{ Write-Output $f.FileName }}"#
+        );
+        let output = tokio::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+            .output()
+            .await
+            .map_err(|e| format!("无法唤起 Windows 文件选择器: {e}"))?;
+
+        if output.status.success() {
+            let out_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if out_str.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(out_str))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        if let Ok(output) = tokio::process::Command::new("zenity")
+            .args(["--file-selection", &format!("--title={prompt_text}")])
+            .output()
+            .await
+        {
+            if output.status.success() {
+                let out_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if out_str.is_empty() {
+                    return Ok(None);
+                }
+                return Ok(Some(out_str));
+            }
+        }
+        Ok(None)
+    }
+}
+
 /// 批量按本地物理绝对路径导入文档并保留 source_path
 async fn import_paths_handler(
     State(state): State<AppState>,
@@ -1124,6 +1226,186 @@ async fn get_document_file(
     ];
 
     Ok((headers, bytes))
+}
+
+/// 查询单据底图与物理源文件完整状态
+async fn get_document_file_status(
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let doc = match state.session_mgr.get_document(&doc_id).await {
+        Some(d) => d,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "文档未找到".into(),
+                }),
+            ));
+        }
+    };
+
+    let has_original = doc.has_original_file();
+    let source_path_exists = doc
+        .source_path
+        .as_ref()
+        .map(|sp| std::path::Path::new(sp).is_file())
+        .unwrap_or(false);
+    let upload_path = paths::get_uploads_dir().join(format!("{doc_id}.bin"));
+    let cache_exists = upload_path.is_file();
+
+    Ok(Json(serde_json::json!({
+        "doc_id": doc.id,
+        "filename": doc.filename,
+        "has_original_file": has_original,
+        "source_path": doc.source_path,
+        "source_path_exists": source_path_exists,
+        "cache_exists": cache_exists
+    })))
+}
+
+/// 唤起操作系统原生单选文件对话框，为指定文档重新关联本地物理文件并刷新底图
+async fn pick_and_relink_document(
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let doc = match state.session_mgr.get_document(&doc_id).await {
+        Some(d) => d,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "文档未找到".into(),
+                }),
+            ));
+        }
+    };
+
+    let prompt = format!("请为「{}」重新选择本地源文件", doc.filename);
+    match pick_single_document_dialog(&prompt).await {
+        Ok(Some(path_str)) => {
+            let p = std::path::Path::new(&path_str);
+            if !p.is_file() {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("所选文件不存在或无法访问: {path_str}"),
+                    }),
+                ));
+            }
+
+            let file_bytes = match tokio::fs::read(p).await {
+                Ok(b) => b,
+                Err(e) => {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("读取所选源文件失败: {e}"),
+                        }),
+                    ));
+                }
+            };
+
+            match state
+                .session_mgr
+                .relink_document_source(&doc_id, Some(path_str.clone()), file_bytes)
+                .await
+            {
+                Ok(updated_doc) => Ok(Json(serde_json::json!({
+                    "status": "success",
+                    "canceled": false,
+                    "source_path": path_str,
+                    "doc": updated_doc
+                }))),
+                Err(e) => Err((
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse { error: e }),
+                )),
+            }
+        }
+        Ok(None) => Ok(Json(serde_json::json!({
+            "status": "canceled",
+            "canceled": true
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
+    }
+}
+
+/// 接收指定源路径或上传的文件字节，为文档重新关联/补齐底图
+async fn relink_document_handler(
+    State(state): State<AppState>,
+    AxumPath(doc_id): AxumPath<String>,
+    mut multipart: axum::extract::Multipart,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let _doc = match state.session_mgr.get_document(&doc_id).await {
+        Some(d) => d,
+        None => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "文档未找到".into(),
+                }),
+            ));
+        }
+    };
+
+    let mut source_path: Option<String> = None;
+    let mut file_bytes = Vec::new();
+
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or_default().to_string();
+        if name == "file" {
+            if let Ok(b) = field.bytes().await {
+                file_bytes = b.to_vec();
+            }
+        } else if name == "source_path" {
+            if let Ok(t) = field.text().await {
+                let s = t.trim().to_string();
+                if !s.is_empty() {
+                    source_path = Some(s);
+                }
+            }
+        }
+    }
+
+    if file_bytes.is_empty() {
+        if let Some(ref sp) = source_path {
+            let p = std::path::Path::new(sp);
+            if p.is_file() {
+                if let Ok(b) = tokio::fs::read(p).await {
+                    file_bytes = b;
+                }
+            }
+        }
+    }
+
+    if file_bytes.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "未提供有效的文件内容或可读取的源路径".into(),
+            }),
+        ));
+    }
+
+    match state
+        .session_mgr
+        .relink_document_source(&doc_id, source_path.clone(), file_bytes)
+        .await
+    {
+        Ok(updated_doc) => Ok(Json(serde_json::json!({
+            "status": "success",
+            "source_path": source_path,
+            "doc": updated_doc
+        }))),
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: e }),
+        )),
+    }
 }
 
 #[derive(Deserialize, Default)]

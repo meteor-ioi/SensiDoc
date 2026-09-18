@@ -135,6 +135,17 @@ impl DocumentItem {
             Err(format!("原始文件不存在，本地暂存缓存已丢失 ({})", upload_path.display()))
         }
     }
+
+    /// 快速检查文档底图或物理源文件是否存在
+    pub fn has_original_file(&self) -> bool {
+        if let Some(ref sp) = self.source_path {
+            if std::path::Path::new(sp).is_file() {
+                return true;
+            }
+        }
+        let upload_path = crate::paths::get_uploads_dir().join(format!("{}.bin", self.id));
+        upload_path.is_file()
+    }
 }
 
 fn default_created_at() -> DateTime<Utc> {
@@ -752,6 +763,39 @@ impl SessionManager {
         }
         drop(map);
         self.save_to_disk().await;
+    }
+
+    /// 为指定文档重新关联本地物理源文件并重写底图缓存
+    pub async fn relink_document_source(
+        &self,
+        doc_id: &str,
+        source_path: Option<String>,
+        file_bytes: Vec<u8>,
+    ) -> Result<DocumentItem, String> {
+        // 1. 写入 uploads/{id}.bin 物理镜像
+        let upload_path = crate::paths::get_uploads_dir().join(format!("{doc_id}.bin"));
+        tokio::fs::write(&upload_path, &file_bytes)
+            .await
+            .map_err(|e| format!("写入缓存文件失败 ({}): {e}", upload_path.display()))?;
+
+        // 2. 更新内存文档状态并写回工作区 JSON
+        let mut map = self.documents.write().await;
+        if let Some(doc) = map.get_mut(doc_id) {
+            if let Some(ref sp) = source_path {
+                doc.source_path = Some(sp.clone());
+            }
+            // 若为图像文件，自动解析并刷新宽高尺寸
+            if let Ok(img) = image::load_from_memory(&file_bytes) {
+                doc.image_width = Some(img.width());
+                doc.image_height = Some(img.height());
+            }
+            let updated = doc.clone();
+            drop(map);
+            self.save_to_disk().await;
+            Ok(updated)
+        } else {
+            Err("文档不存在".to_string())
+        }
     }
 
     /// 获取所有文档列表摘要（默认按创建/添加时间先后正序排列）
