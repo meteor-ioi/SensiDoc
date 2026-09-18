@@ -16,18 +16,8 @@ permissions:
 
 jobs:
   build-macos:
-    name: Build macOS App (${{ matrix.arch }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            arch: arm64
-            os: macos-latest
-          - target: x86_64-apple-darwin
-            arch: x86_64
-            os: macos-13
+    name: Build macOS App (Apple Silicon arm64)
+    runs-on: macos-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -35,12 +25,12 @@ jobs:
       - name: Setup Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: aarch64-apple-darwin
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
         with:
-          key: macos-${{ matrix.arch }}
+          key: macos-arm64
 
       - name: Determine Version
         id: get_version
@@ -57,7 +47,6 @@ jobs:
           echo "TAG_NAME=v${VER}" >> $GITHUB_OUTPUT
 
       - name: Run Tests
-        if: matrix.arch == 'arm64'
         run: cargo test --verbose
 
       - name: Cache OCR Models
@@ -73,17 +62,17 @@ jobs:
           chmod +x scripts/download_ocr_models.sh
           ./scripts/download_ocr_models.sh
 
-      - name: Package macOS DMG (Standard & Full for ${{ matrix.arch }})
+      - name: Package macOS DMG (Standard & Full for arm64)
         env:
           APP_VERSION: ${{ steps.get_version.outputs.VERSION }}
         run: |
           chmod +x scripts/build_mac_app.sh
-          ./scripts/build_mac_app.sh "v${{ steps.get_version.outputs.VERSION }}" "${{ matrix.arch }}"
+          ./scripts/build_mac_app.sh "v${{ steps.get_version.outputs.VERSION }}" "arm64"
 
       - name: Upload macOS Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-macos-${{ matrix.arch }}
+          name: sensidoc-v${{ steps.get_version.outputs.VERSION }}-macos-arm64
           path: dist/*.dmg
 
   build-windows:
